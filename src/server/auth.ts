@@ -16,60 +16,21 @@
  */
 
 import NextAuth from "next-auth";
-import type { NextAuthConfig } from "next-auth";
 import Google from "next-auth/providers/google";
 import { DrizzleAdapter } from "@auth/drizzle-adapter";
 import { getDb } from "@/db";
 import { users, accounts, sessions, verificationTokens } from "@/db/schema";
+import { authConfig } from "@/server/auth-config";
 
 /**
- * Config ringan — dipakai di middleware (edge runtime).
- * Sengaja TIDAK menyentuh database.
+ * Config ringan diekspor ulang supaya import lama tidak breakage.
+ *
+ * Isinya dipindah ke `auth-config.ts` karena middleware (edge runtime)
+ * ikut memakainya, sementara modul ini meng-import `@/db` yang memakai
+ * `server-only`. Middleware yang menarik `server-only` akan gagal
+ * dibuild dan Next.js hanya diam-diam menulis `middleware: {}`.
  */
-export const authConfig = {
-  trustHost: true,
-  pages: {
-    signIn: "/login",
-    error: "/login",
-  },
-  /** Provider asli hanya di instance NextAuth() yang lazy. */
-  providers: [],
-  callbacks: {
-    /**
-     * Dipakai middleware untuk melindungi route.
-     * Sengaja ringan — JANGAN query database di sini.
-     */
-    authorized({ auth, request: { nextUrl } }) {
-      const isLoggedIn = !!auth?.user;
-      const isOnLogin = nextUrl.pathname.startsWith("/login");
-
-      if (isOnLogin) {
-        // Sudah login tidak perlu lihat halaman login lagi
-        if (isLoggedIn) {
-          return Response.redirect(new URL("/", nextUrl));
-        }
-        return true;
-      }
-
-      // Area yang butuh login
-      const protectedArea =
-        nextUrl.pathname.startsWith("/dashboard") ||
-        nextUrl.pathname.startsWith("/absensi") ||
-        nextUrl.pathname.startsWith("/api");
-
-      if (protectedArea && !isLoggedIn) {
-        const loginUrl = new URL("/login", nextUrl);
-        loginUrl.searchParams.set(
-          "callbackUrl",
-          nextUrl.pathname + nextUrl.search,
-        );
-        return Response.redirect(loginUrl);
-      }
-
-      return true;
-    },
-  },
-} satisfies NextAuthConfig;
+export { authConfig };
 
 type AuthInstance = ReturnType<typeof buildInstance>;
 

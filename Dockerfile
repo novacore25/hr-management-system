@@ -36,6 +36,20 @@ COPY public ./public
 RUN --mount=type=cache,target=/app/.next/cache \
     NEXT_TELEMETRY_DISABLED=1 npm run build
 
+# Fail cepat kalau middleware hilang, jangan sampai diam-diam.
+#
+# Next.js TIDAK error kalau middleware tidak ter-build. Dia hanya menulis
+# `middleware: {}` ke middleware-manifest.json, jadi proteksi route di
+# level halaman hilang tanpa jejak di log build. Guard ini yang membuat
+# masalah itu ketahuan.
+#
+# Dua penyebab yang sudah pernah kejadian di repo ini:
+#   1. File di root. Project memakai direktori src/, jadi Next.js
+#      mencarinya di src/middleware.ts dan mengabaikan root.
+#   2. Rantai import menyentuh database. Middleware = edge bundle,
+#      jadi menarik server-only / pg membuatnya gagal dibuild.
+RUN node -e 'var m=require("/app/.next/server/middleware-manifest.json");var n=Object.keys(m.middleware||{}).length;if(n===0){console.error("FATAL: middleware tidak ter-build.");console.error("Cek 1: file harus di src/middleware.ts, bukan root (project pakai direktori src/).");console.error("Cek 2: import middleware jangan menarik server-only atau pg (middleware = edge bundle).");process.exit(1)}console.log("OK: middleware ter-build ->",Object.keys(m.middleware).join(", "));'
+
 # ===================== STAGE 2: RUNTIME ========================
 FROM node:22-alpine AS runner
 
