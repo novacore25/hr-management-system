@@ -71,22 +71,30 @@ function buildInstance() {
         clientSecret: process.env.AUTH_GOOGLE_SECRET ?? "",
       }),
     ],
-    session: {
-      // Pakai database session (bukan JWT) supaya role bisa dicek
-      // di server tanpa decode token.
-      strategy: "database",
-      maxAge: 60 * 60 * 12, // 12 jam
-      updateAge: 60 * 30, // refresh tiap 30 menit
-    },
+    // Sengaja TIDAK menimpa `session` di sini.
+    //
+    // Strategi sesi dideklarasikan di `auth-config.ts` yang dipakai BERSAMA
+    // oleh middleware. Kalau instance utama memakai strategi berbeda dari
+    // middleware, keduanya menulis cookie dengan nama sama tapi format
+    // berbeda, dan middleware gagal membacanya -> pengguna dianggap belum
+    // login setelah login berhasil -> balik ke /login.
+    //
+    // Lihat komentar panjang di auth-config.ts untuk detail gejalanya.
     callbacks: {
       ...authConfig.callbacks,
       /**
        * Masukkan id user ke session.
        * Dipakai DAL untuk tahu "siapa yang sedang login".
+       *
+       * Dengan strategy JWT, `user` TIDAK tersedia di callback ini —
+       * id diambil dari `token.sub`. (Dengan strategy database, `user`
+       * selalu ada dan `token` selalu undefined. Salah satu dari keduanya
+       * membuat session.user.id kosong, dan DAL akan menganggap request
+       * anonim padahal login-nya valid.)
        */
-      session({ session, user }) {
-        if (session.user && user?.id) {
-          session.user.id = user.id;
+      session({ session, token }) {
+        if (session.user && token.sub) {
+          session.user.id = token.sub;
         }
         return session;
       },

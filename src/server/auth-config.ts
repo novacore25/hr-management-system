@@ -19,13 +19,10 @@ import type { NextAuthConfig } from "next-auth";
  * - middleware-tidak boleh butuh: adapter Drizzle, provider, apa pun
  *   yang menyentuh `pg` / `server-only`
  *
- * Catatan session: instance utama memakai `strategy: "database"`,
- * sedangkan middleware di sini default JWT dan TIDAK punya adapter.
- * Artinya `auth` di middleware praktis selalu null. Itu memang
- * diterima sekarang — middleware hanya berfungsi sebagai gerbang
- * "halaman terlindungi wajib login". Otorisasi per-role tetap
- * dilakukan di DAL (`src/server/dal/guards.ts`), yang jauh lebih
- * tepercaya karena membaca session langsung dari database.
+ * Catatan session: `session.strategy` di file ini WAJIB "jwt" dan
+ * WAJIB sama dengan yang dipakai instance utama di `auth.ts`. Jangan
+ * declares ulang di salah satu sisi — config ini sengaja di-share
+ * justru supaya tidak bisa berbeda. Lihat komentar pada blok `session`.
  *
  * Kalau suatu saat butuh tahu "sudah login atau belum" di middleware
  * dengan benar, jangan add adapter ke sini (middleware jadi berat).
@@ -40,6 +37,36 @@ export const authConfig = {
 
   /** Provider asli hanya di instance NextAuth() yang lazy. */
   providers: [],
+
+  /**
+   * ⚠️ WAJIB ADA DI CONFIG YANG BERSAMA — jangan declares ulang di
+   * `src/server/auth.ts`.
+   *
+   * Middleware dan instance utama menulis ke cookie dengan nama sama
+   * (`authjs.session-token`). Kalau strateginya berbeda, isinya beda
+   * format dan middleware akan gagal membacanya:
+   *
+   *   app = "database"  → cookie berisi token acak opaque
+   *   middleware = JWT  → mencoba JWE-decode token itu
+   *   hasil: JWTSessionError "Invalid Compact JWE" → auth = null
+   *          → middleware thinks you're logged out → bounce ke /login
+   *
+   * Gejalanya persis seperti "klik Masuk, loading sebentar, balik lagi
+   * ke halaman login" padahal OAuth-nya sukses.
+   *
+   * Dan tidak bisa pakai "database": middleware jalan di edge runtime
+   * tanpa adapter maupun koneksi Postgres, jadi mustahil me-resolve
+   * token opaque itu. Satu-satunya opsi yang konsisten adalah JWT untuk
+   * keduanya.
+   *
+   * Konsekuensi JWT: sesi tidak bisa dicabut dari sisi server
+   * (tidak ada "logout semua perangkat" instan). efetivo dikompensasi
+   * dengan maxAge 8 jam, bukan 12.
+   */
+  session: {
+    strategy: "jwt",
+    maxAge: 60 * 60 * 8, // 8 jam
+  },
 
   callbacks: {
     /**
