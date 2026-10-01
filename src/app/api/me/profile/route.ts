@@ -1,25 +1,28 @@
 import { withAuth, requireUser } from "@/server/dal/guards";
 import { db } from "@/db";
 import { eq } from "drizzle-orm";
-import { users } from "@/db/schema";
+import { users, departments } from "@/db/schema";
 import { writeLog } from "@/server/dal/absensi";
 
 export const dynamic = "force-dynamic";
 
 /**
- * GET /api/me — profil user yang login.
- * (Handler GET-nya ada di route.ts yang sama; file ini untuk PATCH.)
+ * Fields profil HR yang boleh diubah user untuk dirinya sendiri.
+ *
+ * Sengaja TIDAK memuat `kpiRole`, `absensiRole`, `absensiStatus`,
+ * `leaveQuota`, `sickQuota`, `isHidden`, `departmentId`, `name`,
+ * `email`, dan `id` — semuanya wewenang admin.
  */
-
-/** Fields yang boleh diubah user untuk dirinya sendiri. */
 const EDITABLE = [
   "position",
-  "phone",
+  "photoUrl",
   "nik",
   "birthPlace",
   "birthDate",
   "gender",
+  "religion",
   "maritalStatus",
+  "phone",
   "address",
   "city",
   "province",
@@ -30,18 +33,78 @@ const EDITABLE = [
   "bankName",
   "bankAccountNumber",
   "bankAccountName",
-  "photoUrl",
 ] as const;
 
-type Editable = (typeof EDITABLE)[number];
+/** Kolom yang boleh dibaca user tentang dirinya sendiri. */
+const PROFILE_COLUMNS = {
+  id: users.id,
+  name: users.name,
+  email: users.email,
+  image: users.image,
+  photoUrl: users.photoUrl,
+  position: users.position,
+  kpiRole: users.kpiRole,
+  absensiRole: users.absensiRole,
+  absensiStatus: users.absensiStatus,
+  departmentId: users.departmentId,
+  departmentName: departments.name,
+  nik: users.nik,
+  birthPlace: users.birthPlace,
+  birthDate: users.birthDate,
+  gender: users.gender,
+  religion: users.religion,
+  maritalStatus: users.maritalStatus,
+  phone: users.phone,
+  address: users.address,
+  city: users.city,
+  province: users.province,
+  postalCode: users.postalCode,
+  emergencyName: users.emergencyName,
+  emergencyPhone: users.emergencyPhone,
+  npwp: users.npwp,
+  bankName: users.bankName,
+  bankAccountNumber: users.bankAccountNumber,
+  bankAccountName: users.bankAccountName,
+  leaveQuota: users.leaveQuota,
+  sickQuota: users.sickQuota,
+} as const;
+
+/** GET /api/me/profile — profil lengkap user yang login. */
+export async function GET() {
+  return withAuth(async () => {
+    const me = await requireUser();
+
+    const [row] = await db
+      .select(PROFILE_COLUMNS)
+      .from(users)
+      .leftJoin(departments, eq(users.departmentId, departments.id))
+      .where(eq(users.id, me.id))
+      .limit(1);
+
+    if (!row) {
+      return Response.json(
+        { ok: false, error: "Profil tidak ditemukan." },
+        { status: 404 },
+      );
+    }
+
+    return {
+      profile: {
+        ...row,
+        // date column datang sebagai string YYYY-MM-DD; form ini butuh
+        // value yang bisa dipasang langsung ke <input type="date">.
+        birthDate: row.birthDate ? String(row.birthDate).slice(0, 10) : null,
+      },
+    };
+  });
+}
 
 /**
- * PATCH /api/me — update profil sendiri.
+ * PATCH /api/me/profile — update profil sendiri.
  *
- * PENTING: hanya field di daftar EDITABLE yang boleh diubah.
- * `kpiRole`, `absensiRole`, `absensiStatus`, `leaveQuota`,
- * `sickQuota`, dan `id` TIDAK bisa disentuh dari sini — itu
- * wewenang admin.
+ * Hanya field di daftar EDITABLE yang diproses. Field lain di body
+ * diabaikan diam-diam, bukan error, supaya form bisa mengirim
+ * ulang objek profil utuh tanpa membocorkan hak akses.
  */
 export async function PATCH(request: Request) {
   return withAuth(async () => {
@@ -49,16 +112,16 @@ export async function PATCH(request: Request) {
     const body = await request.json();
 
     const values: Record<string, unknown> = { updatedAt: new Date() };
-    let changed = false;
+    const touched: string[] = [];
 
     for (const key of EDITABLE) {
       if (body[key] !== undefined) {
         values[key] = body[key] === "" ? null : body[key];
-        changed = true;
+        touched.push(key);
       }
     }
 
-    if (!changed) {
+    if (touched.length === 0) {
       return Response.json(
         { ok: false, error: "Tidak ada field yang diubah." },
         { status: 400 },
@@ -71,13 +134,9 @@ export async function PATCH(request: Request) {
       actorId: me.id,
       action: "profile_updated",
       targetUserId: me.id,
-      details: Object.keys(values).filter((k) => k !== "updatedAt").join(","),
+      details: touched.join(","),
     });
 
-    const [row] = await db.select().from(users).where(eq(users.id, me.id)).limit(1);
-
-    // Buang kolom sensitif dari response
-    const { id, name, email, image, ...rest } = row!;
-    return { user: { id, name, email, image, ...rest } };
+    return { updated: touched };
   });
 }

@@ -1,15 +1,35 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { createClient } from "@/lib/supabase/client";
+import { useState, useCallback } from "react";
+import { useApiQuery } from "@/hooks/useApi";
+import { withQuery } from "@/lib/api-client";
 import { useAuth } from "@/contexts/AuthContext";
-import { useMyLeaveRequests } from "@/hooks/absensi/useLeaveRequests";
+import { useLeaveActions } from "@/hooks/absensi/useLeaveRequests";
 import { useAbsensiSettings } from "@/hooks/absensi/useAbsensiSettings";
 import { useHolidays } from "@/hooks/absensi/useHolidays";
-import type { LeaveRequest, LeaveRequestType } from "@/types/absensi";
+import type { LeaveRequestType } from "@/types/absensi";
 import ConfirmDialog from "@/components/absensi/ConfirmDialog";
 import PromptDialog from "@/components/absensi/PromptDialog";
 import { OvertimeStaffSection } from "@/components/absensi/OvertimeStaffSection";
+
+/**
+ * Baris riwayat pengajuan yang dikembalikan /api/absensi/leave?view=team.
+ *
+ * `reason` hanya terisi untuk pengajuan milik user yang sedang login —
+ * server emptying-nya untuk pengajuan orang lain.
+ */
+interface TeamLeaveRow {
+  id: string;
+  userId: string;
+  userName: string;
+  departmentName: string | null;
+  type: LeaveRequestType;
+  dates: string[];
+  status: "pending" | "approved" | "rejected" | "cancelled";
+  reason: string | null;
+  cancellationRequested: boolean;
+  createdAt: string;
+}
 import {
   CalendarPlus, CalendarDays, History, X, Info,
   FileEdit, Smile, Clock
@@ -31,28 +51,20 @@ type ConfirmCfg = {
 export default function StaffRequestsPage() {
   const { user } = useAuth();
   const [mainTab, setMainTab] = useState<"leave" | "overtime">("leave");
-  const [globalRequests, setGlobalRequests] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  
-  // Fetch ALL leave requests for global team history
-  useEffect(() => {
-    const supabase = createClient();
-    const fetchAll = async () => {
-      const { data } = await supabase
-        .from("leave_requests")
-        .select("*, users(name, department_id, departments(name))")
-        .order("created_at", { ascending: false });
-      
-      setGlobalRequests(data ?? []);
-      setIsLoading(false);
-    };
-    fetchAll();
+  // formerly: SELECT seluruh tabel leave_requests dari browser + 1 realtime
+  // channel. Dipindah ke server supaya alasan pribadi cuti orang lain
+  // tidak ikut terkirim ke browser (server yang memfilternya).
+  const buildHistory = useCallback(
+    () => withQuery("/api/absensi/leave", { view: "team" }),
+    [],
+  );
 
-    const ch = supabase.channel("global_leave_reqs")
-      .on("postgres_changes", { event: "*", schema: "public", table: "leave_requests" }, fetchAll)
-      .subscribe();
-    return () => { ch.unsubscribe(); };
-  }, []);
+  const { data: historyData, isLoading, refetch: refetchHistory } =
+    useApiQuery<{ requests: TeamLeaveRow[] }>(buildHistory, [], 30_000);
+
+  const globalRequests = historyData?.requests ?? [];
+
+  const leaveActions = useLeaveActions();
 
   const { settings } = useAbsensiSettings();
   const { holidayDates } = useHolidays();
@@ -164,144 +176,71 @@ export default function StaffRequestsPage() {
       };
     }
 
-    // ── Validation: Divisi Limit (Max 2 concurrent approved leaves if size >= 3)
-    if (user.departmentId && reqType === "leave") {
-      setIsSubmitting(true);
-      const tid = toast.loading("Memvalidasi kuota cuti divisi...");
-      try {
-        const supabase = createClient();
-        
-        const { count, error: countErr } = await supabase
-          .from("users")
-          .select("id", { count: "exact", head: true })
-          .eq("department_id", user.departmentId)
-          .eq("absensi_status", "active");
-          
-        if (countErr) throw countErr;
-        
-        const deptSize = count || 0;
-        
-        if (deptSize >= 3) {
-          const { data: deptLeavesJoined, error: leavesJoinedErr } = await supabase
-            .from("leave_requests")
-            .select("user_id, dates, users!inner(name, department_id)")
-            .eq("status", "approved")
-            .eq("users.department_id", user.departmentId)
-            .neq("user_id", user.id);
-            
-          if (leavesJoinedErr) throw leavesJoinedErr;
-          
-          let blockedDate = "";
-          let blockedNames: string[] = [];
-          
-          for (const sDate of selectedDates) {
-            const usersOnLeave = new Map<string, string>();
-            for (const r of (deptLeavesJoined || [])) {
-              if ((r.dates as string[]).includes(sDate)) {
-                usersOnLeave.set(r.user_id, (r.users as any).name);
-              }
-            }
-            if (usersOnLeave.size >= 2) {
-              blockedDate = sDate;
-              blockedNames = Array.from(usersOnLeave.values());
-              break;
-            }
-          }
-          
-          if (blockedDate) {
-            toast.error(`Jika Anda memaksakan mengajukan cuti maka sudah pasti akan ditolak karena sudah ada ${blockedNames.length} orang yang cuti di hari yang Anda pilih (${blockedDate}) yaitu ${blockedNames.join(" dan ")}`, { id: tid, duration: 10000 });
-            setIsSubmitting(false);
-            return;
-          }
-        }
-        
-        toast.dismiss(tid);
-      } catch (err: any) {
-        toast.error("Gagal validasi divisi: " + err.message, { id: tid });
-        setIsSubmitting(false);
-        return;
-      }
-      setIsSubmitting(false);
-    }
+    // formerly: validasi konflik divisi (max 2 orang cuti pada tanggal yang
+    // sama bila divisi punya >= 3 orang aktif) dijalankan dari browser dengan
+    // 2 query Supabase, jadi bisa dilewati dengan POST langsung.
+    // Sekarang jadi gate server di createLeaveRequest().
 
     setConfirmCfg(cfg);
     setShowConfirm(true);
   };
 
   const handleConfirmSubmit = async () => {
-    if (isSubmitting || !user) return;
+    if (isSubmitting) return;
     setShowConfirm(false);
     setIsSubmitting(true);
     const tid = toast.loading("Mengirim pengajuan...");
-    try {
-      const supabase = createClient();
 
-      // Duplicate check
-      const { data: existing } = await supabase
-        .from("leave_requests")
-        .select("dates, type")
-        .eq("user_id", user.id)
-        .eq("status", "pending");
+    // Server yang memvalidasi: kuota, duplikat, bentrok tanggal,
+    // dan batas konflik divisi.
+    const res = await leaveActions.submit({
+      type: reqType,
+      dates: selectedDates,
+      reason: reason.trim(),
+    });
 
-      const isDupe = (existing ?? []).some(
-        (r) =>
-          r.type === reqType &&
-          JSON.stringify([...(r.dates as string[])].sort()) === JSON.stringify([...selectedDates].sort())
-      );
-      if (isDupe) {
-        toast.error("Pengajuan serupa sedang diproses (Pending).", { id: tid });
-        setIsSubmitting(false);
-        return;
-      }
-
-      const { error } = await supabase.from("leave_requests").insert({
-        user_id: user.id,
-        type: reqType,
-        dates: selectedDates,
-        reason: reason.trim(),
-        status: "pending",
-      });
-
-      if (error) throw error;
+    if (res.ok) {
       toast.success("Pengajuan berhasil dikirim!", { id: tid });
       setSelectedDates([]);
       setReason("");
-    } catch (err: unknown) {
-      toast.error("Gagal: " + (err instanceof Error ? err.message : "Unknown error"), { id: tid });
-    } finally {
-      setIsSubmitting(false);
+      void refetchHistory();
+    } else {
+      toast.error(res.error ?? "Gagal mengirim pengajuan.", { id: tid });
     }
+
+    setIsSubmitting(false);
   };
 
   const cancelRequest = async (id: string) => {
     const tid = toast.loading("Membatalkan pengajuan...");
-    try {
-      const supabase = createClient();
-      const { error } = await supabase.from("leave_requests").update({ status: "cancelled" }).eq("id", id);
-      if (error) throw error;
+    const res = await leaveActions.cancel(id);
+    if (res.ok) {
       toast.success("Pengajuan berhasil dibatalkan.", { id: tid });
-    } catch (err: unknown) {
-      toast.error("Gagal: " + (err instanceof Error ? err.message : "Unknown error"), { id: tid });
+      void refetchHistory();
+    } else {
+      toast.error(res.error ?? "Gagal membatalkan.", { id: tid });
     }
   };
 
   const submitCancellation = async (cancelReason: string) => {
     if (!cancelReason.trim()) { toast.error("Alasan pembatalan wajib diisi."); return; }
+    if (!cancelPrompt.reqId) return;
+
     const tid = toast.loading("Mengajukan pembatalan...");
-    try {
-      const supabase = createClient();
-      const { error } = await supabase.from("leave_requests")
-        .update({ cancellation_requested: true, cancellation_reason: cancelReason.trim() })
-        .eq("id", cancelPrompt.reqId!);
-      if (error) throw error;
+    const res = await leaveActions.requestCancellation(
+      cancelPrompt.reqId,
+      cancelReason.trim(),
+    );
+    if (res.ok) {
       toast.success("Pengajuan pembatalan berhasil dikirim.", { id: tid });
       setCancelPrompt({ show: false, reqId: null });
-    } catch (err: unknown) {
-      toast.error("Gagal: " + (err instanceof Error ? err.message : "Unknown error"), { id: tid });
+      void refetchHistory();
+    } else {
+      toast.error(res.error ?? "Gagal mengajukan pembatalan.", { id: tid });
     }
   };
 
-  const handleCancelClick = (req: LeaveRequest) => {
+  const handleCancelClick = (req: TeamLeaveRow) => {
     if (req.status === "pending") {
       setCancelTargetId(req.id);
       setShowCancelConfirm(true);
@@ -515,7 +454,7 @@ export default function StaffRequestsPage() {
             <RequestCard
               key={req.id}
               req={req}
-              isMine={req.user_id === user?.id}
+              isMine={req.userId === user?.id}
               onCancel={handleCancelClick}
             />
           ))}
@@ -562,7 +501,15 @@ export default function StaffRequestsPage() {
 }
 
 // ─ Request Card ───────────────────────────────────────────────────────────────
-function RequestCard({ req, isMine, onCancel }: { req: any; isMine: boolean; onCancel: (req: any) => void }) {
+function RequestCard({
+  req,
+  isMine,
+  onCancel,
+}: {
+  req: TeamLeaveRow;
+  isMine: boolean;
+  onCancel: (req: TeamLeaveRow) => void;
+}) {
   const statusColor =
     req.status === "approved" ? "bg-green-500" :
     req.status === "pending"  ? "bg-orange-400" :
@@ -598,7 +545,7 @@ function RequestCard({ req, isMine, onCancel }: { req: any; isMine: boolean; onC
           <span className={`text-[10px] font-black px-4 py-1.5 rounded-full uppercase tracking-widest ${statusBadgeStyle}`}>
             {statusLabel}
           </span>
-          {isMine && (req.status === "pending" || (req.status === "approved" && !req.cancellation_requested)) && (
+          {isMine && (req.status === "pending" || (req.status === "approved" && !req.cancellationRequested)) && (
             <button
               onClick={() => onCancel(req)}
               className="text-[8px] font-black uppercase tracking-widest text-red-400 hover:text-white hover:bg-red-500 px-3 py-1.5 rounded-lg border border-red-200 transition-all active:scale-95"
@@ -606,7 +553,7 @@ function RequestCard({ req, isMine, onCancel }: { req: any; isMine: boolean; onC
               {req.status === "pending" ? "Batalkan" : "Pengajuan Batal"}
             </button>
           )}
-          {req.cancellation_requested && (
+          {req.cancellationRequested && (
             <span className="text-[8px] font-black uppercase tracking-widest text-orange-500 bg-orange-50 dark:bg-orange-900/20 px-2 py-1 rounded border border-orange-200 dark:border-orange-800">
               Menunggu Batal
             </span>
@@ -616,15 +563,15 @@ function RequestCard({ req, isMine, onCancel }: { req: any; isMine: boolean; onC
       
       {/* Name and Department */}
       <div className="mb-4 flex flex-col border-b border-[var(--ab-border)] pb-3">
-        <span className="text-[14px] font-black text-[var(--ab-text-main)]">{req.users?.name ?? "Unknown"}</span>
+        <span className="text-[14px] font-black text-[var(--ab-text-main)]">{req.userName}</span>
         <div className="flex justify-between items-center mt-1">
           <span className="text-[10px] font-bold text-[var(--ab-text-dim)] uppercase tracking-widest">
-            {req.users?.departments?.name ?? "Umum"}
+            {req.departmentName ?? "Umum"}
           </span>
-          {req.created_at && (
+          {req.createdAt && (
             <span className="text-[9px] font-bold text-[var(--ab-text-dim)]/80 uppercase tracking-widest flex items-center gap-1">
               <Clock size={10} />
-              {new Date(req.created_at).toLocaleString("id-ID", {
+              {new Date(req.createdAt).toLocaleString("id-ID", {
                 day: "2-digit",
                 month: "2-digit",
                 year: "numeric",
@@ -645,11 +592,13 @@ function RequestCard({ req, isMine, onCancel }: { req: any; isMine: boolean; onC
           </span>
         ))}
       </div>
-      <div className="bg-[var(--ab-bg-main)] p-4 rounded-2xl border border-[var(--ab-border)]">
-        <p className="text-xs text-[var(--ab-text-dim)] font-bold leading-relaxed italic">
-          &ldquo;{req.reason}&rdquo;
-        </p>
-      </div>
+      {req.reason && (
+        <div className="bg-[var(--ab-bg-main)] p-4 rounded-2xl border border-[var(--ab-border)]">
+          <p className="text-xs text-[var(--ab-text-dim)] font-bold leading-relaxed italic">
+            &ldquo;{req.reason}&rdquo;
+          </p>
+        </div>
+      )}
     </div>
   );
 }

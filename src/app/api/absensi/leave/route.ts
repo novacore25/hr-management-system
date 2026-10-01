@@ -7,6 +7,7 @@ import {
 import {
   listLeaveRequests,
   myLeaveOverview,
+  teamLeaveHistory,
   createLeaveRequest,
   cancelOwnRequest,
   requestCancellation,
@@ -23,6 +24,7 @@ export const dynamic = "force-dynamic";
  * GET /api/absensi/leave
  *
  *   mine=1                 → pengajuan saya + sisa kuota
+ *   view=team              → riwayat pengajuan seluruh tim (staf aktif)
  *   status=pending         → filter status (butuh admin)
  *   departmentId=<uuid>    → filter divisi (butuh admin)
  */
@@ -33,6 +35,19 @@ export async function GET(request: Request) {
 
     if (searchParams.get("mine") === "1") {
       return await myLeaveOverview(me.id);
+    }
+
+    // Riwayat tim: staf aktif boleh melihat siapa saja yang cuti,
+    // tapi `reason` milik orang lain sengaja dikosongkan di DAL.
+    if (searchParams.get("view") === "team") {
+      await requireActiveAbsensiStaff();
+      const rows = await teamLeaveHistory();
+      return {
+        requests: rows.map((r) => ({
+          ...r,
+          reason: r.userId === me.id ? r.reason : null,
+        })),
+      };
     }
 
     await requireAbsensiAdmin();

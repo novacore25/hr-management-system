@@ -167,6 +167,7 @@ export const users = pgTable("users", {
   birthPlace: text("birth_place"),
   birthDate: date("birth_date"),
   gender: varchar("gender", { length: 16 }),
+  religion: varchar("religion", { length: 32 }),
   maritalStatus: varchar("marital_status", { length: 32 }),
   address: text("address"),
   city: varchar("city", { length: 100 }),

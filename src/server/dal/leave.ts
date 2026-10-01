@@ -234,6 +234,63 @@ export async function createLeaveRequest(
     };
   }
 
+  // ── Batas konflik divisi ──────────────────────────────────
+  // Kalau divisi punya >= 3 orang aktif, maksimal 2 orang boleh cuti
+  // pada tanggal yang sama.
+  //
+  // formerly dicek dari browser dengan 2 query Supabase, jadi bisa
+  // dilewati dengan POST langsung. Sekarang jadi gate server.
+  if (input.type === "leave") {
+    const [me] = await db
+      .select({ departmentId: users.departmentId })
+      .from(users)
+      .where(eq(users.id, input.userId))
+      .limit(1);
+
+    if (me?.departmentId) {
+      const [dept] = await db
+        .select({ size: sql<number>`count(*)::int` })
+        .from(users)
+        .where(
+          and(
+            eq(users.departmentId, me.departmentId),
+            eq(users.absensiStatus, "active"),
+          ),
+        );
+
+      if (Number(dept?.size ?? 0) >= 3) {
+        const approved = await db
+          .select({
+            userId: leaveRequests.userId,
+            dates: leaveRequests.dates,
+            userName: users.name,
+          })
+          .from(leaveRequests)
+          .innerJoin(users, eq(leaveRequests.userId, users.id))
+          .where(
+            and(
+              eq(leaveRequests.status, "approved"),
+              eq(users.departmentId, me.departmentId),
+            ),
+          );
+
+        for (const d of dates) {
+          const names: string[] = [];
+          for (const r of approved) {
+            if (r.userId === input.userId) continue;
+            if ((r.dates ?? []).includes(d)) names.push(r.userName ?? r.userId);
+          }
+          if (names.length >= 2) {
+            return {
+              ok: false,
+              reason: `Sudah ada ${names.length} orang di divisi Anda yang cuti pada ${d}, yaitu ${names.join(" dan ")}.`,
+            };
+          }
+        }
+      }
+    }
+  }
+
   const now = new Date();
   const [row] = await db
     .insert(leaveRequests)
@@ -517,6 +574,63 @@ export async function adjustQuota(
     values.sickQuota = Math.max(0, patch.sickQuota);
   }
   await db.update(users).set(values).where(eq(users.id, userId));
+}
+
+/**
+ * Riwayat pengajuan seluruh tim (bukan cuma milik sendiri).
+ *
+ * Dipakai halaman /absensi/(staff)/requests untuk menampilkan siapa saja
+ * yang cuti. Field `reason` milik orang lain TIDAK disertakan — alasan
+ * pribadi cuti bukan informasi yang perlu dilihat rekan satu tim.
+ */
+export async function teamLeaveHistory(
+  limit = 200,
+): Promise<
+  Array<{
+    id: string;
+    userId: string;
+    userName: string;
+    departmentName: string | null;
+    type: LeaveRequestType;
+    dates: string[];
+    status: LeaveRequestStatus;
+    /** Alasan hanya diisi untuk pengajuan milik viewer. */
+    reason: string | null;
+    cancellationRequested: boolean;
+    createdAt: string;
+  }>
+> {
+  const rows = await db
+    .select({
+      id: leaveRequests.id,
+      userId: leaveRequests.userId,
+      userName: users.name,
+      departmentName: departments.name,
+      type: leaveRequests.type,
+      dates: leaveRequests.dates,
+      status: leaveRequests.status,
+      reason: leaveRequests.reason,
+      cancellationRequested: leaveRequests.cancellationRequested,
+      createdAt: leaveRequests.createdAt,
+    })
+    .from(leaveRequests)
+    .innerJoin(users, eq(leaveRequests.userId, users.id))
+    .leftJoin(departments, eq(users.departmentId, departments.id))
+    .orderBy(desc(leaveRequests.createdAt))
+    .limit(limit);
+
+  return rows.map((r) => ({
+    id: r.id,
+    userId: r.userId,
+    userName: r.userName ?? "Unknown",
+    departmentName: r.departmentName,
+    type: r.type,
+    dates: r.dates ?? [],
+    status: r.status,
+    reason: r.reason,
+    cancellationRequested: r.cancellationRequested,
+    createdAt: r.createdAt.toISOString(),
+  }));
 }
 
 /** Pengajuan cuti milik user yang sedang login + sisa kuota. */
