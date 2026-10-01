@@ -207,7 +207,26 @@ Pelajaran generalize: **kalau sebuah pembungkus transforming mashed up
 nilai, cek dulu bentuk yang sebenarnya keluar** — jangan hanya cek status
 code.
 
-### 3.7 `ON CONFLICT DO NOTHING` tanpa target tidak mencegah apa pun
+### 3.7 Filter yang benar-benar tidak menyaring apa pun
+
+Kasus pola nyata: halaman Head menghitung skor KPI tim dengan
+`getWeights(userId)`. Hook itu memanggil `/api/kpi-settings?scope=all`,
+yang butuh role hr/executive — jadi Head selalu dapat **403**.
+
+Karena `getWeights()` kalau gagal mengembalikan `DEFAULT_WEIGHTS`, halaman
+tetap tampil dengan angka — **50/30/20**, bukan bobot yang HR setel.
+Tidak ada error, tidak ada crash, tidak ada 403 yang kelihatan (fetch
+diam-diam, tanpa toast).
+
+Rule: kalau sebuah nilai yang seharusnya spesifik punya fallback default,
+fallback itu menutupi kegagalan tanpa jejak. Saat pakai `useApiQuery`,
+periksa juga `error`-nya; jangan hanya mengandalkan nilai yang tampil.
+
+Pola sama: `departmentIds: []` pada filter `IN (...)` berarti **tidak ada
+hasil**, bukan "semua". Kalau Head tidak punya divisi yang dikelola,
+hasilnya kosong — itu benar, dan harus berbeda dari `null` (semua).
+
+### 3.8 `ON CONFLICT DO NOTHING` tanpa target tidak mencegah apa pun
 
 Kalau tidak ada constraint yang cocok, tiap insert berhasil. Seed saya
 jalankan 7× karena error → 15 baris `departments` dari 5 yang
@@ -241,13 +260,18 @@ Dengan dev server jalan, dua pemeriksa tambahan — keduanya membaca
 **isi** respons dan **isi** database, bukan cuma status code:
 
 ```powershell
-npm run verify:endpoints   # 24 endpoint: amplop, status, isi data
-npm run verify:quality     # 32 assert: scoping, penolakan, dan nilai yang tersimpan
+npm run verify:endpoints    # 24 endpoint: amplop, status, isi data
+npm run verify:quality      # 32 assert: scoping, penolakan, nilai tersimpan
+npm run verify:assignments  # 70 assert: scoping, validasi, audit trail
 ```
 
-`verify:quality` membersihkan baris ujinya sendiri, jadi bisa dijalankan
-berulang kali. Kalau salah satu gagal, itu bug yang tidak akan terlihat
-dari `tsc` maupun `next build`.
+Semuanya membersihkan data ujinya sendiri, jadi bisa dijalankan berulang
+kali. Kalau salah satu gagal, itu bug yang tidak akan terlihat dari `tsc`
+maupun `next build`.
+
+Satu skrip saja belum cukup: masing-masing hanya menguji endpoint-nya.
+`verify:endpoints` tetap wajib jalan setelah perubahan apa pun di
+`withAuth`, karena satu wrapper yang salaheken beberapa halaman sekaligus.
 
 Buat sesi tanpa OAuth:
 

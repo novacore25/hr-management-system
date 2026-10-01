@@ -12,6 +12,7 @@ import {
   kpiSettings,
 } from "@/db/schema";
 import { getPerformanceCategory } from "@/lib/performance";
+import { ValidationError } from "./guards";
 import type {
   KpiAssignmentWithDetails,
   AssignmentStatus,
@@ -265,6 +266,54 @@ export async function listDepartmentAssignments(
 }
 
 /**
+ * Assignment milik divisi yang dikelola Head, plus assignment Head sendiri.
+ *
+ * `managedDepartmentIds` SELALU berasal dari `users.managed_departments` di
+ * server. Halaman /dashboard/head/penugasan dan /dashboard/hr/assignments
+ * sebelumnya mengambil daftar itu dari `AuthContext` di browser lalu
+ * menyaring daftar user di client sebelum menanyakan — jadi Head tinggal
+ * mengubah nilai itu untuk melihat divisi orang lain.
+ *
+ * Assignment milik Head sendiri sering tidak punya `department_id` (dia
+ * undivided), jadi tanpa `OR user_id` dia tidak akan melihat KPI-nya
+ * sendiri.
+ */
+export async function listManagedAssignments(
+  managedDepartmentIds: string[],
+  year: number,
+  month: number,
+  statuses: AssignmentStatus[],
+  selfUserId: string,
+): Promise<KpiAssignmentWithDetails[]> {
+  const conds = [
+    eq(kpiAssignments.year, year),
+    eq(kpiAssignments.month, month),
+    inArray(kpiAssignments.status, statuses),
+  ];
+
+  if (managedDepartmentIds.length === 0) {
+    // Tidak mengelola satu divisi pun: hanya assignment miliknya sendiri.
+    conds.push(eq(kpiAssignments.userId, selfUserId));
+  } else {
+    conds.push(
+      sql`(${kpiAssignments.departmentId} IN (${managedDepartmentIds})
+        OR ${kpiAssignments.userId} = ${selfUserId})`,
+    );
+  }
+
+  const rows = await db
+    .select(assignmentSelect)
+    .from(kpiAssignments)
+    .innerJoin(kpis, eq(kpiAssignments.kpiId, kpis.id))
+    .innerJoin(users, eq(kpiAssignments.userId, users.id))
+    .leftJoin(departments, eq(kpiAssignments.departmentId, departments.id))
+    .where(and(...conds))
+    .orderBy(desc(kpiAssignments.createdAt));
+
+  return hydrate(rows as AssignmentRow[]);
+}
+
+/**
  * Assignment untuk user yang login, dalam rentang bulan.
  * Dipakai halaman /dashboard/tim?mode=range
  */
@@ -370,16 +419,49 @@ export async function createAssignments(
     updatedAt: now,
   }));
 
-  // Ambil kpiType asli dari tabel kpis
+  // Ambil kpiType + periode asli dari tabel kpis
   const kpiIds = [...new Set(inputs.map((i) => i.kpiId))];
   const kpiRows = await db
-    .select({ id: kpis.id, type: kpis.type })
+    .select({
+      id: kpis.id,
+      type: kpis.type,
+      title: kpis.title,
+      year: kpis.year,
+      month: kpis.month,
+    })
     .from(kpis)
     .where(inArray(kpis.id, kpiIds));
-  const typeMap = new Map(kpiRows.map((r) => [r.id, r.type]));
+  const kpiById = new Map(kpiRows.map((r) => [r.id, r]));
+
+  // KPI yang tidak ada tidak boleh ikut ter-insert. Dulu halaman menulis
+  // begitu saja; klausa FK hanya menahan kalau constraint-nya benar-benar
+  // ada, dan `onConflictDoNothing` di bawah bisa menyembunyikan kegagalannya
+  // jadi "created: 0" — bukan error yang jelas.
+  const unknown = kpiIds.filter((id) => !kpiById.has(id));
+  if (unknown.length === kpiIds.length) {
+    throw new ValidationError("KPI yang dipilih tidak ditemukan.");
+  }
 
   for (const r of rows) {
-    r.kpiType = typeMap.get(r.kpiId) ?? "result";
+    const kpi = kpiById.get(r.kpiId);
+    if (!kpi) {
+      throw new ValidationError(
+        `KPI ${r.kpiId} tidak ditemukan. Muat ulang halaman lalu coba lagi.`,
+      );
+    }
+
+    // Tiap baris `kpis` sudah terikat ke satu periode (year, month).
+    // Assignment untuk periode lain membuat `kpis.monthlyTarget` — yang
+    // di-recalc dari SUM seluruh assignment KPI itu tanpa filter periode —
+    // jadi angkanya bercampur bulan. formerly form "Tugaskan KPI" bisa
+    // menulis ke periode yang salah dan target KPI-level langsung rusak.
+    if (kpi.year !== r.year || kpi.month !== r.month) {
+      throw new ValidationError(
+        `KPI "${kpi.title}" milik periode ${kpi.year}-${kpi.month}, bukan ${r.year}-${r.month}. Pilih KPI untuk periode tersebut.`,
+      );
+    }
+
+    r.kpiType = kpi.type;
   }
 
   const inserted = await db
@@ -388,9 +470,25 @@ export async function createAssignments(
     .onConflictDoNothing()
     .returning({ id: kpiAssignments.id });
 
+  // KPI yang tadinya draft/hold diaktifkan, kalau ada assignment baru.
+  // formerly ini dilakukan halaman dengan `update({ status: "active" }).in("id", ...)`
+  // dari browser, terpisah dari insert — kalau request kedua gagal, KPI
+  // tetap draft padahal sudah ada assignment aktif.
+  const touchedKpiIds = [...new Set(inputs.map((i) => i.kpiId))];
+  if (inserted.length > 0) {
+    await db
+      .update(kpis)
+      .set({ status: "active", updatedAt: new Date() })
+      .where(
+        and(
+          inArray(kpis.id, touchedKpiIds),
+          inArray(kpis.status, ["draft", "hold"]),
+        ),
+      );
+  }
+
   // Recalc target tiap KPI yang terpengaruh
-  const affected = new Set(inputs.map((i) => i.kpiId));
-  for (const id of affected) {
+  for (const id of touchedKpiIds) {
     await recalcKpiTargetSafe(id);
   }
 

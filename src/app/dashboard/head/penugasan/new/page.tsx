@@ -2,15 +2,14 @@
 
 import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
 import { useKpis } from "@/hooks/useKpis";
-import { useDivisionMembers } from "@/hooks/useUsers";
-import { useDivisionAssignments } from "@/hooks/useAssignments";
-import { useAuth } from "@/contexts/AuthContext";
+import { useManagedMembers } from "@/hooks/useUsers";
+import { useManagedAssignments } from "@/hooks/useAssignments";
+import { useApiMutation } from "@/hooks/useApi";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { getWorkingDaysInMonth, getBrandColor, monthName } from "@/lib/utils";
+import { getBrandColor, monthName } from "@/lib/utils";
 import { Search, ChevronLeft } from "lucide-react";
 
 const typeLabel: Record<string, string> = { result: "Result", activity: "Activity", quality: "Quality", lead_tim: "Lead Tim", hr: "HR" };
@@ -24,13 +23,7 @@ const typeColor: Record<string, string> = {
 
 export default function HeadNewAssignmentPage() {
   const router = useRouter();
-  const { user } = useAuth();
   const now = new Date();
-
-  const managedDepartments: string[] =
-    user?.managedDepartments && user.managedDepartments.length > 0
-      ? user.managedDepartments
-      : user?.department ? [user.department] : [];
 
   const [selectedMonth, setSelectedMonth] = useState(
     () => `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`
@@ -38,8 +31,21 @@ export default function HeadNewAssignmentPage() {
   const [year, month] = selectedMonth.split("-").map(Number);
 
   const { kpis } = useKpis(year, month);
-  const { members: users } = useDivisionMembers(managedDepartments);
-  const { assignments } = useDivisionAssignments(managedDepartments, year, month);
+
+  /**
+   * formerly: `useDivisionMembers(managedDepartments)` dengan daftar divisi
+   * dari AuthContext, lalu penyaringan ulang di client. Head bisa mengubah
+   * daftar itu dan menugaskan KPI ke user divisi lain.
+   *
+   * sekarang: server yang memfilter. Yang tampil = yang bisa ditulis.
+   */
+  const { members: users } = useManagedMembers();
+  const { assignments } = useManagedAssignments(year, month);
+
+  const createAssignments = useApiMutation<unknown, unknown>(
+    "/api/assignments",
+    "POST",
+  );
 
   const [step, setStep] = useState<1 | 2>(1);
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
@@ -50,15 +56,24 @@ export default function HeadNewAssignmentPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
-  const workingDays = getWorkingDaysInMonth(year, month);
-
-  // useDivisionMembers already scopes to dept; filter redundantly for safety
-  const assignableUsers = users.filter(
-    (u) => managedDepartments.includes(u.department ?? "")
+  const managedDepartmentNames = useMemo(
+    () => [...new Set(users.map((u) => u.department ?? "").filter(Boolean))].sort(),
+    [users],
   );
-  // Show all non-deleted, non-cancelled KPIs so users can see what exists
+
+  const assignableUsers = users;
+
+  // KPI tanpa divisi (department "") tetap bisa dipilih: KPI seperti
+  // "Kualitas Absensi" sengaja dibuat tanpa divisi, dan sebelumnya
+  // `managedDepartments.includes("")` selalu false sehingga KPI itu
+  // tidak pernah muncul untuk Head.
   const activeKpis = kpis.filter(
-    (k) => !k.deletedAt && k.status !== "cancelled" && managedDepartments.includes(k.department)
+    (k) =>
+      !k.deletedAt &&
+      k.status !== "cancelled" &&
+      (k.department === "" ||
+        !managedDepartmentNames.length ||
+        managedDepartmentNames.includes(k.department)),
   );
   const userMap = Object.fromEntries(users.map((u) => [u.id, u]));
   const kpiMap = Object.fromEntries(kpis.map((k) => [k.id, k]));
@@ -116,66 +131,50 @@ export default function HeadNewAssignmentPage() {
     setStep(2);
   }
 
+  /**
+   * formerly: `insert` ke `kpi_assignments` dari browser. `department_id`
+   * dicari dari tabel `departments` berdasarkan NAMA divisi, lalu operasi
+   * kedua terpisah untuk mengaktifkan KPI draft/hold.
+   *
+   * Kalau operasi kedua gagal, KPI tetap draft padahal assignment-nya
+   * sudah aktif — dan form ini tidak menampilkan KPI draft karena
+   * difilter, jadi user akan bingung kenapa KPI-nya tidak muncul.
+   *
+   * sekarang: satu POST /api/assignments. Divisi dibaca dari
+   * `users.department_id`, KPI draft diaktifkan di DAL, dan server juga
+   * menolak user di luar divisi yang dikelola.
+   */
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
     setSubmitting(true);
-    try {
-      const supabase = createClient();
 
-      const deptNames = [...new Set(
-        checkedKpiIds.map((kpiId) => kpis.find((k) => k.id === kpiId)?.department ?? "").filter(Boolean)
-      )];
-      const { data: deptRows } = await supabase.from("departments").select("id, name").in("name", deptNames);
-      const deptIdByName: Record<string, string> = {};
-      (deptRows ?? []).forEach((d: any) => { deptIdByName[d.name] = d.id; });
-
-      const toInsert: Record<string, unknown>[] = [];
-      for (const userId of selectedUserIds) {
-        for (const kpiId of checkedKpiIds) {
-          if (existingSet.has(`${userId}-${kpiId}`)) continue;
-          const kpi = kpis.find((k) => k.id === kpiId)!;
-          const targetStr = perUserTargets[userId]?.[kpiId] ?? selectedKpis[kpiId];
-          const perPersonTarget = parseFloat(targetStr);
-          if (!(perPersonTarget > 0)) continue;
-          const dailyTarget = workingDays > 0 ? Math.ceil(perPersonTarget / workingDays) : 0;
-          toInsert.push({
-            kpi_id: kpiId,
-            user_id: userId,
-            department_id: deptIdByName[kpi.department] ?? null,
-            status: "active",
-            monthly_target: perPersonTarget,
-            current_daily_target: dailyTarget,
-            actual_total: 0,
-            expected_total: 0,
-            achievement_percentage: 0,
-            performance_category: "warning",
-            working_days_total: workingDays,
-            working_days_elapsed: 0,
-            working_days_remaining: workingDays,
-            active_days: 0,
-            year,
-            month,
-          });
-        }
+    const payload: Record<string, unknown>[] = [];
+    for (const userId of selectedUserIds) {
+      for (const kpiId of checkedKpiIds) {
+        if (existingSet.has(`${userId}-${kpiId}`)) continue;
+        const targetStr = perUserTargets[userId]?.[kpiId] ?? selectedKpis[kpiId];
+        const perPersonTarget = parseFloat(targetStr);
+        if (!(perPersonTarget > 0)) continue;
+        payload.push({ kpiId, userId, monthlyTarget: perPersonTarget });
       }
-      if (toInsert.length === 0) { setError("Semua kombinasi sudah memiliki penugasan aktif."); setSubmitting(false); return; }
-      const { error: insertErr } = await supabase.from("kpi_assignments").insert(toInsert as any);
-      if (insertErr) throw insertErr;
-      // Auto-activate KPIs that were draft/hold
-      const kpisToActivate = checkedKpiIds.filter((kpiId) => {
-        const k = kpis.find((k) => k.id === kpiId);
-        return k && (k.status === "draft" || k.status === "hold");
-      });
-      if (kpisToActivate.length > 0) {
-        await supabase.from("kpis").update({ status: "active" }).in("id", kpisToActivate);
-      }
-      router.push("/dashboard/head/penugasan");
-    } catch {
-      setError("Gagal menugaskan KPI. Coba lagi.");
-    } finally {
-      setSubmitting(false);
     }
+
+    if (payload.length === 0) {
+      setError("Semua kombinasi sudah memiliki penugasan aktif.");
+      setSubmitting(false);
+      return;
+    }
+
+    const res = await createAssignments.mutate({ year, month, rows: payload });
+    setSubmitting(false);
+
+    if (!res.ok) {
+      setError(res.error ?? "Gagal menugaskan KPI. Coba lagi.");
+      return;
+    }
+
+    router.push("/dashboard/head/penugasan");
   }
 
   return (
@@ -190,7 +189,7 @@ export default function HeadNewAssignmentPage() {
           </button>
           <h2 className="text-base font-semibold">Tugaskan KPI</h2>
           <p className="text-xs text-muted-foreground">
-            Langkah {step} dari 2 — {monthName(month)} {year} · {managedDepartments.join(", ")}
+            Langkah {step} dari 2 — {monthName(month)} {year} · {managedDepartmentNames.join(", ") || "tanpa divisi"}
           </p>
         </div>
         <Input

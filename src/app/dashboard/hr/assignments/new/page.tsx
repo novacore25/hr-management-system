@@ -2,14 +2,14 @@
 
 import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
 import { useKpis } from "@/hooks/useKpis";
 import { useAllUsers } from "@/hooks/useUsers";
 import { useAllAssignments } from "@/hooks/useAssignments";
+import { useApiMutation } from "@/hooks/useApi";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { getWorkingDaysInMonth, getBrandColor, monthName } from "@/lib/utils";
+import { getBrandColor, monthName } from "@/lib/utils";
 import { Search, ChevronLeft } from "lucide-react";
 import { getKpiRole } from "@/types";
 
@@ -45,6 +45,11 @@ export default function NewAssignmentPage() {
   const { users } = useAllUsers();
   const { assignments } = useAllAssignments(year, month);
 
+  const createAssignments = useApiMutation<unknown, unknown>(
+    "/api/assignments",
+    "POST",
+  );
+
   const [step, setStep] = useState<1 | 2>(1);
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
   const [selectedKpis, setSelectedKpis] = useState<Record<string, string>>({});
@@ -53,8 +58,6 @@ export default function NewAssignmentPage() {
   const [kpiSearch, setKpiSearch] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
-
-  const workingDays = getWorkingDaysInMonth(year, month);
   const activeKpis = kpis.filter((k) => !k.deletedAt && k.status !== "cancelled");
   const assignableUsers = users.filter((u) => u.absensiStatus === "active" && !u.isHidden);
   const userMap = Object.fromEntries(users.map((u) => [u.id, u]));
@@ -131,74 +134,56 @@ export default function NewAssignmentPage() {
     setStep(2);
   }
 
+  /**
+   * formerly: insert langsung ke `kpi_assignments` dari browser, lalu
+   * operasi kedua untuk mengaktifkan KPI yang masih draft/hold.
+   *
+   * Dua masalahnya:
+   *   - `department_id` dicari dari tabel `departments` pakai NAMA. Kalau
+   *     ada divisi yang namanya berubah atau dobel, assignment Ends up
+   *     tanpa divisi dan jadi tidak muncul di filter mana pun.
+   *   - Dua request terpisah. Kalau operasi kedua gagal, KPI tetap draft
+   *     padahal sudah ada assignment aktif.
+   *
+   * sekarang: satu POST. Divisi dibaca dari `users.department_id` dan KPI
+   * draft diaktifkan dalam satu transaksi di DAL.
+   */
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
     setSubmitting(true);
-    try {
-      const supabase = createClient();
 
-      // Build department name → UUID map
-      const deptNames = [...new Set(
-        checkedKpiIds.map((kpiId) => kpis.find((k) => k.id === kpiId)?.department ?? "").filter(Boolean)
-      )];
-      const { data: deptRows } = await supabase.from("departments").select("id, name").in("name", deptNames);
-      const deptIdByName: Record<string, string> = {};
-      (deptRows ?? []).forEach((d: any) => { deptIdByName[d.name] = d.id; });
-
-      const toInsert: Record<string, unknown>[] = [];
-      for (const userId of selectedUserIds) {
-        for (const kpiId of checkedKpiIds) {
-          if (existingSet.has(`${userId}-${kpiId}`)) continue;
-          const kpi = kpis.find((k) => k.id === kpiId)!;
-          const targetStr = perUserTargets[userId]?.[kpiId] ?? selectedKpis[kpiId];
-          const perPersonTarget = parseFloat(targetStr);
-          if (!(perPersonTarget > 0)) continue;
-          const dailyTarget = workingDays > 0 ? Math.ceil(perPersonTarget / workingDays) : 0;
-          toInsert.push({
-            kpi_id: kpiId,
-            user_id: userId,
-            department_id: deptIdByName[kpi.department] ?? null,
-            status: "active",
-            monthly_target: perPersonTarget,
-            current_daily_target: dailyTarget,
-            actual_total: 0,
-            expected_total: 0,
-            achievement_percentage: 0,
-            performance_category: "warning",
-            working_days_total: workingDays,
-            working_days_elapsed: 0,
-            working_days_remaining: workingDays,
-            active_days: 0,
-            year,
-            month,
-          });
-        }
+    const payload: Record<string, unknown>[] = [];
+    for (const userId of selectedUserIds) {
+      for (const kpiId of checkedKpiIds) {
+        if (existingSet.has(`${userId}-${kpiId}`)) continue;
+        const targetStr = perUserTargets[userId]?.[kpiId] ?? selectedKpis[kpiId];
+        const perPersonTarget = parseFloat(targetStr);
+        if (!(perPersonTarget > 0)) continue;
+        payload.push({
+          kpiId,
+          userId,
+          monthlyTarget: perPersonTarget,
+        });
       }
-
-      if (toInsert.length === 0) {
-        setError("Semua kombinasi yang dipilih sudah memiliki penugasan aktif.");
-        setSubmitting(false);
-        return;
-      }
-
-      const { error: insertErr } = await supabase.from("kpi_assignments").insert(toInsert as any);
-      if (insertErr) throw insertErr;
-
-      // Auto-activate KPIs that were draft/hold
-      const kpisToActivate = checkedKpiIds.filter((kpiId) => {
-        const k = kpis.find((k) => k.id === kpiId);
-        return k && (k.status === "draft" || k.status === "hold");
-      });
-      if (kpisToActivate.length > 0) {
-        await supabase.from("kpis").update({ status: "active" }).in("id", kpisToActivate);
-      }
-      router.push("/dashboard/hr/assignments");
-    } catch {
-      setError("Gagal menugaskan KPI. Coba lagi.");
-    } finally {
-      setSubmitting(false);
     }
+
+    if (payload.length === 0) {
+      setError("Semua kombinasi yang dipilih sudah memiliki penugasan aktif.");
+      setSubmitting(false);
+      return;
+    }
+
+    const res = await createAssignments.mutate({ year, month, rows: payload });
+
+    setSubmitting(false);
+
+    if (!res.ok) {
+      setError(res.error ?? "Gagal menugaskan KPI. Coba lagi.");
+      return;
+    }
+
+    router.push("/dashboard/hr/assignments");
   }
 
   return (

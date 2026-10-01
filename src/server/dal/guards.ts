@@ -32,6 +32,22 @@ export class ForbiddenError extends Error {
   }
 }
 
+/**
+ * Masukan tidak valid — 400, bukan 500.
+ *
+ * Tanpa kelas ini, validasi di DAL yang melempar `Error` biasa sampai ke
+ * browser sebagai "Terjadi kesalahan di server." (500) tanpa pesan yang
+ * bisa dibaca user. Itu yang terjadi kalau KPI yang dipilih tidak
+ * ditemukan atau periodenya tidak cocok dengan assignment.
+ */
+export class ValidationError extends Error {
+  status = 400;
+  constructor(msg: string) {
+    super(msg);
+    this.name = "ValidationError";
+  }
+}
+
 export type SessionUser = {
   id: string;
   email: string;
@@ -176,7 +192,11 @@ export async function withAuth<T>(
     if (data instanceof Response) return data;
     return Response.json({ ok: true, data });
   } catch (e) {
-    if (e instanceof UnauthorizedError || e instanceof ForbiddenError) {
+    if (
+      e instanceof UnauthorizedError ||
+      e instanceof ForbiddenError ||
+      e instanceof ValidationError
+    ) {
       return Response.json(
         { ok: false, error: e.message },
         { status: e.status },

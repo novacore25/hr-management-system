@@ -2,19 +2,17 @@
 
 import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
 import { useKpis } from "@/hooks/useKpis";
-import { useDivisionMembers } from "@/hooks/useUsers";
-import { useDivisionAssignments } from "@/hooks/useAssignments";
-import { useAllKpiSettings } from "@/hooks/useKpiSettings";
-import { useAuth } from "@/contexts/AuthContext";
+import { useManagedMembers } from "@/hooks/useUsers";
+import { useManagedAssignments } from "@/hooks/useAssignments";
+import { useManagedKpiSettings } from "@/hooks/useKpiSettings";
+import { useApiMutation } from "@/hooks/useApi";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { PerformanceBadge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import {
-  getWorkingDaysInMonth,
   formatPercentage,
   formatNumber,
   getPerformanceCategory,
@@ -36,14 +34,13 @@ const typeColor: Record<string, string> = {
 
 export default function HeadPenugasanPage() {
   const router = useRouter();
-  const { user: currentUser } = useAuth();
-  const { getWeights } = useAllKpiSettings();
+  /**
+   * formerly: `useAllKpiSettings` (scope=all), yang menolak Head dengan 403.
+   * Skor tim punyanya lalu diam-diam memakai DEFAULT_WEIGHTS — bukan bobot
+   * yang benar-benar disetel HR. Tidak ada error, hanya angka yang beda.
+   */
+  const { getWeights } = useManagedKpiSettings();
   const now = new Date();
-
-  const managedDepartments: string[] =
-    currentUser?.managedDepartments && currentUser.managedDepartments.length > 0
-      ? currentUser.managedDepartments
-      : currentUser?.department ? [currentUser.department] : [];
 
   const [selectedMonth, setSelectedMonth] = useState(
     () => `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`
@@ -51,8 +48,24 @@ export default function HeadPenugasanPage() {
   const [year, month] = selectedMonth.split("-").map(Number);
 
   const { kpis } = useKpis(year, month);
-  const { members: users } = useDivisionMembers(managedDepartments);
-  const { assignments, isLoading } = useDivisionAssignments(managedDepartments, year, month, ["active", "hold", "cancelled"]);
+
+  /**
+   * formerly: `useDivisionMembers(managedDepartments)` dan
+   * `useDivisionAssignments(managedDepartments, ...)` dengan daftar divisi
+   * dari AuthContext — jadi Head bisa mengubahnya dan melihat divisi lain.
+   * Sekarang server yang membaca `users.managed_departments`.
+   */
+  const { members: users } = useManagedMembers();
+  const { assignments, isLoading, refresh } = useManagedAssignments(year, month, [
+    "active",
+    "hold",
+    "cancelled",
+  ]);
+
+  const patchAssignment = useApiMutation<Record<string, unknown>, unknown>(
+    "/api/assignments",
+    "PATCH",
+  );
 
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -60,12 +73,25 @@ export default function HeadPenugasanPage() {
   const [editValue, setEditValue] = useState("");
   const [listSearch, setListSearch] = useState("");
 
-  const workingDays = getWorkingDaysInMonth(year, month);
-
-  const deptUserIds = useMemo(
-    () => new Set(users.filter((u) => managedDepartments.includes(u.department ?? "")).map((u) => u.id)),
-    [users, managedDepartments]
+  /**
+   * Nama divisi untuk judul halaman.
+   *
+   * formerly ini daftar divisi dari AuthContext; sekarang diturunkan dari
+   * user yang sudah difilter server — supaya yang tampil dan yang bisa
+   * diakses tidak mungkin berbeda.
+   */
+  const managedDepartmentNames = useMemo(
+    () => [...new Set(users.map((u) => u.department ?? "").filter(Boolean))].sort(),
+    [users],
   );
+
+  /**
+   * formerly: penyaringan per user dilakukan di client dari daftar member
+   * divisi. Sekarang `listManagedAssignments` sudah menyaring di SQL, jadi
+   * ini hanya memastikan baris takorter yang tidak punya user tidak muncul
+   * sebagai kelompok kosong.
+   */
+  const deptUserIds = useMemo(() => new Set(users.map((u) => u.id)), [users]);
   const userMap = Object.fromEntries(users.map((u) => [u.id, u]));
   const kpiMap = Object.fromEntries(kpis.map((k) => [k.id, k]));
 
@@ -98,40 +124,52 @@ export default function HeadPenugasanPage() {
     return filtered.sort((a, b) => (userMap[a]?.name ?? a).localeCompare(userMap[b]?.name ?? b));
   }, [groupedByUser, userMap, kpiMap, listSearch]);
 
-  async function handleStatusChange(a: KpiAssignment, newStatus: "active" | "hold" | "cancelled") {
+  /**
+   * formerly: `supabase.from("kpi_assignments").update(...).eq("id", a.id)`
+   * dari browser. Satu Head bisa membatalkan penugasan divisi mana pun
+   * hanya dengan mengubah `id`; tidak ada cek divisi sama sekali.
+   *
+   * sekarang: PATCH /api/assignments, dan server menolak assignment di
+   * luar divisi yang dikelola. `held_at` / `cancelled_at` juga diisi
+   * server.
+   */
+  async function handleStatusChange(
+    a: KpiAssignment,
+    newStatus: "active" | "hold" | "cancelled",
+  ) {
     setActionLoading(a.id);
     setActionError(null);
-    try {
-      const supabase = createClient();
-      const update: Record<string, unknown> = { status: newStatus };
-      if (newStatus === "hold") update.held_at = new Date().toISOString();
-      if (newStatus === "cancelled") update.cancelled_at = new Date().toISOString();
-      if (newStatus === "active") update.held_at = null;
-      const { error } = await supabase.from("kpi_assignments").update(update as any).eq("id", a.id);
-      if (error) throw error;
-    } catch (err) {
-      console.error(err);
-      setActionError("Gagal memperbarui status. Coba lagi.");
-    } finally {
-      setActionLoading(null);
+    const res = await patchAssignment.mutate({
+      id: a.id,
+      action: "set-status",
+      status: newStatus,
+    });
+    setActionLoading(null);
+
+    if (res.ok) {
+      setActionError(null);
+      void refresh();
+    } else {
+      setActionError(res.error ?? "Gagal memperbarui status. Coba lagi.");
     }
   }
 
   async function handleEditTarget(a: KpiAssignment, newTarget: number) {
     setActionLoading(a.id);
     setActionError(null);
-    try {
-      const supabase = createClient();
-      const { error } = await supabase.from("kpi_assignments").update({
-        monthly_target: newTarget,
-      }).eq("id", a.id);
-      if (error) throw error;
+    const res = await patchAssignment.mutate({
+      id: a.id,
+      action: "set-target",
+      monthlyTarget: newTarget,
+    });
+    setActionLoading(null);
+
+    if (res.ok) {
       setEditingId(null);
-    } catch (err) {
-      console.error(err);
-      setActionError("Gagal memperbarui target. Coba lagi.");
-    } finally {
-      setActionLoading(null);
+      setActionError(null);
+      void refresh();
+    } else {
+      setActionError(res.error ?? "Gagal memperbarui target. Coba lagi.");
     }
   }
 
@@ -155,7 +193,7 @@ export default function HeadPenugasanPage() {
         <div>
           <h2 className="text-base font-semibold">Penugasan KPI Tim</h2>
           <p className="text-sm text-muted-foreground">
-            {Object.keys(groupedByUser).length} karyawan · {managedDepartments.join(", ")} · {monthName(month)} {year}
+            {Object.keys(groupedByUser).length} karyawan · {managedDepartmentNames.join(", ") || "tanpa divisi"} · {monthName(month)} {year}
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">

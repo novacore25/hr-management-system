@@ -10,6 +10,8 @@ export const dynamic = "force-dynamic";
  *   id=<userId>        → satu user
  *   scope=active       → user aktif (default)
  *   scope=all          → semua user (butuh role hr/executive)
+ *   scope=managed      → member divisi yang dikelola aktornya + aktornya
+ *                        sendiri (divisi dibaca dari `users.managed_departments`)
  *   department=<a,b>   → filter member divisi (berdasarkan NAMA divisi)
  */
 export async function GET(request: Request) {
@@ -64,6 +66,32 @@ export async function GET(request: Request) {
       await requireKpiRole("hr", "executive");
       const { listAllUsers } = await import("@/server/dal/users");
       return { users: await listAllUsers() };
+    }
+
+    if (scope === "managed") {
+      // Divisi dibaca dari `users.managed_departments` milik aktornya.
+      // Halaman head/* sebelumnya mengambil daftar ini dari AuthContext
+      // lalu mengirimkannya sebagai filter — bisa dimanipulasi di browser.
+      const { requireKpiRole, requireProfile } = await import(
+        "@/server/dal/guards"
+      );
+      await requireKpiRole("head", "hr", "executive");
+      const profile = await requireProfile();
+
+      const isSuperRole = ["hr", "executive", "developer"].includes(
+        profile.kpiRole,
+      );
+      const managedDepartments = Array.isArray(profile.managedDepartments)
+        ? profile.managedDepartments
+        : [];
+
+      const { listManagedMembers } = await import("@/server/dal/users");
+      return {
+        users: await listManagedMembers(
+          isSuperRole ? null : managedDepartments,
+          profile.id,
+        ),
+      };
     }
 
     await requireUser();

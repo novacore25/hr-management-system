@@ -1,6 +1,6 @@
 import "server-only";
 import { db } from "@/db";
-import { eq, and, or, ne, sql } from "drizzle-orm";
+import { eq, and, or, ne, inArray, sql } from "drizzle-orm";
 import { users, departments } from "@/db/schema";
 import type { User } from "@/types";
 
@@ -126,6 +126,54 @@ export async function listUsersByDepartment(
         ),
       ),
     )
+    .orderBy(users.name);
+
+  return rows.map((r) => toUser(r as UserRow));
+}
+
+/**
+ * Member divisi yang dikelola Head, plus Head-nya sendiri.
+ *
+ * `managedDepartmentIds` SELALU berasal dari `users.managed_departments`
+ * di server. Halaman head/* sebelumnya mengambil daftar itu dari
+ * `AuthContext` di browser lalu mengirimkannya sebagai filter — jadi
+ * Head tinggal mengubah nilai itu untuk melihat siapa saja di tim lain.
+ *
+ * Head sendiri sering tidak punya `department_id` (dia undivided), jadi
+ * tanpa `OR id = aktornya` dia tidak akan bisa menugaskan KPI ke dirinya
+ * sendiri dari halaman penugasan.
+ *
+ * `null` berarti semua divisi (untuk HR/Executive/Developer).
+ */
+export async function listManagedMembers(
+  managedDepartmentIds: string[] | null,
+  selfUserId: string,
+): Promise<User[]> {
+  const conds = [
+    or(
+      eq(users.absensiStatus, "active"),
+      eq(users.absensiStatus, "pending"),
+    ),
+  ];
+
+  if (managedDepartmentIds) {
+    if (managedDepartmentIds.length === 0) {
+      conds.push(eq(users.id, selfUserId));
+    } else {
+      conds.push(
+        or(
+          inArray(users.departmentId, managedDepartmentIds),
+          eq(users.id, selfUserId),
+        )!,
+      );
+    }
+  }
+
+  const rows = await db
+    .select(userWithDept)
+    .from(users)
+    .leftJoin(departments, eq(users.departmentId, departments.id))
+    .where(and(...conds))
     .orderBy(users.name);
 
   return rows.map((r) => toUser(r as UserRow));

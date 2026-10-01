@@ -84,6 +84,46 @@ export function useAllAssignments(
 }
 
 /**
+ * Assignment milik divisi yang dikelola Head, plus miliknya sendiri.
+ *
+ * Tidak menerima daftar divisi dari pemanggil — server yang membacanya dari
+ * `users.managed_departments`. Halaman lama mengirim daftar itu dari
+ * AuthContext, jadi bisa dimanipulasi di browser.
+ */
+export function useManagedAssignments(
+  year: number,
+  month: number,
+  statuses?: AssignmentStatus[],
+) {
+  const statusKey = statuses?.join(",") ?? "active";
+
+  const build = useCallback(
+    () =>
+      withQuery("/api/assignments", {
+        scope: "managed",
+        year,
+        month,
+        status: statusKey,
+      }),
+    [year, month, statusKey],
+  );
+
+  const { data, isLoading, error, refetch } =
+    useApiQuery<{ assignments: KpiAssignmentWithDetails[] }>(build, [
+      year,
+      month,
+      statusKey,
+    ]);
+
+  return {
+    assignments: data?.assignments ?? [],
+    isLoading,
+    error,
+    refresh: refetch,
+  };
+}
+
+/**
  * Assignment milik satu atau beberapa divisi.
  *
  * `department` boleh berupa id (string) atau array of id — Head bisa

@@ -49,6 +49,22 @@ function useUsersQuery<T>(
   return { data, isLoading, error, refetch };
 }
 
+/**
+ * Member divisi yang dikelola Head, plus Head-nya sendiri.
+ *
+ * Tidak menerima daftar divisi dari pemanggil — server yang membacanya dari
+ * `users.managed_departments`. Halaman lama mengirim daftar itu dari
+ * AuthContext, jadi bisa dimanipulasi di browser.
+ */
+export function useManagedMembers() {
+  const { data, isLoading, error } = useUsersQuery<{ users: User[] }>(
+    "/api/users?scope=managed",
+    [],
+  );
+
+  return { members: data?.users ?? [], isLoading, error };
+}
+
 /** Member sebuah atau beberapa divisi. */
 export function useDivisionMembers(department: string | string[] | undefined) {
   const deptNames = Array.isArray(department) ? department : department ? [department] : [];

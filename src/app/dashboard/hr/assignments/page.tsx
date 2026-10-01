@@ -2,11 +2,11 @@
 
 import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
 import { useKpis } from "@/hooks/useKpis";
 import { useAllUsers } from "@/hooks/useUsers";
 import { useAllAssignments } from "@/hooks/useAssignments";
 import { useAllKpiSettings } from "@/hooks/useKpiSettings";
+import { useApiMutation } from "@/hooks/useApi";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -47,8 +47,13 @@ export default function HrAssignmentsPage() {
 
   const { kpis } = useKpis(year, month);
   const { users } = useAllUsers();
-  const { assignments, isLoading } = useAllAssignments(year, month);
+  const { assignments, isLoading, refresh } = useAllAssignments(year, month);
   const { getWeights } = useAllKpiSettings();
+
+  const patchAssignment = useApiMutation<Record<string, unknown>, unknown>(
+    "/api/assignments",
+    "PATCH",
+  );
 
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -103,22 +108,33 @@ export default function HrAssignmentsPage() {
     });
   }, [groupedByUser, userMap, kpiMap, listSearch, listSort, getWeights]);
 
-  async function handleStatusChange(a: KpiAssignment, newStatus: "active" | "hold" | "cancelled") {
+  /**
+   * formerly: `supabase.from("kpi_assignments").update(...).eq("id", a.id)`
+   * dari browser. `held_at` / `cancelled_at` diisi dari jam lokal
+   * peramban, dan tidak ada cek Ownership sama sekali.
+   *
+   * sekarang: PATCH /api/assignments. Timestamp ditulis server, dan
+   * audit trail masuk ke `kpi_histories` (sebelumnya tidak ada sama
+   * sekali untuk perubahan ini).
+   */
+  async function handleStatusChange(
+    a: KpiAssignment,
+    newStatus: "active" | "hold" | "cancelled",
+  ) {
     setActionLoading(a.id);
     setActionError(null);
-    try {
-      const supabase = createClient();
-      const update: Record<string, unknown> = { status: newStatus };
-      if (newStatus === "hold") update.held_at = new Date().toISOString();
-      if (newStatus === "cancelled") update.cancelled_at = new Date().toISOString();
-      if (newStatus === "active") update.held_at = null;
-      const { error } = await supabase.from("kpi_assignments").update(update as any).eq("id", a.id);
-      if (error) throw error;
-    } catch (err) {
-      console.error(err);
-      setActionError("Gagal memperbarui status. Coba lagi.");
-    } finally {
-      setActionLoading(null);
+    const res = await patchAssignment.mutate({
+      id: a.id,
+      action: "set-status",
+      status: newStatus,
+    });
+    setActionLoading(null);
+
+    if (res.ok) {
+      setActionError(null);
+      void refresh();
+    } else {
+      setActionError(res.error ?? "Gagal memperbarui status. Coba lagi.");
     }
   }
 
@@ -126,21 +142,19 @@ export default function HrAssignmentsPage() {
     setActionLoading(a.id);
     setActionError(null);
 
-    const dailyTarget = workingDays > 0 ? Math.ceil(newTarget / workingDays) : 0;
+    const res = await patchAssignment.mutate({
+      id: a.id,
+      action: "set-target",
+      monthlyTarget: newTarget,
+    });
+    setActionLoading(null);
 
-    try {
-      const supabase = createClient();
-      const { error } = await supabase.from("kpi_assignments").update({
-        monthly_target: newTarget,
-      }).eq("id", a.id);
-
-      if (error) throw error;
+    if (res.ok) {
       setEditingId(null);
-    } catch (err) {
-      console.error(err);
-      setActionError("Gagal memperbarui target. Coba lagi.");
-    } finally {
-      setActionLoading(null);
+      setActionError(null);
+      void refresh();
+    } else {
+      setActionError(res.error ?? "Gagal memperbarui target. Coba lagi.");
     }
   }
 

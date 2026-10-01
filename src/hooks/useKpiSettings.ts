@@ -95,3 +95,37 @@ export function useAllKpiSettings() {
     refresh: refetch,
   };
 }
+
+/**
+ * Bobot user di divisi yang dikelola Head.
+ *
+ * Hook `useAllKpiSettings` (scope=all) menolak Head dengan 403, jadi
+ * halaman head/* diam-diam memakai DEFAULT_WEIGHTS untuk skor timnya —
+ * bukan bobot yang benar-benar disetel HR. Hook ini memakai
+ * `scope=managed`.
+ */
+export function useManagedKpiSettings() {
+  const build = useCallback(() => "/api/kpi-settings?scope=managed", []);
+
+  const { data, isLoading, error, refetch } = useApiQuery<{
+    weights: Record<string, Weights>;
+    defaults: Weights;
+  }>(build, []);
+
+  const map = data?.weights ?? {};
+  const defaults = data?.defaults ?? DEFAULT_KPI_WEIGHTS;
+
+  const getWeights = useCallback(
+    (uid: string): Weights => map[uid] ?? defaults,
+    [map, defaults],
+  );
+
+  return {
+    settingsByUser: map,
+    defaults,
+    getWeights,
+    isLoading,
+    error,
+    refresh: refetch,
+  };
+}

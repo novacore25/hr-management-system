@@ -47,10 +47,6 @@ const ALLOWLIST = [
   "app/dashboard/developer/feedbacks/page.tsx",
   "app/dashboard/developer/import/page.tsx",
   "app/dashboard/head/kpi-setup/page.tsx",
-  "app/dashboard/head/penugasan/new/page.tsx",
-  "app/dashboard/head/penugasan/page.tsx",
-  "app/dashboard/hr/assignments/new/page.tsx",
-  "app/dashboard/hr/assignments/page.tsx",
   "app/dashboard/hr/employees/page.tsx",
   "app/dashboard/hr/kpi/page.tsx",
   

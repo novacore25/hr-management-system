@@ -1,8 +1,14 @@
-import { withAuth, requireUser, requireKpiRole } from "@/server/dal/guards";
+import {
+  withAuth,
+  requireUser,
+  requireProfile,
+  requireKpiRole,
+} from "@/server/dal/guards";
 import {
   listUserAssignments,
   listAllAssignments,
   listDepartmentAssignments,
+  listManagedAssignments,
   listUserAssignmentsInRange,
   findAssignmentById,
   createAssignments,
@@ -10,7 +16,10 @@ import {
   setAssignmentTarget,
   deleteAssignment,
 } from "@/server/dal/assignments";
-import { getWorkingDaysInMonth, getWorkingDaysElapsed } from "@/lib/performance";
+import { getWorkingDaysInMonth } from "@/lib/performance";
+import { db } from "@/db";
+import { eq, inArray, sql } from "drizzle-orm";
+import { kpiAssignments, users } from "@/db/schema";
 import type { AssignmentStatus } from "@/types";
 
 export const dynamic = "force-dynamic";
@@ -81,13 +90,48 @@ export async function GET(request: Request) {
       return { assignments: await listAllAssignments(year, month, statuses) };
     }
 
+    if (scope === "managed") {
+      // Divisi dibaca dari `users.managed_departments` milik aktornya,
+      // bukan dari query string. Head tidak bisa menunjuk divisi lain.
+      const profile = await requireProfile();
+      const managedDepartments = Array.isArray(profile.managedDepartments)
+        ? profile.managedDepartments
+        : [];
+      return {
+        assignments: await listManagedAssignments(
+          managedDepartments,
+          year,
+          month,
+          statuses,
+          profile.id,
+        ),
+      };
+    }
+
     if (scope === "department") {
-      await requireKpiRole("head", "hr", "executive");
+      const profile = await requireKpiRole("head", "hr", "executive");
       const deptId = searchParams.get("departmentId");
       if (!deptId) {
         return Response.json(
           { ok: false, error: "Parameter 'departmentId' wajib diisi." },
           { status: 400 },
+        );
+      }
+      // Head hanya boleh membaca divisi yang dia kelola. HR/Executive/
+      // Developer boleh semua.
+      const isSuperRole = ["hr", "executive", "developer"].includes(
+        profile.kpiRole,
+      );
+      if (
+        !isSuperRole &&
+        !(
+          Array.isArray(profile.managedDepartments) &&
+          profile.managedDepartments.includes(deptId)
+        )
+      ) {
+        return Response.json(
+          { ok: false, error: "Divisi itu bukan milik Anda." },
+          { status: 403 },
         );
       }
       return {
@@ -107,52 +151,134 @@ export async function GET(request: Request) {
   });
 }
 
-/** POST /api/assignments — buat assignment baru. HR/Executive/Developer. */
+/**
+ * POST /api/assignments — buat assignment baru.
+ *
+ * Head boleh, tapi hanya untuk user di divisi yang dia kelola. Dulu
+ * halaman /dashboard/head/penugasan/new menulis langsung ke
+ * `kpi_assignments` dari browser, jadi Head bisa menugaskan KPI ke user
+ * divisi mana pun. `departmentId` dari client tidak dipercaya; divisi
+ * selalu diambil dari `users.department_id`.
+ */
 export async function POST(request: Request) {
   return withAuth(async () => {
-    const actor = await requireKpiRole("hr", "executive");
+    const actor = await requireKpiRole("head", "hr", "executive");
     const body = await request.json();
-    const rows: unknown[] = Array.isArray(body) ? body : [body];
 
-    const year = num(String(body?.year), new Date().getFullYear());
-    const month = num(String(body?.month), new Date().getMonth() + 1);
+    // Dua bentuk payload yang diterima:
+    //   { year, month, rows: [...] }  ← preferred
+    //   [ { kpiId, userId, ... }, ... ] ← legacy
+    //
+    // `year` / `month` harus dibaca dari elemen pertama kalau payload-nya
+    // array. formerly `body?.year` mengembalikan undefined untuk array,
+    // lalu jatuh ke bulan berjalan — bulk import untuk bulan lain
+    // menulis ke bulan yang salah tanpa error.
+    const rows: unknown[] = Array.isArray(body)
+      ? body
+      : Array.isArray(body?.rows)
+        ? body.rows
+        : [body];
+
+    const meta = Array.isArray(body)
+      ? (body.find((r) => r && typeof r === "object" && r.year !== undefined) ??
+        {})
+      : body;
+    const year = num(String(meta?.year), new Date().getFullYear());
+    const month = num(String(meta?.month), new Date().getMonth() + 1);
+
+    if (!Number.isInteger(month) || month < 1 || month > 12) {
+      return Response.json(
+        { ok: false, error: "Parameter 'month' harus 1-12." },
+        { status: 400 },
+      );
+    }
 
     const workingDaysTotal = getWorkingDaysInMonth(year, month);
-    const workingDaysElapsed = getWorkingDaysElapsed(
-      year,
-      month,
-      new Date().getDate(),
-    );
 
-    const inputs = rows
+    const draft = rows
       .filter((r): r is Record<string, unknown> => !!r)
       .filter((r) => r.kpiId && r.userId)
       .map((r) => ({
         kpiId: String(r.kpiId),
         userId: String(r.userId),
-        departmentId: r.departmentId ? String(r.departmentId) : null,
         monthlyTarget: Number(r.monthlyTarget ?? 0),
-        year,
-        month,
-        workingDaysTotal,
-        assignedBy: actor.id,
       }));
 
-    if (inputs.length === 0) {
+    if (draft.length === 0) {
       return Response.json(
         { ok: false, error: "Data assignment tidak valid." },
         { status: 400 },
       );
     }
 
+    const badTarget = draft.find((r) => !Number.isFinite(r.monthlyTarget) || r.monthlyTarget <= 0);
+    if (badTarget) {
+      return Response.json(
+        { ok: false, error: "Target harus angka dan lebih besar dari 0." },
+        { status: 400 },
+      );
+    }
+
+    // Divisi SELALU dari tabel `users`, bukan dari payload.
+    const targetRows = await db
+      .select({ id: users.id, departmentId: users.departmentId })
+      .from(users)
+      .where(inArray(users.id, [...new Set(draft.map((r) => r.userId))]));
+    const deptByUser = new Map(targetRows.map((r) => [r.id, r.departmentId]));
+
+    const unknownUser = draft.find((r) => !deptByUser.has(r.userId));
+    if (unknownUser) {
+      return Response.json(
+        { ok: false, error: `User ${unknownUser.userId} tidak ditemukan.` },
+        { status: 400 },
+      );
+    }
+
+    const isSuperRole = ["hr", "executive", "developer"].includes(actor.kpiRole);
+    const managedDepartments = Array.isArray(actor.managedDepartments)
+      ? actor.managedDepartments
+      : [];
+
+    if (!isSuperRole) {
+      const outside = draft.find((r) => {
+        const dept = deptByUser.get(r.userId);
+        // Tanpa divisi tidak bisa dicocokkan dengan daftar yang dikelola.
+        return !dept || !managedDepartments.includes(dept);
+      });
+      if (outside) {
+        return Response.json(
+          { ok: false, error: "Ada user di luar divisi yang Anda kelola." },
+          { status: 403 },
+        );
+      }
+    }
+
+    const inputs = draft.map((r) => ({
+      kpiId: r.kpiId,
+      userId: r.userId,
+      departmentId: deptByUser.get(r.userId) ?? null,
+      monthlyTarget: r.monthlyTarget,
+      year,
+      month,
+      workingDaysTotal,
+      assignedBy: actor.id,
+    }));
+
     return createAssignments(inputs);
   });
 }
 
-/** PATCH /api/assignments — ubah status / target. */
+/**
+ * PATCH /api/assignments — ubah status / target.
+ *
+ * Head boleh, tapi hanya untuk assignment milik divisi yang dia kelola
+ * (atau miliknya sendiri). formerly halaman /dashboard/head/penugasan
+ * menulis `kpi_assignments` langsung dari browser, jadi satu Head bisa
+ * membatalkan penugasan divisi mana pun hanya dengan mengubah `id`.
+ */
 export async function PATCH(request: Request) {
   return withAuth(async () => {
-    const actor = await requireKpiRole("hr", "executive");
+    const actor = await requireKpiRole("head", "hr", "executive");
     const { id, action, status, monthlyTarget } = await request.json();
 
     if (!id) {
@@ -162,6 +288,40 @@ export async function PATCH(request: Request) {
       );
     }
 
+    const [target] = await db
+      .select({
+        userId: sql<string>`${kpiAssignments.userId}`,
+        departmentId: sql<string | null>`${kpiAssignments.departmentId}`,
+      })
+      .from(kpiAssignments)
+      .where(eq(kpiAssignments.id, String(id)))
+      .limit(1);
+
+    if (!target) {
+      return Response.json(
+        { ok: false, error: "Assignment tidak ditemukan." },
+        { status: 404 },
+      );
+    }
+
+    const isSuperRole = ["hr", "executive", "developer"].includes(actor.kpiRole);
+    if (!isSuperRole) {
+      const managedDepartments = Array.isArray(actor.managedDepartments)
+        ? actor.managedDepartments
+        : [];
+      const allowed =
+        target.userId === actor.id ||
+        (target.departmentId !== null &&
+          managedDepartments.includes(target.departmentId));
+
+      if (!allowed) {
+        return Response.json(
+          { ok: false, error: "Assignment ini di luar divisi yang Anda kelola." },
+          { status: 403 },
+        );
+      }
+    }
+
     if (action === "set-status") {
       if (!VALID_STATUS.includes(status)) {
         return Response.json(
@@ -169,13 +329,20 @@ export async function PATCH(request: Request) {
           { status: 400 },
         );
       }
-      await setAssignmentStatus(id, status, actor.id);
-      return { assignment: await findAssignmentById(id) };
+      await setAssignmentStatus(String(id), status, actor.id);
+      return { assignment: await findAssignmentById(String(id)) };
     }
 
     if (action === "set-target") {
-      await setAssignmentTarget(id, Number(monthlyTarget ?? 0), actor.id);
-      return { assignment: await findAssignmentById(id) };
+      const target_ = Number(monthlyTarget);
+      if (!Number.isFinite(target_) || target_ <= 0) {
+        return Response.json(
+          { ok: false, error: "Target harus angka dan lebih besar dari 0." },
+          { status: 400 },
+        );
+      }
+      await setAssignmentTarget(String(id), target_, actor.id);
+      return { assignment: await findAssignmentById(String(id)) };
     }
 
     return Response.json(

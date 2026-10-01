@@ -192,7 +192,32 @@ punya `department_id`, jadi filter `IN (divisi)` menyembunyikan KPI-nya
 sendiri. Karena itu perlu `OR user_id = aktornya`. Kalau tidak, Head
 melihat seluruh tim tapi tidak dirinya sendiri.
 
-## 11. Data asli belum dipindahkan
+## 11. Penugasan KPI: satu request, validasi di DAL
+
+**Pilihan:** `POST /api/assignments` menerima `{ year, month, rows[] }`,
+dan DAL yang sekaligus mengaktifkan KPI draft serta menghitung ulang
+target.
+
+**Alasan:** versi lama melakukan tiga hal dari browser: insert assignment,
+cari `department_id` dari tabel `departments` berdasarkan NAMA, lalu update
+`kpis.status`. Failure di tengah menyisakan keadaan setengah jadi — KPI
+draft padahal ada assignment aktif, atau assignment tanpa divisi karena
+nama divisi tidak cocok persis.
+
+**Yang decidesisi server:**
+- `department_id` dari `users.department_id`, bukan dari nama
+- divisi target harus di `managed_departments` aktornya (kalau Head)
+- `year`/`month` harus cocok dengan periode baris `kpis`
+- `monthly_target` harus > 0 dan finite
+- KPI dan user harus benar-benar ada
+
+**Sisa duplikat** tetap `onConflictDoNothing` dan dilaporkan sebagai
+`skipped`, bukan error — supaya bulk import tidak gagal di tengah jalan.
+UI sudah menghitung kombinasinya sendiri, jadi `skipped` ini lapisan kedua.
+
+---
+
+## 12. Data asli belum dipindahkan
 
 Keputusan sadar: **direct cutover**, bukan dual-sync.
 

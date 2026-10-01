@@ -77,7 +77,7 @@ overtime & payroll yang sengaja ditunda.
 
 ## Yang BELUM selesai
 
-### `/dashboard/**` — 10 halaman masih kosong
+### `/dashboard/**` — 6 halaman masih kosong
 
 Ini Prioritas 1. Semuanya memanggil stub sehingga tampil kosong, padahal
 fitur intinya sudah ada servernya.
@@ -87,16 +87,13 @@ fitur intinya sudah ada servernya.
 | `/dashboard/hr/kpi` | 14 | 817 baris — terbesar |
 | `/dashboard/hr/employees` | 3 | 432 |
 | `/dashboard/head/kpi-setup` | 4 | 330 |
-| `/dashboard/head/penugasan` | 2 | 332 |
-| `/dashboard/head/penugasan/new` | 3 | 388 |
 | `/dashboard/tim/history` | 3 | 345 |
-| `/dashboard/hr/assignments` | 2 | 391 |
-| `/dashboard/hr/assignments/new` | 3 | 538 |
 | `/dashboard/developer/import` | 5 | 661 |
 | `/dashboard/developer/feedbacks` | 2 | 192 |
 
-Sudah jadi: `/dashboard/hr/quality`, `/dashboard/head/quality`,
-`/dashboard/executive/quality`, `/dashboard/hr/evaluasi-hr`.
+Sudah jadi: 4 halaman kualitas (`hr`, `head`, `executive`,
+`hr/evaluasi-hr`) + 4 halaman penugasan (`head/penugasan`,
+`head/penugasan/new`, `hr/assignments`, `hr/assignments/new`).
 
 ### Halaman KPI kualitas — sudah selesai, dengan tiga perbaikan
 
@@ -158,6 +155,44 @@ Yang perlu diputuskan dulu:
   Perlu transformasi id.
 - Tabel `auth.users` tidak ikut; user harus login ulang dengan Google.
 - `session.strategy` sudah JWT, jadi tidak ada sesi lama yang perlu dibawa.
+
+---
+
+### Penugasan KPI — sudah selesai
+
+Empat halaman (`head/penugasan`, `head/penugasan/new`, `hr/assignments`,
+`hr/assignments/new`) pindah ke `/api/assignments` + `/api/kpi-settings`.
+
+Endpoint baru: `GET /api/assignments?scope=managed`,
+`GET /api/users?scope=managed`, `GET /api/kpi-settings?scope=managed`.
+
+Yang ditemukan:
+
+1. **Head bisa menugaskan & membatalkan KPI divisi mana pun.** formerly
+   `kpi_assignments` ditulis langsung dari browser dengan `.eq("id", ...)`.
+   Tidak ada cek divisi sama sekali — hanya dengan mengubah `id`, Head bisa
+   membatalkan penugasan orang lain. Sekarang `POST`/`PATCH` menolak
+   assignment di luar `managed_departments` aktornya.
+2. **`department_id` dicari dari NAMA divisi.** Kalau nama divisi berubah atau
+   dobel, assignment tersimpan tanpa divisi dan tidak muncul di filter mana
+   pun. Sekarang dibaca dari `users.department_id`.
+3. **Bulk import untuk bulan lain menulis ke bulan yang salah.** `year`/`month`
+   dibaca dari `body` yang berupa array → `undefined` → jatuh ke bulan
+   berjalan. Tidak ada error. Sekarang `{ year, month, rows }`.
+4. **Periode assignment tidak boleh beda dari periode KPI.** `kpis.monthlyTarget`
+   di-recalc dari SUM seluruh assignment KPI itu tanpa filter periode, jadi
+   satu assignment salah bulan merusak angka target KPI. Sekarang ditolak
+   dengan pesan yang menyebut periodenya.
+5. **Dua request terpisah: insert lalu aktifkan KPI draft.** Kalau yang kedua
+   gagal, KPI tetap draft padahal assignment aktif — dan form menyaring KPI
+   draft, jadi user tidak tahu kenapa KPI-nya tidak muncul. Sekarang satu
+   operasi di DAL.
+6. **Skor tim Head diam-diam salah.** Halaman Head memakai
+   `useAllKpiSettings` (scope=all) yang menolak Head dengan 403, lalu
+   `getWeights()` mengembalikan DEFAULT_WEIGHTS (50/30/20) — bukan bobot yang
+   benar-benar disetel HR. Tidak ada error, hanya angka yang beda.
+
+Verifikasi: `npm run verify:assignments` (70 assert).
 
 ---
 

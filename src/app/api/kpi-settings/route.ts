@@ -25,9 +25,77 @@ export async function GET(request: Request) {
       return { weights: await getAllWeights(), defaults: DEFAULT_WEIGHTS };
     }
 
+    if (searchParams.get("scope") === "managed") {
+      // Bobot hanya untuk user di divisi yang dikelola aktornya.
+      // formerly halaman /dashboard/head/penugasan memakai
+      // `useAllKpiSettings` (scope=all) supaya bisa menghitung skor tim,
+      // tapi endpoint itu butuh role hr/executive — jadi Head selalu dapat
+      // 403 dan skor timnya diam-diam memakai DEFAULT_WEIGHTS, bukan bobot
+      // asli yang disetel HR.
+      const { requireProfile } = await import("@/server/dal/guards");
+      await requireKpiRole("head", "hr", "executive");
+      const profile = await requireProfile();
+
+      const { listManagedMembers } = await import("@/server/dal/users");
+      const { getAllWeights, getUserWeights } = await import(
+        "@/server/dal/assignments"
+      );
+
+      const isSuperRole = ["hr", "executive", "developer"].includes(
+        profile.kpiRole,
+      );
+      const managedDepartments = Array.isArray(profile.managedDepartments)
+        ? profile.managedDepartments
+        : [];
+
+      const members = await listManagedMembers(
+        isSuperRole ? null : managedDepartments,
+        profile.id,
+      );
+
+      const all = await getAllWeights();
+      const weights: Record<string, Awaited<ReturnType<typeof getUserWeights>>> =
+        {};
+      for (const m of members) {
+        weights[m.id] = all[m.id] ?? DEFAULT_WEIGHTS;
+      }
+
+      return { weights, defaults: DEFAULT_WEIGHTS };
+    }
+
     const userId = searchParams.get("userId") ?? me.id;
     if (userId !== me.id) {
-      await requireKpiRole("hr", "executive");
+      const profile = await requireKpiRole("head", "hr", "executive");
+
+      // Head hanya boleh melihat bobot user di divisi yang dia kelola.
+      // Divisi dibaca dari `users.department_id`, bukan dari filter client.
+      if (!["hr", "executive", "developer"].includes(profile.kpiRole)) {
+        const { db } = await import("@/db");
+        const { users } = await import("@/db/schema");
+        const { eq } = await import("drizzle-orm");
+
+        const [target] = await db
+          .select({ id: users.id, departmentId: users.departmentId })
+          .from(users)
+          .where(eq(users.id, userId))
+          .limit(1);
+
+        const managedDepartments = Array.isArray(profile.managedDepartments)
+          ? profile.managedDepartments
+          : [];
+        const allowed =
+          userId === profile.id ||
+          (target &&
+            target.departmentId !== null &&
+            managedDepartments.includes(target.departmentId));
+
+        if (!allowed) {
+          return Response.json(
+            { ok: false, error: "User itu bukan bagian dari tim Anda." },
+            { status: 403 },
+          );
+        }
+      }
     }
 
     return {
