@@ -19,7 +19,6 @@ const nextConfig: NextConfig = {
   },
 
   // Production server tidak perlu source map (hemat ~30% ukuran image)
-  productionServerSourceMaps: false,
   productionBrowserSourceMaps: false,
 
   // Header keamanan

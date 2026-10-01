@@ -11,7 +11,7 @@
  */
 
 import "server-only";
-import { auth } from "@/server/auth";
+import { getAuth } from "@/server/auth";
 import { db } from "@/db";
 import { eq } from "drizzle-orm";
 import { users } from "@/db/schema";
@@ -44,7 +44,7 @@ export type SessionUser = {
  * TIDAK melempar — dipakai halaman yang hanya butuh tahu "sudah login".
  */
 export async function getSessionUser(): Promise<SessionUser | null> {
-  const session = await auth();
+  const session = await getAuth().auth();
   const u = session?.user;
   if (!u?.id || !u.email) return null;
   return {
