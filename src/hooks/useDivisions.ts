@@ -1,33 +1,64 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { createClient } from "@/lib/supabase/client";
+import { useCallback, useEffect, useState } from "react";
+import { apiFetch, ApiError } from "@/lib/api-client";
+import { usePolling } from "@/lib/use-polling";
 
+/**
+ * Daftar divisi.
+ * Data dari server (src/server/dal/departments.ts).
+ */
 export function useDepartments() {
   const [departments, setDepartments] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    const supabase = createClient();
-
-    async function fetch() {
-      const { data } = await supabase
-        .from("departments")
-        .select("name")
-        .order("name");
-      setDepartments((data ?? []).map((d) => d.name));
+  const refetch = useCallback(async () => {
+    try {
+      const res = await apiFetch<{ names: string[] }>("/api/departments?names=1");
+      setDepartments(res.names ?? []);
+      setError(null);
+    } catch (e) {
+      setError(
+        e instanceof ApiError ? e.message : "Gagal memuat daftar divisi.",
+      );
+    } finally {
       setIsLoading(false);
     }
-
-    fetch();
-
-    const channel = supabase
-      .channel("departments_changes")
-      .on("postgres_changes", { event: "*", schema: "public", table: "departments" }, fetch)
-      .subscribe();
-
-    return () => { channel.unsubscribe(); };
   }, []);
 
-  return { departments, isLoading };
+  useEffect(() => {
+    void refetch();
+  }, [refetch]);
+
+  usePolling(refetch, 60_000);
+
+  return { departments, isLoading, error };
+}
+
+/** Daftar divisi dengan id — untuk form yang butuh department_id. */
+export function useDepartmentsWithId() {
+  const [items, setItems] = useState<{ id: string; name: string }[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  const refetch = useCallback(async () => {
+    try {
+      const res = await apiFetch<{ departments: { id: string; name: string }[] }>(
+        "/api/departments",
+      );
+      setItems(res.departments ?? []);
+    } catch {
+      setItems([]);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refetch();
+  }, [refetch]);
+
+  usePolling(refetch, 60_000);
+
+  return { departments: items, isLoading };
 }

@@ -5,62 +5,64 @@ import {
   useContext,
   useEffect,
   useState,
+  useCallback,
   type ReactNode,
 } from "react";
-import type { User as SupabaseAuthUser } from "@supabase/supabase-js";
-import { createClient } from "@/lib/supabase/client";
-import type { User, KpiRole } from "@/types";
+import { signOut } from "next-auth/react";
+import type { User } from "@/types";
 
 export type DevMode = "management" | "employee";
 
 interface AuthContextValue {
-  supabaseUser: SupabaseAuthUser | null;
+  /** User dari Auth.js session (null kalau belum login) */
+  supabaseUser: { id: string; email?: string | null } | null;
+  /** Profil lengkap dari tabel `users`. null = belum terdaftar di sistem */
   user: User | null;
-  kpiRole: KpiRole | null;
+  kpiRole: User["kpiRole"] | null;
   isLoading: boolean;
   devMode: DevMode;
   toggleDevMode: () => void;
   signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
+  refresh: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-async function fetchUserProfile(uid: string): Promise<User | null> {
-  const supabase = createClient();
-  const { data, error } = await supabase
-    .from("users")
-    .select(`*, departments(name)`)
-    .eq("id", uid)
-    .single();
+const PROFILE_KEY = "hr:profile";
+const PROFILE_TTL = 60_000; // 60 detik
 
-  if (error || !data) return null;
+type CachedProfile = { data: User; at: number };
 
-  const deptName = (data.departments as unknown as { name: string } | null)?.name ?? null;
+function readCache(): User | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.sessionStorage.getItem(PROFILE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as CachedProfile;
+    if (Date.now() - parsed.at > PROFILE_TTL) return null;
+    return parsed.data;
+  } catch {
+    return null;
+  }
+}
 
-  return {
-    id: data.id,
-    name: data.name,
-    email: data.email,
-    kpiRole: data.kpi_role as KpiRole,
-    departmentId: data.department_id,
-    departmentName: deptName,
-    department: deptName,
-    position: data.position,
-    photoUrl: data.photo_url,
-    managedDepartments: (data.managed_departments as string[]) ?? [],
-    createdAt: data.created_at,
-    updatedAt: data.updated_at,
-    absensiRole: (data.absensi_role as "admin" | "staff") ?? "staff",
-    absensiStatus: (data.absensi_status as User["absensiStatus"]) ?? "pending",
-    leaveQuota: (data.leave_quota as number) ?? 12,
-    sickQuota: (data.sick_quota as number) ?? 14,
-    isHidden: (data.is_hidden as boolean) ?? false,
-  };
+function writeCache(user: User) {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(
+      PROFILE_KEY,
+      JSON.stringify({ data: user, at: Date.now() } satisfies CachedProfile),
+    );
+  } catch {
+    /* quota penuh — abaikan, bukan error fatal */
+  }
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [supabaseUser, setSupabaseUser] = useState<SupabaseAuthUser | null>(null);
+  const [supabaseUser, setSupabaseUser] = useState<
+    { id: string; email?: string | null } | null
+  >(null);
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [devMode, setDevMode] = useState<DevMode>(() => {
@@ -70,62 +72,149 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return "management";
   });
 
-  function toggleDevMode() {
+  const toggleDevMode = useCallback(() => {
     setDevMode((prev) => {
       const next: DevMode = prev === "management" ? "employee" : "management";
       if (typeof window !== "undefined") localStorage.setItem("devMode", next);
       return next;
     });
-  }
-
-  useEffect(() => {
-    const supabase = createClient();
-
-    // Initial session check
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      setSupabaseUser(session?.user ?? null);
-      if (session?.user) {
-        const profile = await fetchUserProfile(session.user.id);
-        setUser(profile);
-      }
-      setIsLoading(false);
-    });
-
-    // Listen for auth state changes (login, logout, token refresh)
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (event, session) => {
-      setSupabaseUser(session?.user ?? null);
-      if (session?.user) {
-        const profile = await fetchUserProfile(session.user.id);
-        setUser(profile);
-      } else {
-        setUser(null);
-      }
-      setIsLoading(false);
-    });
-
-    return () => subscription.unsubscribe();
   }, []);
 
-  async function signInWithGoogle() {
-    const supabase = createClient();
-    await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
-      },
-    });
+  /**
+   * Ambil profil dari server (Route Handler), bukan langsung dari DB.
+   * Cache singkat di sessionStorage supaya tidak request tiap render.
+   */
+  const fetchProfile = useCallback(async (force = false) => {
+    if (!force) {
+      const cached = readCache();
+      if (cached) {
+        setUser(cached);
+        return cached;
+      }
+    }
+
+    try {
+      const res = await fetch("/api/me", {
+        credentials: "include",
+        cache: "no-store",
+      });
+
+      if (res.status === 401) {
+        setUser(null);
+        writeClearCache();
+        return null;
+      }
+
+      if (!res.ok) {
+        setUser(null);
+        return null;
+      }
+
+      const json = (await res.json()) as {
+        ok: boolean;
+        data?: { user: User | null };
+      };
+
+      const profile = json.data?.user ?? null;
+      setUser(profile);
+      if (profile) writeCache(profile);
+      return profile;
+    } catch {
+      setUser(null);
+      return null;
+    }
+  }, []);
+
+  function writeClearCache() {
+    if (typeof window !== "undefined") {
+      try {
+        window.sessionStorage.removeItem(PROFILE_KEY);
+      } catch {
+        /* abaikan */
+      }
+    }
   }
 
-  async function signOut() {
-    const supabase = createClient();
-    await supabase.auth.signOut();
+  // ── Session check ───────────────────────────────────────────
+  useEffect(() => {
+    let cancelled = false;
+
+    async function init() {
+      try {
+        // Auth.js session dicek server-side lewat /api/auth/session
+        const res = await fetch("/api/auth/session", {
+          credentials: "include",
+          cache: "no-store",
+        });
+
+        if (!res.ok) {
+          if (!cancelled) {
+            setSupabaseUser(null);
+            setUser(null);
+            setIsLoading(false);
+          }
+          return;
+        }
+
+        const session = (await res.json()) as {
+          user?: { id?: string; email?: string | null } | null;
+        } | null;
+
+        if (!session?.user?.id) {
+          if (!cancelled) {
+            setSupabaseUser(null);
+            setUser(null);
+            setIsLoading(false);
+          }
+          return;
+        }
+
+        if (!cancelled) {
+          setSupabaseUser({ id: session.user.id, email: session.user.email });
+        }
+
+        await fetchProfile();
+      } catch {
+        if (!cancelled) {
+          setSupabaseUser(null);
+          setUser(null);
+        }
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    }
+
+    void init();
+
+    // Refresh saat tab kembali aktif (menggantikan Supabase Realtime)
+    function onFocus() {
+      void fetchProfile(true);
+    }
+    window.addEventListener("focus", onFocus);
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [fetchProfile]);
+
+  const signInWithGoogle = useCallback(async () => {
+    const { signIn } = await import("next-auth/react");
+    await signIn("google", { callbackUrl: "/dashboard" });
+  }, []);
+
+  const handleSignOut = useCallback(async () => {
+    writeClearCache();
     setUser(null);
     setSupabaseUser(null);
-  }
+    await signOut({ callbackUrl: "/login" });
+  }, []);
 
-  const kpiRole: KpiRole | null = user?.kpiRole ?? null;
+  const refresh = useCallback(async () => {
+    await fetchProfile(true);
+  }, [fetchProfile]);
+
+  const kpiRole = user?.kpiRole ?? null;
 
   return (
     <AuthContext.Provider
@@ -137,7 +226,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         devMode,
         toggleDevMode,
         signInWithGoogle,
-        signOut,
+        signOut: handleSignOut,
+        refresh,
       }}
     >
       {children}

@@ -1,106 +1,92 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { createClient } from "@/lib/supabase/client";
-import type { User, KpiRole } from "@/types";
+import { useCallback, useEffect, useState } from "react";
+import { apiFetch, withQuery, ApiError } from "@/lib/api-client";
+import { usePolling } from "@/lib/use-polling";
+import type { User } from "@/types";
 
-function rowToUser(row: Record<string, unknown>): User {
-  const dept = (row.departments as { name: string } | null)?.name ?? null;
-  return {
-    id: row.id as string,
-    name: row.name as string,
-    email: row.email as string,
-    kpiRole: row.kpi_role as KpiRole,
-    departmentId: row.department_id as string | null,
-    departmentName: dept,
-    department: dept,
-    position: row.position as string | null,
-    photoUrl: row.photo_url as string | null,
-    absensiRole: (row.absensi_role as "staff" | "admin") ?? "staff",
-    absensiStatus: (row.absensi_status as User["absensiStatus"]) ?? "pending",
-    leaveQuota: (row.leave_quota as number) ?? 12,
-    sickQuota: (row.sick_quota as number) ?? 14,
-    isHidden: (row.is_hidden as boolean) ?? false,
-    createdAt: row.created_at as string,
-    updatedAt: row.updated_at as string,
-  };
-}
+/**
+ * Data user sekarang datang dari Route Handler (server),
+ * bukan langsung dari database. Lihat src/server/dal/users.ts
+ * untuk aturan aksesnya.
+ */
 
-export function useDivisionMembers(department: string | string[] | undefined) {
-  const [members, setMembers] = useState<User[]>([]);
+function useUsersQuery<T>(
+  path: string | null,
+  deps: unknown[],
+): { data: T | null; isLoading: boolean; error: string | null; refetch: () => Promise<void> } {
+  const [data, setData] = useState<T | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    const departments =
-      typeof department === "string"
-        ? department ? [department] : []
-        : department ?? [];
-
-    if (departments.length === 0) {
-      setMembers([]);
+  const refetch = useCallback(async () => {
+    if (!path) {
+      setData(null);
       setIsLoading(false);
       return;
     }
-
-    const supabase = createClient();
-
-    async function fetch() {
-      const { data } = await supabase
-        .from("users")
-        .select("*, departments(name)")
-        .in("absensi_status", ["active", "pending"])
-        .in(
-          "department_id",
-          // sub-select: get department IDs matching the names
-          (await supabase
-            .from("departments")
-            .select("id")
-            .in("name", departments)
-          ).data?.map((d) => d.id) ?? []
-        );
-      setMembers((data ?? []).map(rowToUser));
+    try {
+      const res = await apiFetch<T>(path);
+      setData(res);
+      setError(null);
+    } catch (e) {
+      setError(
+        e instanceof ApiError ? e.message : "Gagal memuat data dari server.",
+      );
+    } finally {
       setIsLoading(false);
     }
-
-    fetch();
-
-    const channel = supabase
-      .channel("users_division")
-      .on("postgres_changes", { event: "*", schema: "public", table: "users" }, fetch)
-      .subscribe();
-
-    return () => { channel.unsubscribe(); };
-  }, [JSON.stringify(department)]);
-
-  return { members, isLoading };
-}
-
-export function useAllUsers() {
-  const [users, setUsers] = useState<User[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  }, [path]);
 
   useEffect(() => {
-    const supabase = createClient();
+    setIsLoading(true);
+    void refetch();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, deps);
 
-    async function fetch() {
-      const { data } = await supabase
-        .from("users")
-        .select("*, departments(name)")
-        .in("absensi_status", ["active", "pending"])
-        .order("name");
-      setUsers((data ?? []).map(rowToUser));
-      setIsLoading(false);
-    }
+  usePolling(refetch);
 
-    fetch();
+  return { data, isLoading, error, refetch };
+}
 
-    const channel = supabase
-      .channel("users_all")
-      .on("postgres_changes", { event: "*", schema: "public", table: "users" }, fetch)
-      .subscribe();
+/** Member sebuah atau beberapa divisi. */
+export function useDivisionMembers(department: string | string[] | undefined) {
+  const deptNames = Array.isArray(department) ? department : department ? [department] : [];
+  const key = deptNames.join(",");
 
-    return () => { channel.unsubscribe(); };
-  }, []);
+  const path =
+    deptNames.length > 0
+      ? withQuery("/api/users", { department: key })
+      : null;
 
-  return { users, isLoading };
+  const { data, isLoading, error } = useUsersQuery<{ users: User[] }>(
+    path,
+    [key],
+  );
+
+  return {
+    members: data?.users ?? [],
+    isLoading,
+    error,
+  };
+}
+
+/** Semua user aktif. */
+export function useAllUsers() {
+  const { data, isLoading, error, refetch } = useUsersQuery<{ users: User[] }>(
+    "/api/users?scope=active",
+    [],
+  );
+
+  return { users: data?.users ?? [], isLoading, error, refetch };
+}
+
+/** Semua user tanpa filter — butuh role HR/Executive. */
+export function useAllUsersAdmin() {
+  const { data, isLoading, error } = useUsersQuery<{ users: User[] }>(
+    "/api/users?scope=all",
+    [],
+  );
+
+  return { users: data?.users ?? [], isLoading, error };
 }
