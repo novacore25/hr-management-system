@@ -143,17 +143,40 @@ export type SupabaseStub = {
     };
   };
   rpc: (fn: string, args?: unknown) => StubQuery;
-  channel: (name: string) => {
-    on: (...args: any[]) => any;
-    subscribe: (...args: any[]) => any;
-    unsubscribe: () => Promise<void>;
-    send: (...args: any[]) => Promise<void>;
-  };
+  channel: (name: string) => StubChannel;
   removeChannel: (ch: unknown) => Promise<void>;
   functions: {
     invoke: (...args: any[]) => Promise<{ data: null; error: null }>;
   };
 };
+
+/**
+ * Stub realtime channel.
+ *
+ * PENTING: `on()` harus return objek channel itu sendiri, bukan
+ * undefined. Pola pemakaian lama adalah
+ * `supabase.channel(x).on(...).on(...).subscribe()`
+ * — kalau `on()` return undefined, `.subscribe()` akan crash dengan
+ * "Cannot read properties of undefined".
+ */
+export type StubChannel = {
+  on: (...a: any[]) => StubChannel;
+  subscribe: (...a: any[]) => StubChannel;
+  unsubscribe: (...a: any[]) => Promise<void>;
+  send: (...a: any[]) => Promise<void>;
+  close: (...a: any[]) => Promise<void>;
+};
+
+/** Channel stub: chainable, subscribe tidak pernah crash. */
+function makeChannel(): StubChannel {
+  const channel = {} as StubChannel;
+  channel.on = () => channel;
+  channel.subscribe = () => channel;
+  channel.unsubscribe = async () => {};
+  channel.send = async () => {};
+  channel.close = async () => {};
+  return channel;
+}
 
 export function createClient(): SupabaseStub {
   return {
@@ -180,12 +203,7 @@ export function createClient(): SupabaseStub {
     },
 
     rpc: () => makeBuilder(),
-    channel: () => ({
-      on: () => undefined,
-      subscribe: () => undefined,
-      unsubscribe: async () => {},
-      send: async () => {},
-    }),
+    channel: () => makeChannel(),
     removeChannel: async () => {},
     functions: { invoke: async () => ({ data: null, error: null }) },
   };
