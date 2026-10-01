@@ -12,7 +12,9 @@
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "db:migrate": "drizzle-kit migrate",
-    "verify:build": "npm run build && tsx scripts/verify-build.ts"
+    "verify:build": "npm run build && tsx scripts/verify-build.ts",
+    "verify:stub": "tsx scripts/verify-no-stub.ts",
+    "verify": "npm run typecheck && tsx scripts/verify-no-stub.ts && npm run test"
   },
   "dependencies": {
     "@auth/drizzle-adapter": "^1.11.3",
