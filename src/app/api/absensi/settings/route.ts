@@ -7,6 +7,7 @@ import {
   deleteHoliday,
   listOffices,
   createOffice,
+  updateOffice,
   deleteOffice,
   linkOfficeToDepartment,
   unlinkOfficeFromDepartment,
@@ -41,6 +42,29 @@ export async function PATCH(request: Request) {
     // Sabotase setting yang menentukan perhitungan.
     for (const key of ["__proto__", "constructor", "prototype"]) {
       delete body[key];
+    }
+
+    // Patch lokasi kantor (bukan pengaturan global).
+    if (body.kind === "office") {
+      if (!body.id) {
+        return Response.json(
+          { ok: false, error: "Parameter 'id' wajib diisi." },
+          { status: 400 },
+        );
+      }
+      const patch: {
+        name?: string;
+        lat?: number;
+        lng?: number;
+        radius?: number;
+      } = {};
+      if (body.name !== undefined) patch.name = String(body.name);
+      if (body.lat !== undefined) patch.lat = Number(body.lat);
+      if (body.lng !== undefined) patch.lng = Number(body.lng);
+      if (body.radius !== undefined) patch.radius = Number(body.radius);
+
+      await updateOffice(body.id, patch);
+      return { offices: await listOffices() };
     }
 
     const allowed: SettingsPatch = {

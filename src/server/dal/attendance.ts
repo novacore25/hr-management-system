@@ -391,13 +391,19 @@ export async function reviewLateReason(
   accept: boolean,
   actorId: string,
 ): Promise<void> {
-  await db
-    .update(attendance)
-    .set({
-      lateReasonStatus: accept ? "accepted" : "rejected",
-      updatedAt: new Date(),
-    })
-    .where(eq(attendance.id, id));
+  const values: Record<string, unknown> = {
+    lateReasonStatus: accept ? "accepted" : "rejected",
+    updatedAt: new Date(),
+  };
+
+  // Alasan diterima -> penalties dibatalkan dan status jadi tepat waktu.
+  // Dulu ini dilakukan dari browser; sekarang server yang memutuskan.
+  if (accept) {
+    values.lateFine = 0;
+    values.status = "on_time";
+  }
+
+  await db.update(attendance).set(values).where(eq(attendance.id, id));
 
   await writeLog({
     actorId,

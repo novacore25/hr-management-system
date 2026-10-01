@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { createClient } from "@/lib/supabase/client";
-import { useHolidays } from "@/hooks/absensi/useHolidays";
+import { useState, useCallback, useMemo } from "react";
+import { useApiQuery } from "@/hooks/useApi";
+import { withQuery } from "@/lib/api-client";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
 const DAY_LABELS = ["Min", "Sen", "Sel", "Rab", "Kam", "Jum", "Sab"];
@@ -16,70 +16,51 @@ interface DayData {
 
 export default function StaffTeamPage() {
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [dayData, setDayData] = useState<Record<string, DayData>>({});
-  const [totalStaff, setTotalStaff] = useState(0);
-  const [isLoading, setIsLoading] = useState(true);
-  const { holidays } = useHolidays();
 
   const year  = currentDate.getFullYear();
   const month = currentDate.getMonth();
+  const monthParam = `${year}-${String(month + 1).padStart(2, "0")}`;
 
-  useEffect(() => {
-    setIsLoading(true);
-    const supabase = createClient();
+  // formerly: 3 query Supabase + 2 realtime channel.
+  // sekarang: satu request ke server, rekap per tanggal sudah jadi.
+  const buildPath = useCallback(
+    () => withQuery("/api/absensi/team", { view: "calendar", month: monthParam }),
+    [monthParam],
+  );
 
-    const mm      = String(month + 1).padStart(2, "0");
-    const lastDay = new Date(year, month + 1, 0).getDate();
-    const start   = `${year}-${mm}-01`;
-    const end     = `${year}-${mm}-${String(lastDay).padStart(2, "0")}`;
-
-    const fetchData = async () => {
-      const [attRes, reqRes, staffRes] = await Promise.all([
-        supabase.from("attendance").select("date, type, users(name)").gte("date", start).lte("date", end),
-        supabase.from("leave_requests").select("dates, type, users(name)").eq("status", "approved"),
-        supabase.from("users").select("id", { count: "exact", head: true }).eq("absensi_status", "active"),
-      ]);
-
-      const data: Record<string, DayData> = {};
-      const ensure = (d: string) => { if (!data[d]) data[d] = { wfo: [], wfa: [], leave: [] }; };
-
-      (attRes.data ?? []).forEach((r) => {
-        const d    = (r.date as string).substring(0, 10);
-        const name = ((r.users as unknown) as { name: string } | null)?.name ?? "?";
-        ensure(d);
-        if (r.type === "WFA") data[d].wfa.push(name); else data[d].wfo.push(name);
-      });
-
-      (reqRes.data ?? []).forEach((r) => {
-        const dates = (r.dates as string[]) ?? [];
-        const name  = ((r.users as unknown) as { name: string } | null)?.name ?? "?";
-        const isLeave  = r.type === "leave" || r.type === "sick";
-        const isWfa    = r.type === "wfa";
-        dates.forEach((d) => {
-          if (d >= start && d <= end) {
-            ensure(d);
-            if (isLeave) data[d].leave.push(name);
-            else if (isWfa) data[d].wfa.push(name);
-          }
-        });
-      });
-
-      setDayData(data);
-      setTotalStaff(staffRes.count ?? 0);
-      setIsLoading(false);
+  const { data, isLoading, error } = useApiQuery<{
+    calendar: {
+      days: Array<{
+        date: string;
+        wfo: string[];
+        wfa: string[];
+        leave: string[];
+        sick: string[];
+        pendingLeave: string[];
+        holiday: boolean;
+        holidayName: string;
+      }>;
+      staff: { id: string; name: string }[];
+      holidays: { date: string; description: string }[];
     };
+  }>(buildPath, [monthParam], 60_000);
 
-    fetchData();
+  const holidays = data?.calendar.holidays ?? [];
 
-    const attCh = supabase.channel("team_att_" + start)
-      .on("postgres_changes", { event: "*", schema: "public", table: "attendance" }, fetchData)
-      .subscribe();
-    const reqCh = supabase.channel("team_req_" + start)
-      .on("postgres_changes", { event: "*", schema: "public", table: "leave_requests" }, fetchData)
-      .subscribe();
+  /** Turunkan bentuk data yang dipakai render (Record per tanggal). */
+  const dayData = useMemo(() => {
+    const out: Record<string, DayData> = {};
+    for (const d of data?.calendar.days ?? []) {
+      out[d.date] = {
+        wfo: d.wfo,
+        wfa: d.wfa,
+        leave: [...d.leave, ...d.sick],
+      };
+    }
+    return out;
+  }, [data]);
 
-    return () => { attCh.unsubscribe(); reqCh.unsubscribe(); };
-  }, [year, month]);
+  const totalStaff = data?.calendar.staff.length ?? 0;
 
   const changeMonth = (offset: number) =>
     setCurrentDate(new Date(year, month + offset, 1));

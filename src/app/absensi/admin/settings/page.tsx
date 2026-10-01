@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { createClient } from "@/lib/supabase/client";
+import { useState, useEffect, useCallback } from "react";
+import { useApiQuery, useApiMutation } from "@/hooks/useApi";
+import { withQuery } from "@/lib/api-client";
 import { toast } from "sonner";
 import { Clock, Settings, MapPin, CalendarDays, Plus, Trash2, Map, Pencil, X, Check } from "lucide-react";
 import ConfirmDialog from "@/components/absensi/ConfirmDialog";
@@ -13,6 +14,7 @@ interface WorkSettings {
 }
 
 interface Holiday { id: string; date: string; description: string }
+interface Office { id: string; name: string; lat: number; lng: number; radius: number; departmentIds: string[] }
 interface OfficeLocation { id: string; name: string; lat: number; lng: number; radius: number; deptIds: string[] }
 
 const DEFAULT_SETTINGS: WorkSettings = {
@@ -21,73 +23,132 @@ const DEFAULT_SETTINGS: WorkSettings = {
   officeLat: -6.241586, officeLng: 106.628055, officeRadius: 100,
 };
 
+/** Ubah bentuk respons server (departmentIds) ke bentuk lokal (deptIds). */
+function toLocalOffices(offices: Office[]): OfficeLocation[] {
+  return offices.map((o) => ({
+    id: o.id,
+    name: o.name,
+    lat: o.lat,
+    lng: o.lng,
+    radius: o.radius,
+    deptIds: o.departmentIds,
+  }));
+}
 export default function AdminSettingsPage() {
   const [settings, setSettings] = useState<WorkSettings>(DEFAULT_SETTINGS);
   const [holidays, setHolidays] = useState<Holiday[]>([]);
   const [departments, setDepartments] = useState<{ id: string; name: string }[]>([]);
   const [officeLocations, setOfficeLocations] = useState<OfficeLocation[]>([]);
-  
+
   const [isLoading, setIsLoading] = useState(true);
   const [newHol, setNewHol] = useState({ date: "", description: "" });
   const [newDept, setNewDept] = useState("");
   const [confirmCfg, setConfirmCfg] = useState<{ title: string; message: string; type: "danger" | "warning"; onConfirm: () => void } | null>(null);
 
-  // For adding new office location
   const [newOffice, setNewOffice] = useState({ name: "", lat: "", lng: "", radius: "100" });
   const [editingOfficeId, setEditingOfficeId] = useState<string | null>(null);
   const [editOfficeData, setEditOfficeData] = useState({ name: "", lat: "", lng: "", radius: "100" });
 
+  // formerly: 5 query Supabase paralel (absensi_settings, holidays,
+  // departments, office_locations, department_locations) dari browser.
+  // sekarang: pengaturan + libur dari 1 endpoint, kantor dari 1 endpoint,
+  // divisi dari /api/departments.
+  const buildMain = useCallback(
+    () => withQuery("/api/absensi/settings", { include: "holidays" }),
+    [],
+  );
+  const {
+    data: mainData,
+    isLoading: mainLoading,
+    refetch: refetchMain,
+  } = useApiQuery<{ settings: WorkSettings; holidays: Holiday[] }>(
+    buildMain,
+    [],
+    60_000,
+  );
+
+  const buildOffices = useCallback(
+    () => withQuery("/api/absensi/settings", { include: "offices" }),
+    [],
+  );
+  const {
+    data: officeData,
+    isLoading: officeLoading,
+    refetch: refetchOffices,
+  } = useApiQuery<{ offices: Office[] }>(buildOffices, [], 60_000);
+
+  const buildDepts = useCallback(() => "/api/departments", []);
+  const {
+    data: deptData,
+    refetch: refetchDepts,
+  } = useApiQuery<{ departments: { id: string; name: string }[] }>(
+    buildDepts,
+    [],
+    60_000,
+  );
+
+  const settingsMutate = useApiMutation<Record<string, unknown>, unknown>(
+    "/api/absensi/settings",
+  );
+  const patchSettings = useApiMutation<Record<string, unknown>, unknown>(
+    "/api/absensi/settings",
+    "PATCH",
+  );
+  const postSettings = useApiMutation<Record<string, unknown>, unknown>(
+    "/api/absensi/settings",
+    "POST",
+  );
+  const putSettings = useApiMutation<Record<string, unknown>, unknown>(
+    "/api/absensi/settings",
+    "PUT",
+  );
+  const deptMutate = useApiMutation<Record<string, unknown>, unknown>(
+    "/api/departments",
+    "POST",
+  );
+  const deptPatch = useApiMutation<Record<string, unknown>, unknown>(
+    "/api/departments",
+    "PATCH",
+  );
+  const deptDelete = useApiMutation<Record<string, unknown>, unknown>(
+    "/api/departments",
+    "DELETE",
+  );
+
   useEffect(() => {
-    const fetchAll = async () => {
-      const supabase = createClient();
-      const [sRes, hRes, dRes, oRes, dlRes] = await Promise.all([
-        supabase.from("absensi_settings").select("*").eq("id", 1).single(),
-        supabase.from("holidays").select("*").order("date"),
-        supabase.from("departments").select("*").order("name"),
-        supabase.from("office_locations" as any).select("*").order("name"),
-        supabase.from("department_locations" as any).select("*")
-      ]);
+    if (mainData?.settings) {
+      setSettings({ ...DEFAULT_SETTINGS, ...mainData.settings });
+    }
+    if (mainData?.holidays) setHolidays(mainData.holidays);
+  }, [mainData]);
 
-      if (sRes.data) {
-        const r = sRes.data;
-        setSettings({
-          workStart:    (r.work_start as string)    ?? DEFAULT_SETTINGS.workStart,
-          workEnd:      (r.work_end as string)      ?? DEFAULT_SETTINGS.workEnd,
-          maxLate:      (r.max_late as string)      ?? DEFAULT_SETTINGS.maxLate,
-          maxTimeSick:  (r.max_time_sick as string) ?? DEFAULT_SETTINGS.maxTimeSick,
-          maxTimeLeave: (r.max_time_leave as string)?? DEFAULT_SETTINGS.maxTimeLeave,
-          maxTimeWfa:   (r.max_time_wfa as string)  ?? DEFAULT_SETTINGS.maxTimeWfa,
-          officeLat:    (r.office_lat as number)  ?? DEFAULT_SETTINGS.officeLat,
-          officeLng:    (r.office_lng as number)  ?? DEFAULT_SETTINGS.officeLng,
-          officeRadius: (r.office_radius as number) ?? DEFAULT_SETTINGS.officeRadius,
-        });
-      }
-      setHolidays((hRes.data ?? []).map((h) => ({ id: h.id as string, date: h.date as string, description: h.description as string })));
-      setDepartments((dRes.data ?? []).map((d) => ({ id: d.id as string, name: d.name as string })));
-      
-      const deptLocs = dlRes.data ?? [];
-      setOfficeLocations((oRes.data ?? []).map((o: any) => ({
-        id: o.id as string, name: o.name as string, lat: o.lat as number, lng: o.lng as number, radius: o.radius as number,
-        deptIds: deptLocs.filter((dl: any) => dl.office_location_id === o.id).map((dl: any) => dl.department_id as string)
-      })));
+  useEffect(() => {
+    if (officeData?.offices) setOfficeLocations(toLocalOffices(officeData.offices));
+  }, [officeData]);
 
-      setIsLoading(false);
-    };
-    fetchAll();
-  }, []);
+  useEffect(() => {
+    if (deptData?.departments) setDepartments(deptData.departments);
+  }, [deptData]);
+
+  useEffect(() => {
+    if (!mainLoading && !officeLoading) setIsLoading(false);
+  }, [mainLoading, officeLoading]);
 
   const saveSettings = async () => {
-    const supabase = createClient();
     const tid = toast.loading("Menyimpan pengaturan...");
-    try {
-      const { error } = await supabase.from("absensi_settings").update({
-        work_start: settings.workStart, work_end: settings.workEnd, max_late: settings.maxLate,
-        max_time_sick: settings.maxTimeSick, max_time_leave: settings.maxTimeLeave, max_time_wfa: settings.maxTimeWfa,
-      }).eq("id", 1);
-      if (error) throw error;
+    const res = await patchSettings.mutate({
+      workStart: settings.workStart,
+      workEnd: settings.workEnd,
+      maxLate: settings.maxLate,
+      maxTimeSick: settings.maxTimeSick,
+      maxTimeLeave: settings.maxTimeLeave,
+      maxTimeWfa: settings.maxTimeWfa,
+    });
+    if (res.ok) {
       toast.success("Pengaturan berhasil disimpan.", { id: tid });
-    } catch (err: unknown) {
-      toast.error("Gagal: " + (err instanceof Error ? err.message : "Unknown"), { id: tid });
+      void refetchMain();
+    } else {
+      toast.error(res.error, { id: tid });
     }
   };
 
@@ -96,140 +157,179 @@ export default function AdminSettingsPage() {
     if (isNaN(settings.officeLng) || settings.officeLng < -180 || settings.officeLng > 180) return toast.error("Longitude harus antara -180 dan 180.");
     if (settings.officeRadius < 50) return toast.error("Radius minimal 50 meter.");
 
-    const supabase = createClient();
     const tid = toast.loading("Memperbarui lokasi...");
-    try {
-      const { error } = await supabase.from("absensi_settings").update({ office_lat: settings.officeLat, office_lng: settings.officeLng, office_radius: settings.officeRadius }).eq("id", 1);
-      if (error) throw error;
+    const res = await patchSettings.mutate({
+      officeLat: settings.officeLat,
+      officeLng: settings.officeLng,
+      officeRadius: settings.officeRadius,
+    });
+    if (res.ok) {
       toast.success("Konfigurasi lokasi berhasil diperbarui.", { id: tid });
-    } catch (err: unknown) {
-      toast.error("Gagal: " + (err instanceof Error ? err.message : "Unknown"), { id: tid });
+      void refetchMain();
+    } else {
+      toast.error(res.error, { id: tid });
     }
   };
 
   const addHoliday = async () => {
     if (!newHol.date || !newHol.description.trim()) return toast.error("Isi tanggal dan keterangan.");
     if (holidays.some((h) => h.date === newHol.date)) return toast.error("Tanggal libur ini sudah ada!");
-    const supabase = createClient();
+
     const tid = toast.loading("Menambah hari libur...");
-    try {
-      const { data, error } = await supabase.from("holidays").insert({ date: newHol.date, description: newHol.description.trim() }).select().single();
-      if (error) throw error;
-      setHolidays((prev) => [...prev, { id: (data as Record<string, unknown>).id as string, date: newHol.date, description: newHol.description.trim() }].sort((a, b) => a.date.localeCompare(b.date)));
+    const res = await postSettings.mutate({
+      kind: "holiday",
+      date: newHol.date,
+      description: newHol.description.trim(),
+    });
+    if (res.ok) {
       setNewHol({ date: "", description: "" });
       toast.success("Hari libur ditambahkan.", { id: tid });
-    } catch (err: unknown) { toast.error("Gagal: " + (err instanceof Error ? err.message : "Unknown"), { id: tid }); }
+      void refetchMain();
+    } else {
+      toast.error(res.error, { id: tid });
+    }
   };
 
   const deleteHoliday = (id: string, date: string) => {
     setConfirmCfg({
-      title: "Hapus Hari Libur", message: `Yakin hapus tanggal libur ${date}?`, type: "danger",
+      title: "Hapus Hari Libur",
+      message: `Yakin hapus tanggal libur ${date}?`,
+      type: "danger",
       onConfirm: async () => {
-        const supabase = createClient(); const tid = toast.loading("Menghapus...");
-        try {
-          const { error } = await supabase.from("holidays").delete().eq("id", id);
-          if (error) throw error;
-          setHolidays((prev) => prev.filter((h) => h.id !== id));
+        const tid = toast.loading("Menghapus...");
+        const res = await settingsMutate.mutate(undefined, {
+          kind: "holiday",
+          id,
+        });
+        if (res.ok) {
           toast.success("Berhasil dihapus.", { id: tid });
-        } catch (err: unknown) { toast.error("Gagal: " + (err instanceof Error ? err.message : "Unknown"), { id: tid }); }
-        finally { setConfirmCfg(null); }
+          void refetchMain();
+        } else {
+          toast.error(res.error, { id: tid });
+        }
+        setConfirmCfg(null);
       },
     });
   };
 
   const addDepartment = async () => {
     if (!newDept.trim()) return;
-    const supabase = createClient();
     const tid = toast.loading("Menambah departemen...");
-    try {
-      const { data, error } = await supabase.from("departments").insert({ name: newDept.trim() }).select().single();
-      if (error) throw error;
-      setDepartments((prev) => [...prev, { id: (data as Record<string, unknown>).id as string, name: newDept.trim() }]);
+    const res = await deptMutate.mutate({ name: newDept.trim() });
+    if (res.ok) {
       setNewDept("");
       toast.success("Departemen ditambahkan.", { id: tid });
-    } catch (err: unknown) { toast.error("Gagal: " + (err instanceof Error ? err.message : "Unknown"), { id: tid }); }
+      void refetchDepts();
+    } else {
+      toast.error(res.error, { id: tid });
+    }
   };
 
   const deleteDepartment = (id: string, name: string) => {
     setConfirmCfg({
-      title: "Hapus Departemen", message: `Yakin hapus departemen "${name}"?`, type: "danger",
+      title: "Hapus Departemen",
+      message: `Yakin hapus departemen "${name}"?`,
+      type: "danger",
       onConfirm: async () => {
-        const supabase = createClient(); const tid = toast.loading("Menghapus...");
-        try {
-          const { error } = await supabase.from("departments").delete().eq("id", id);
-          if (error) throw error;
+        const tid = toast.loading("Menghapus...");
+        const res = await deptDelete.mutate(undefined, { id });
+        if (res.ok) {
           setDepartments((prev) => prev.filter((d) => d.id !== id));
-          setOfficeLocations(prev => prev.map(o => ({ ...o, deptIds: o.deptIds.filter(did => did !== id) })));
+          setOfficeLocations((prev) =>
+            prev.map((o) => ({
+              ...o,
+              deptIds: o.deptIds.filter((did) => did !== id),
+            })),
+          );
           toast.success("Berhasil dihapus.", { id: tid });
-        } catch (err: unknown) { toast.error("Gagal: " + (err instanceof Error ? err.message : "Unknown"), { id: tid }); }
-        finally { setConfirmCfg(null); }
+        } else {
+          toast.error(res.error, { id: tid });
+        }
+        setConfirmCfg(null);
       },
     });
   };
 
   const addOfficeLocation = async () => {
-    if (!newOffice.name.trim() || !newOffice.lat || !newOffice.lng || !newOffice.radius) return toast.error("Isi semua data kantor.");
-    const supabase = createClient();
+    if (!newOffice.name.trim() || !newOffice.lat || !newOffice.lng || !newOffice.radius)
+      return toast.error("Isi semua data kantor.");
+
     const tid = toast.loading("Menambah lokasi kantor...");
-    try {
-      const { data, error } = await supabase.from("office_locations" as any).insert({
-        name: newOffice.name.trim(), lat: parseFloat(newOffice.lat), lng: parseFloat(newOffice.lng), radius: parseInt(newOffice.radius)
-      }).select().single();
-      if (error) throw error;
-      setOfficeLocations(prev => [...prev, { id: (data as any).id, name: (data as any).name, lat: (data as any).lat, lng: (data as any).lng, radius: (data as any).radius, deptIds: [] }]);
+    const res = await postSettings.mutate({
+      kind: "office",
+      name: newOffice.name.trim(),
+      lat: parseFloat(newOffice.lat),
+      lng: parseFloat(newOffice.lng),
+      radius: parseInt(newOffice.radius),
+    });
+    if (res.ok) {
       setNewOffice({ name: "", lat: "", lng: "", radius: "100" });
       toast.success("Lokasi ditambahkan.", { id: tid });
-    } catch (err: unknown) { toast.error("Gagal: " + (err instanceof Error ? err.message : "Unknown"), { id: tid }); }
+      void refetchOffices();
+    } else {
+      toast.error(res.error, { id: tid });
+    }
   };
 
   const saveEditOfficeLocation = async (id: string) => {
-    if (!editOfficeData.name.trim() || !editOfficeData.lat || !editOfficeData.lng || !editOfficeData.radius) return toast.error("Isi semua data kantor.");
-    const supabase = createClient();
+    if (!editOfficeData.name.trim() || !editOfficeData.lat || !editOfficeData.lng || !editOfficeData.radius)
+      return toast.error("Isi semua data kantor.");
+
     const tid = toast.loading("Menyimpan perubahan...");
-    try {
-      const lat = parseFloat(editOfficeData.lat);
-      const lng = parseFloat(editOfficeData.lng);
-      const radius = parseInt(editOfficeData.radius);
-      const { error } = await supabase.from("office_locations" as any).update({
-        name: editOfficeData.name.trim(), lat, lng, radius
-      }).eq("id", id);
-      if (error) throw error;
-      setOfficeLocations(prev => prev.map(o => o.id === id ? { ...o, name: editOfficeData.name.trim(), lat, lng, radius } : o));
+    const res = await patchSettings.mutate({
+      kind: "office",
+      id,
+      name: editOfficeData.name.trim(),
+      lat: parseFloat(editOfficeData.lat),
+      lng: parseFloat(editOfficeData.lng),
+      radius: parseInt(editOfficeData.radius),
+    });
+    if (res.ok) {
       setEditingOfficeId(null);
       toast.success("Perubahan disimpan.", { id: tid });
-    } catch (err: unknown) { toast.error("Gagal: " + (err instanceof Error ? err.message : "Unknown"), { id: tid }); }
+      void refetchOffices();
+    } else {
+      toast.error(res.error, { id: tid });
+    }
   };
 
   const deleteOfficeLocation = (id: string, name: string) => {
     setConfirmCfg({
-      title: "Hapus Kantor Cabang", message: `Yakin hapus lokasi "${name}"?`, type: "danger",
+      title: "Hapus Kantor Cabang",
+      message: `Yakin hapus lokasi "${name}"?`,
+      type: "danger",
       onConfirm: async () => {
-        const supabase = createClient(); const tid = toast.loading("Menghapus...");
-        try {
-          const { error } = await supabase.from("office_locations" as any).delete().eq("id", id);
-          if (error) throw error;
-          setOfficeLocations(prev => prev.filter((o) => o.id !== id));
+        const tid = toast.loading("Menghapus...");
+        const res = await settingsMutate.mutate(undefined, {
+          kind: "office",
+          id,
+        });
+        if (res.ok) {
           toast.success("Berhasil dihapus.", { id: tid });
-        } catch (err: unknown) { toast.error("Gagal: " + (err instanceof Error ? err.message : "Unknown"), { id: tid }); }
-        finally { setConfirmCfg(null); }
+          void refetchOffices();
+        } else {
+          toast.error(res.error, { id: tid });
+        }
+        setConfirmCfg(null);
       },
     });
   };
 
   const toggleDeptOffice = async (officeId: string, deptId: string, checked: boolean) => {
-    const supabase = createClient();
-    try {
-      if (checked) {
-        setOfficeLocations(prev => prev.map(o => o.id === officeId ? { ...o, deptIds: [...o.deptIds, deptId] } : o));
-        await supabase.from("department_locations" as any).insert({ department_id: deptId, office_location_id: officeId });
-      } else {
-        setOfficeLocations(prev => prev.map(o => o.id === officeId ? { ...o, deptIds: o.deptIds.filter(id => id !== deptId) } : o));
-        await supabase.from("department_locations" as any).delete().eq("department_id", deptId).eq("office_location_id", officeId);
-      }
-    } catch (e) { toast.error("Gagal mengupdate relasi."); }
+    const res = await putSettings.mutate({
+      officeId,
+      departmentId: deptId,
+      link: checked,
+    });
+    if (res.ok) {
+      const list = (res.data as { offices?: Office[] } | undefined)?.offices;
+      if (list) setOfficeLocations(toLocalOffices(list));
+      else void refetchOffices();
+    } else {
+      toast.error("Gagal mengupdate relasi.");
+    }
   };
-
-  if (isLoading) return <div className="space-y-8 pb-24 animate-pulse"><div className="h-8 w-64 bg-[var(--ab-bg-surface)] rounded-xl" /><div className="grid grid-cols-1 lg:grid-cols-2 gap-8">{[1, 2, 3, 4].map((i) => <div key={i} className="h-64 bg-[var(--ab-bg-surface)] rounded-[30px]" />)}</div></div>;
+  if (isLoading) return <div className="space-y-8 pb-24 animate-pulse"></div>;
 
   const inputCls = "w-full ab-input text-sm font-bold";
   const sectionCls = "ab-card-tactile space-y-6";
