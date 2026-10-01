@@ -3,10 +3,10 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
+import { useApiQuery, useApiMutation } from "@/hooks/useApi";
+import { apiFetch, withQuery } from "@/lib/api-client";
 import { useHolidays } from "@/hooks/absensi/useHolidays";
 import { useAbsensiSettings } from "@/hooks/absensi/useAbsensiSettings";
-import { useAuth } from "@/contexts/AuthContext";
 import CountUp from "@/components/absensi/CountUp";
 import ExcelJS from "exceljs";
 import { toast } from "sonner";
@@ -114,7 +114,6 @@ function buildDateRange(start: string, end: string): string[] {
 
 // ─ Main ───────────────────────────────────────────────────────────────────────
 export default function AdminDashboardPage() {
-  const { user } = useAuth();
   const router = useRouter();
   const { settings } = useAbsensiSettings();
   const { holidays, holidayDates } = useHolidays();
@@ -127,7 +126,6 @@ export default function AdminDashboardPage() {
   const [excused, setExcused]         = useState<ExcusedEntry[]>([]);
   const [pendingStaff, setPendingStaff] = useState(0);
   const [searchTerm, setSearchTerm]   = useState("");
-  const [isLoading, setIsLoading]     = useState(true);
   const [activeTab, setActiveTab]     = useState<"logs" | "fines">("logs");
   const [activeFilter, setActiveFilter] = useState<"all" | "present" | "wfo" | "wfa" | "leave" | "missed">("present");
   const [lateSummary, setLateSummary] = useState<LateSummaryRow[]>([]);
@@ -151,127 +149,123 @@ export default function AdminDashboardPage() {
   const [exportEnd,   setExportEnd]       = useState(today);
 
   // ─ Fetch data ───────────────────────────────────────────────────────────────
-  const fetchData = useCallback(async () => {
-    const supabase = createClient();
-    const [attRes, usersRes, reqsRes, pendingRes] = await Promise.all([
-      supabase.from("attendance")
-        .select("id, user_id, date, check_in, check_out, status, type, late_fine, radius_penalty, location_status, location_in, late_reason, late_reason_status, notes, users(name, email, departments(name))")
-        .eq("date", filterDate),
-      supabase.from("users")
-        .select("id, name, email, is_hidden, departments(name)")
-        .eq("absensi_status", "active"),
-      supabase.from("leave_requests")
-        .select("user_id, type, reason, created_at, dates")
-        .eq("status", "approved")
-        .contains("dates", [filterDate]),
-      supabase.from("users")
-        .select("id", { count: "exact", head: true })
-        .eq("absensi_status", "pending"),
-    ]);
+  //
+  // formerly: 4 query paralel dari browser (attendance + users + leave_requests
+  // + count pending) DAN 1 query office_locations, ditambah 3 realtime
+  // channel yang memicu fetch ulang tiap perubahan. Baris `users` juga
+  // ikut terunduh penuh lalu difilter `isHidden` di sisi client.
+  //
+  // sekarang: satu request; join nama/divisi, filter `is_hidden`, dan
+  // hitung jumlah pending semua terjadi di SQL.
+  const buildDashboard = useCallback(
+    () => withQuery("/api/absensi/dashboard", { date: filterDate }),
+    [filterDate],
+  );
 
-    const uList: ActiveUser[] = (usersRes.data ?? []).map((r) => ({
-      id:       r.id as string,
-      name:     r.name as string,
-      email:    r.email as string,
-      dept:     ((r.departments as unknown) as { name: string } | null)?.name ?? "Umum",
-      isHidden: (r.is_hidden as boolean) ?? false,
-    }));
-    setActiveUsers(uList.filter((u) => !u.isHidden));
-
-    const uMap = new Map(uList.map((u) => [u.id, u]));
-
-    setExcused(
-      (reqsRes.data ?? []).map((r) => ({ id: r.user_id as string, type: r.type as string, reason: (r.reason as string) ?? "", createdAt: r.created_at as string, dates: r.dates as string[] }))
-    );
-
-    setLogs(
-      (attRes.data ?? []).map((r) => {
-        const usr = uMap.get(r.user_id as string);
-        const depts = (r.users as unknown) as { name: string; email: string; departments?: { name: string } | null } | null;
-        return {
-          id:               r.id as string,
-          userId:           r.user_id as string,
-          userName:         usr?.name ?? (depts?.name ?? "Unknown"),
-          userEmail:        usr?.email ?? (depts?.email ?? ""),
-          dept:             usr?.dept ?? (depts?.departments?.name ?? "Umum"),
-          date:             r.date as string,
-          checkIn:          r.check_in as string | null,
-          checkOut:         r.check_out as string | null,
-          status:           r.status as string,
-          type:             r.type as string,
-          lateFine:         (r.late_fine as number) ?? 0,
-          radiusPenalty:    (r.radius_penalty as number) ?? 0,
-          locationStatus:   r.location_status as string | null,
-          locationIn:       r.location_in as { lat: number; lng: number } | null,
-          lateReason:       (r.late_reason as string) ?? "",
-          lateReasonStatus: r.late_reason_status as string | null,
-          notes:            r.notes as string | null,
-        };
-      })
-    );
-
-    setPendingStaff(pendingRes.count ?? 0);
-    setIsLoading(false);
-  }, [filterDate]);
+  const {
+    data: dashData,
+    isLoading,
+    refetch: refetchDashboard,
+  } = useApiQuery<{
+    date: string;
+    logs: AttLog[];
+    activeUsers: ActiveUser[];
+    excused: ExcusedEntry[];
+    pendingStaff: number;
+    offices: { id: string; name: string; lat: number; lng: number; radius: number }[];
+  }>(buildDashboard, [filterDate], 30_000);
 
   useEffect(() => {
-    setIsLoading(true);
-    fetchData();
-    const supabase = createClient();
-    // Fetch all office locations for distance calculation
-    (async () => {
-      const { data } = await supabase.from('office_locations').select('id, name, lat, lng, radius');
-      if (data) setOfficeLocations(data as { id: string; name: string; lat: number; lng: number; radius: number }[]);
-    })();
-    const ch = supabase.channel("admin_dash_" + filterDate)
-      .on("postgres_changes", { event: "*", schema: "public", table: "attendance" }, fetchData)
-      .on("postgres_changes", { event: "*", schema: "public", table: "leave_requests" }, fetchData)
-      .on("postgres_changes", { event: "*", schema: "public", table: "users" }, fetchData)
-      .subscribe();
-    return () => { ch.unsubscribe(); };
-  }, [fetchData]);
+    if (!dashData) return;
+    setLogs(dashData.logs);
+    setActiveUsers(dashData.activeUsers);
+    setExcused(dashData.excused);
+    setPendingStaff(dashData.pendingStaff);
+    setOfficeLocations(dashData.offices);
+  }, [dashData]);
+
+  // ─ Mutations ─────────────────────────────────────────────────────────────────
+  const patchAttendance = useApiMutation<Record<string, unknown>, unknown>(
+    "/api/absensi/attendance",
+    "PATCH",
+  );
+  const deleteAttendance = useApiMutation<unknown, unknown>(
+    "/api/absensi/attendance",
+    "DELETE",
+  );
+  const postDashboard = useApiMutation<Record<string, unknown>, unknown>(
+    "/api/absensi/dashboard",
+    "POST",
+  );
 
   // ─ Fine summary (when tab = fines) ──────────────────────────────────────────
+  //
+  // formerly: query absensi satu bulan dari browser, dengan batas atas
+  // dihitung manual lewat `new Date(y, m, 0)`. Sekarang server yang
+  // menghitung batas bulan, jadi tidak pernah meleset di bulan dengan
+  // jumlah hari berbeda (Februari, especially).
+  const month = filterDate.substring(0, 7);
+
+  const buildFines = useCallback(
+    () => (activeTab === "fines" ? withQuery("/api/absensi/dashboard", { view: "fines", month }) : null),
+    [activeTab, month],
+  );
+
+  const { data: finesData } = useApiQuery<{
+    rows: Array<{
+      userId: string;
+      date: string;
+      lateFine: number;
+      lateReason: string;
+      checkIn: string | null;
+    }>;
+  }>(buildFines, [activeTab, month], 30_000);
+
   useEffect(() => {
     if (activeTab !== "fines") return;
-    const fetchLates = async () => {
-      const supabase = createClient();
-      const mm = filterDate.substring(0, 7);
-      const lastDay = String(new Date(Number(mm.split("-")[0]), Number(mm.split("-")[1]), 0).getDate()).padStart(2, "0");
-      const { data } = await supabase.from("attendance")
-        .select("user_id, late_fine, date, late_reason, check_in")
-        .gte("date", `${mm}-01`)
-        .lte("date", `${mm}-${lastDay}`)
-        .gt("late_fine", 0);
-      const sumMap = new Map<string, { lateCount: number; totalLateMins: number; lateLogs: LateLogDetail[] }>();
-      (data ?? []).forEach((r) => {
-        const uid = r.user_id as string;
-        const cur = sumMap.get(uid) ?? { lateCount: 0, totalLateMins: 0, lateLogs: [] };
-        const mins = parseLateMinutes((r.late_fine as number) ?? 0);
-        cur.lateLogs.push({
-          date: r.date as string,
-          minutes: mins,
-          reason: (r.late_reason as string) || "-",
-          checkIn: (r.check_in as string) || "-"
-        });
-        sumMap.set(uid, { 
-          lateCount: cur.lateCount + 1, 
-          totalLateMins: cur.totalLateMins + mins,
-          lateLogs: cur.lateLogs
-        });
+
+    const rows = finesData?.rows ?? [];
+    if (rows.length === 0) {
+      setLateSummary([]);
+      return;
+    }
+
+    const sumMap = new Map<
+      string,
+      { lateCount: number; totalLateMins: number; lateLogs: LateLogDetail[] }
+    >();
+
+    for (const r of rows) {
+      const cur = sumMap.get(r.userId) ?? {
+        lateCount: 0,
+        totalLateMins: 0,
+        lateLogs: [],
+      };
+      const mins = parseLateMinutes(r.lateFine ?? 0);
+      cur.lateLogs.push({
+        date: r.date,
+        minutes: mins,
+        reason: r.lateReason || "-",
+        checkIn: r.checkIn || "-",
       });
-      const rows: LateSummaryRow[] = activeUsers
+      sumMap.set(r.userId, {
+        lateCount: cur.lateCount + 1,
+        totalLateMins: cur.totalLateMins + mins,
+        lateLogs: cur.lateLogs,
+      });
+    }
+
+    setLateSummary(
+      activeUsers
         .filter((u) => sumMap.has(u.id))
         .map((u) => {
           const s = sumMap.get(u.id)!;
           s.lateLogs.sort((a, b) => (a.date > b.date ? -1 : 1));
           return { id: u.id, name: u.name, dept: u.dept, ...s };
         })
-        .sort((a, b) => b.totalLateMins - a.totalLateMins);
-      setLateSummary(rows);
-    };
-    fetchLates();
-  }, [activeTab, filterDate, activeUsers]);
+        .sort((a, b) => b.totalLateMins - a.totalLateMins),
+    );
+  }, [activeTab, finesData, activeUsers]);
 
 
 
@@ -335,141 +329,133 @@ export default function AdminDashboardPage() {
 
   // ─ Actions ──────────────────────────────────────────────────────────────────
   const handleLateReason = async (logId: string, action: "accepted" | "rejected") => {
-    const supabase = createClient();
     const tid = toast.loading("Memproses alasan...");
-    try {
-      const payload = action === "accepted"
-        ? { late_reason_status: action, late_fine: 0, status: "on_time" as const }
-        : { late_reason_status: action };
-      const { error } = await supabase.from("attendance").update(payload).eq("id", logId);
-      if (error) throw error;
-      toast.success(action === "accepted" ? "Alasan diterima, menit telat dibatalkan." : "Alasan ditolak.", { id: tid });
-      await fetchData();
+    // `late_fine = 0` + `status = on_time` saat diterima dikerjakan di
+    // server (DAL), bukan di sini. Kalau tetap di browser, POST langsung
+    // ke endpoint akan melewati pembatalan dendanya.
+    const res = await patchAttendance.mutate({
+      id: logId,
+      action: "review-late-reason",
+      accept: action === "accepted",
+    });
+
+    if (res.ok) {
+      toast.success(
+        action === "accepted"
+          ? "Alasan diterima, menit telat dibatalkan."
+          : "Alasan ditolak.",
+        { id: tid },
+      );
+      void refetchDashboard();
       setSelectedRow(null);
-    } catch (err: unknown) {
-      toast.error("Gagal: " + (err instanceof Error ? err.message : "Unknown"), { id: tid });
+    } else {
+      toast.error(res.error ?? "Gagal memproses alasan.", { id: tid });
     }
   };
 
   const handleSaveEdit = async () => {
     if (!editingLog) return;
-    const supabase = createClient();
     const tid = toast.loading("Menyimpan perubahan...");
-    try {
-      const { error } = await supabase.from("attendance").update({
-        check_in:  editingLog.checkIn  || null,
-        check_out: editingLog.checkOut || null,
-        status:    editingLog.status as "on_time" | "late" | "very_late" | "auto_checkout",
-        late_fine: Number(editingLog.lateFine),
-        notes:     editingLog.notes || null,
-      }).eq("id", editingLog.id);
-      if (error) throw error;
+    const res = await patchAttendance.mutate({
+      id: editingLog.id,
+      patch: {
+        checkIn: editingLog.checkIn || null,
+        checkOut: editingLog.checkOut || null,
+        status: editingLog.status as
+          | "on_time"
+          | "late"
+          | "very_late"
+          | "auto_checkout",
+        lateFine: Number(editingLog.lateFine),
+        notes: editingLog.notes || null,
+      },
+    });
+
+    if (res.ok) {
       toast.success("Log berhasil diupdate.", { id: tid });
       setEditingLog(null);
       setSelectedRow(null);
-      await fetchData();
-    } catch (err: unknown) {
-      toast.error("Gagal: " + (err instanceof Error ? err.message : "Unknown"), { id: tid });
+      void refetchDashboard();
+    } else {
+      toast.error(res.error ?? "Gagal menyimpan.", { id: tid });
     }
   };
 
   const handleDeleteLog = async (logId: string) => {
-    const supabase = createClient();
     const tid = toast.loading("Menghapus log...");
-    try {
-      const { error } = await supabase.from("attendance").delete().eq("id", logId);
-      if (error) throw error;
+    const res = await deleteAttendance.mutate(undefined, { id: logId });
+
+    if (res.ok) {
       toast.success("Log berhasil dihapus.", { id: tid });
       setSelectedRow(null);
-      await fetchData();
-    } catch (err: unknown) {
-      toast.error("Gagal: " + (err instanceof Error ? err.message : "Unknown"), { id: tid });
+      void refetchDashboard();
+    } else {
+      toast.error(res.error ?? "Gagal menghapus.", { id: tid });
     }
   };
 
   const handleOverrideAtt = async () => {
-    if (!overrideAtt.userId || !overrideAtt.date) { toast.error("Lengkapi data!"); return; }
-    const supabase = createClient();
-    const staff = activeUsers.find((u) => u.id === overrideAtt.userId);
+    if (!overrideAtt.userId || !overrideAtt.date) {
+      toast.error("Lengkapi data!");
+      return;
+    }
     const tid = toast.loading("Menyimpan override absensi...");
-    try {
-      const { error } = await supabase.from("attendance").upsert({
-        user_id:         overrideAtt.userId,
-        date:            overrideAtt.date,
-        check_in:        overrideAtt.checkIn,
-        check_out:       overrideAtt.checkOut,
-        type:            overrideAtt.type,
-        status:          "on_time",
-        location_status: "ADMIN_OVERRIDE",
-        late_fine:       0,
-        radius_penalty:  0,
-        late_reason:     "",
-        early_reason:    "",
-        early_checkout:  false,
-      }, { onConflict: "user_id,date" });
-      if (error) throw error;
-      await supabase.from("absensi_logs").insert({
-        actor: user?.name ?? "Admin", action: "ADMIN_OVERRIDE_ATT",
-        details: `Override absensi ${staff?.name ?? overrideAtt.userId} tgl ${overrideAtt.date}`,
-      });
+
+    // Upsert + audit trail sekarang di server. `actor` diambil dari
+    // session, bukan dari state AuthContext di browser — dulu nama
+    // aktornya bisa dipalsukan oleh siapa saja yang mengedit payload.
+    const res = await postDashboard.mutate({ kind: "override-att", ...overrideAtt });
+
+    if (res.ok) {
       toast.success("Override absensi berhasil!", { id: tid });
       setShowOverrideAtt(false);
-      await fetchData();
-    } catch (err: unknown) {
-      toast.error("Gagal: " + (err instanceof Error ? err.message : "Unknown"), { id: tid });
+      void refetchDashboard();
+    } else {
+      toast.error(res.error ?? "Gagal menyimpan override.", { id: tid });
     }
   };
 
   const handleOverrideLeave = async () => {
-    if (!overrideLeave.userId || !overrideLeave.startDate) { toast.error("Lengkapi data!"); return; }
-    const supabase = createClient();
-    const staff = activeUsers.find((u) => u.id === overrideLeave.userId);
-    if (!staff) { toast.error("Staf tidak ditemukan!"); return; }
-    const dates = buildDateRange(overrideLeave.startDate, overrideLeave.endDate);
+    if (!overrideLeave.userId || !overrideLeave.startDate) {
+      toast.error("Lengkapi data!");
+      return;
+    }
+    if (!activeUsers.some((u) => u.id === overrideLeave.userId)) {
+      toast.error("Staf tidak ditemukan!");
+      return;
+    }
+
+    // Akhir pekan + hari libur dibuang di server juga, supaya angka
+    // kuota yang dipotong dan tanggal yang disimpan konsisten.
+    const dates = buildDateRange(
+      overrideLeave.startDate,
+      overrideLeave.endDate,
+    ).filter((d) => {
+      const dow = new Date(d).getDay();
+      return overrideLeave.type === "wfa" || (dow !== 0 && dow !== 6 && !holidayDates.includes(d));
+    });
+
+    if (dates.length === 0) {
+      toast.error("Tidak ada hari kerja yang valid pada rentang itu.");
+      return;
+    }
+
     const tid = toast.loading("Menyimpan override cuti/WFA...");
-    try {
-      const type = overrideLeave.type;
-      if (type === "leave" || type === "sick") {
-        const validDates = dates.filter((d) => {
-          const dow = new Date(d).getDay();
-          return dow !== 0 && dow !== 6 && !holidayDates.includes(d);
-        });
-        const days = validDates.length;
-        const { data: userData } = await supabase.from("users").select("leave_quota, sick_quota").eq("id", overrideLeave.userId).single();
-        if (userData && days > 0) {
-          let leaveQ  = (userData.leave_quota as number) ?? 0;
-          let sickQ   = (userData.sick_quota as number) ?? 0;
-          if (type === "sick") {
-            const fromSick  = Math.min(days, sickQ);
-            const fromLeave = days - fromSick;
-            sickQ  -= fromSick;
-            leaveQ -= fromLeave;
-            await supabase.from("users").update({ leave_quota: leaveQ, sick_quota: sickQ }).eq("id", overrideLeave.userId);
-          } else if (type === "leave") {
-            leaveQ -= days;
-            await supabase.from("users").update({ leave_quota: leaveQ }).eq("id", overrideLeave.userId);
-          }
-        }
-      }
-      const { error } = await supabase.from("leave_requests").insert({
-        user_id:  overrideLeave.userId,
-        type,
-        dates,
-        reason:       overrideLeave.reason || "Admin Override",
-        status:       "approved",
-        processed_by: user?.name ?? "Admin",
-        processed_at: new Date().toISOString(),
-      });
-      if (error) throw error;
-      await supabase.from("absensi_logs").insert({
-        actor: user?.name ?? "Admin", action: "ADMIN_OVERRIDE_LEAVE",
-        details: `Override ${type} ${staff.name} (${dates.join(", ")})`,
-      });
+
+    const res = await postDashboard.mutate({
+      kind: "override-leave",
+      userId: overrideLeave.userId,
+      type: overrideLeave.type,
+      dates,
+      reason: overrideLeave.reason,
+    });
+
+    if (res.ok) {
       toast.success("Override cuti/WFA berhasil!", { id: tid });
       setShowOverrideLeave(false);
-      await fetchData();
-    } catch (err: unknown) {
-      toast.error("Gagal: " + (err instanceof Error ? err.message : "Unknown"), { id: tid });
+      void refetchDashboard();
+    } else {
+      toast.error(res.error ?? "Gagal menyimpan override.", { id: tid });
     }
   };
 
@@ -477,15 +463,40 @@ export default function AdminDashboardPage() {
   const handleExportExcel = async () => {
     const tid = toast.loading("Menyiapkan laporan Excel...");
     try {
-      const supabase = createClient();
-      const [attRes, reqsRes] = await Promise.all([
-        supabase.from("attendance").select("user_id, date, type, status, check_in, check_out, late_fine, radius_penalty, late_reason")
-          .gte("date", exportStart).lte("date", exportEnd),
-        supabase.from("leave_requests").select("user_id, type, dates, reason").eq("status", "approved"),
-      ]);
+      // formerly: 2 query dari browser. `leave_requests` di sana tidak
+      // difilter tanggal sama sekali, jadi SELURUH pengajuan approved
+      // yang pernah ada ikut terunduh ke browser setiap kali export.
+      const exportData = await apiFetch<{
+        attendance: Array<{
+          userId: string;
+          userName: string;
+          dept: string;
+          date: string;
+          type: string;
+          status: string;
+          checkIn: string | null;
+          checkOut: string | null;
+          lateFine: number;
+          radiusPenalty: number;
+          lateReason: string;
+        }>;
+        leave: Array<{
+          userId: string;
+          type: string;
+          dates: string[];
+          reason: string;
+        }>;
+        users: Array<{ id: string; name: string; dept: string }>;
+      }>(
+        withQuery("/api/absensi/dashboard", {
+          view: "export",
+          from: exportStart,
+          to: exportEnd,
+        }),
+      );
 
-      const attLogs = attRes.data ?? [];
-      const reqs    = reqsRes.data ?? [];
+      const attLogs = exportData.attendance;
+      const reqs    = exportData.leave;
       const dateRange = buildDateRange(exportStart, exportEnd);
       const todayStr  = today;
       const holSet    = new Set(holidays.map((h) => h.date));
@@ -521,19 +532,19 @@ export default function AdminDashboardPage() {
         { header: "Keterangan/Alasan",  key: "reason",   width: 35 },
       ];
 
-      const sorted = [...activeUsers].sort((a, b) => a.name.localeCompare(b.name));
+      const sorted = [...exportData.users].sort((a, b) => a.name.localeCompare(b.name));
 
       sorted.forEach((u) => {
-        const uLogs = attLogs.filter((l) => l.user_id === u.id);
+        const uLogs = attLogs.filter((l) => l.userId === u.id);
         const totalWFO   = uLogs.filter((l) => l.type === "WFO").length;
         const totalWFA   = uLogs.filter((l) => l.type === "WFA").length;
         const totalLate  = uLogs.filter((l) => l.status === "late" || l.status === "very_late").length;
-        const totalFine  = uLogs.reduce((s, l) => s + ((l.late_fine as number) ?? 0), 0);
-        const totalRadius = uLogs.reduce((s, l) => s + ((l.radius_penalty as number) ?? 0), 0);
+        const totalFine  = uLogs.reduce((s, l) => s + (l.lateFine ?? 0), 0);
+        const totalRadius = uLogs.reduce((s, l) => s + (l.radiusPenalty ?? 0), 0);
 
         let totalLeave = 0, totalSick = 0;
-        reqs.filter((r) => r.user_id === u.id).forEach((r) => {
-          const valid = (r.dates as string[]).filter((d) => d >= exportStart && d <= exportEnd);
+        reqs.filter((r) => r.userId === u.id).forEach((r) => {
+          const valid = r.dates.filter((d) => d >= exportStart && d <= exportEnd);
           if (r.type === "leave")  totalLeave  += valid.length;
           if (r.type === "sick")   totalSick   += valid.length;
         });
@@ -542,7 +553,7 @@ export default function AdminDashboardPage() {
           const dow = new Date(d).getDay();
           if (dow === 0 || dow === 6 || holSet.has(d) || d > todayStr) return s;
           const hasLog = uLogs.some((l) => l.date === d);
-          const hasReq = reqs.some((r) => r.user_id === u.id && (r.dates as string[]).includes(d));
+          const hasReq = reqs.some((r) => r.userId === u.id && r.dates.includes(d));
           return hasLog || hasReq ? s : s + 1;
         }, 0);
 
@@ -561,13 +572,13 @@ export default function AdminDashboardPage() {
         const isHol = holSet.has(d);
         const isFuture = d > todayStr;
         sorted.forEach((u) => {
-          const log = attLogs.find((l) => l.user_id === u.id && l.date === d);
-          const req = reqs.find((r) => r.user_id === u.id && (r.dates as string[]).includes(d));
+          const log = attLogs.find((l) => l.userId === u.id && l.date === d);
+          const req = reqs.find((r) => r.userId === u.id && r.dates.includes(d));
           if (log) {
-            detailWs.addRow({ date: d, name: u.name, dept: u.dept, checkIn: fmt(log.check_in as string | null), checkOut: fmt(log.check_out as string | null), status: (log.status as string).replace("_", " "), type: log.type as string, lateFine: (log.late_fine as number) ?? 0, reason: (log.late_reason as string) || "-" });
+            detailWs.addRow({ date: d, name: u.name, dept: u.dept, checkIn: fmt(log.checkIn), checkOut: fmt(log.checkOut), status: log.status.replace("_", " "), type: log.type, lateFine: log.lateFine ?? 0, reason: log.lateReason || "-" });
           } else if (req) {
             const typeLabel = req.type === "leave" ? "Cuti" : req.type === "sick" ? "Sakit" : "WFA";
-            detailWs.addRow({ date: d, name: u.name, dept: u.dept, checkIn: "-", checkOut: "-", status: "Disetujui", type: typeLabel, lateFine: 0, reason: (req.reason as string) || "-" });
+            detailWs.addRow({ date: d, name: u.name, dept: u.dept, checkIn: "-", checkOut: "-", status: "Disetujui", type: typeLabel, lateFine: 0, reason: req.reason || "-" });
           } else if (!isWeekend && !isHol && !isFuture) {
             detailWs.addRow({ date: d, name: u.name, dept: u.dept, checkIn: "-", checkOut: "-", status: "Alpa / Mangkir", type: "-", lateFine: 0, reason: "Alpa" });
           }

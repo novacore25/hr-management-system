@@ -3,7 +3,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
+import { useApiQuery } from "@/hooks/useApi";
+import { apiFetch, withQuery, ApiError } from "@/lib/api-client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAttendanceToday } from "@/hooks/absensi/useAttendanceToday";
 import { useAbsensiSettings } from "@/hooks/absensi/useAbsensiSettings";
@@ -61,6 +62,10 @@ type CheckInResult =
   | { success: true; status: string; time: string; locationStatus: string; lateFine: number; radiusPenalty: number }
   | { success: false; error: string };
 
+type CheckOutResult =
+  | { success: true; time: string }
+  | { success: false; error: string };
+
 // ─ Main component ─────────────────────────────────────────────────────────────
 export function AttendanceWidget() {
   const { user } = useAuth();
@@ -72,26 +77,20 @@ export function AttendanceWidget() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [locationPerm, setLocationPerm] = useState<LocationPerm>("prompt");
   const [showLocationGuide, setShowLocationGuide] = useState(false);
-  const [allowedLocations, setAllowedLocations] = useState<AllowedLocation[]>([]);
 
-  useEffect(() => {
-    if (!user?.departmentId) return;
-    const fetchLocs = async () => {
-      const supabase = createClient();
-      // Fetch locations assigned to this user's department
-      const { data } = await supabase
-        .from('department_locations' as any)
-        .select('office_locations(id, name, lat, lng, radius)')
-        .eq('department_id', user.departmentId as string);
-      if (data && data.length > 0) {
-        const locs = data.map((d: any) => d.office_locations).filter(Boolean);
-        setAllowedLocations(locs);
-      } else {
-        setAllowedLocations([]);
-      }
-    };
-    fetchLocs();
-  }, [user?.departmentId]);
+  // Kantor yang boleh dipakai untuk check-in.
+  //
+  // formerly: query `department_locations` + nested select dari browser.
+  // Karena stub mengembalikan data kosong, `allowedLocations` selalu
+  // kosong — artinya check-in GPS SELALU ditolak dengan pesan "Lokasi
+  // absen divisi Anda belum diatur oleh Admin", padahal sudah diatur.
+  //
+  // Divisi sekarang dibaca server dari session, bukan dikirim client.
+  const { data: locationsData } = useApiQuery<{
+    offices: AllowedLocation[];
+  }>(() => "/api/absensi/locations", [], 300_000);
+
+  const allowedLocations = locationsData?.offices ?? [];
 
   const getNearestLocation = useCallback((loc: { lat: number; lng: number }) => {
     if (allowedLocations.length > 0) {
@@ -162,60 +161,21 @@ export function AttendanceWidget() {
     return () => window.removeEventListener("focus", checkPerm);
   }, [checkPerm]);
 
-  // ─ Realtime summary ──────────────────────────────────────────────────────────
+  // ─ Summary kehadiran tim ─────────────────────────────────────────────────────
+  //
+  // formerly: 3 query dari browser (users + attendance + leave_requests)
+  // plus 3 realtime channel. Setiap perubahan di tabel mana pun menarik
+  // ulang DUA dari tiga query itu, termasuk seluruh daftar user aktif.
+  //
+  // sekarang: satu request, agregasi di server, polling 30 detik
+  // (setelahnya juga saat tab/browser regain focus).
+  const { data: summaryData } = useApiQuery<{
+    summary: Summary;
+  }>(() => withQuery("/api/absensi/summary", { date: today }), [today], 30_000);
+
   useEffect(() => {
-    const supabase = createClient();
-    type URow = { id: string; name: string; isHidden: boolean };
-    type ARow = { userId: string; type: string };
-    type RRow = { userId: string; dates: string[] };
-    let uList: URow[] = [];
-    let aList: ARow[] = [];
-    let rList: RRow[] = [];
-
-    const updateStats = () => {
-      const active = uList.filter((u) => !u.isHidden);
-      const presentIds = new Set(aList.map((a) => a.userId));
-      const leaveIds = new Set(rList.filter((r) => r.dates?.includes(today)).map((r) => r.userId));
-
-      const wfoNames = aList.filter((a) => a.type === "WFO")
-        .map((a) => active.find((u) => u.id === a.userId)?.name).filter(Boolean) as string[];
-      const wfaNames = aList.filter((a) => a.type === "WFA")
-        .map((a) => active.find((u) => u.id === a.userId)?.name).filter(Boolean) as string[];
-      const leaveNames = active.filter((u) => leaveIds.has(u.id)).map((u) => u.name);
-      const missedNames = active.filter((u) => !presentIds.has(u.id) && !leaveIds.has(u.id)).map((u) => u.name);
-
-      setSummary({
-        wfo: { count: wfoNames.length, names: wfoNames },
-        wfa: { count: wfaNames.length, names: wfaNames },
-        leave: { count: leaveNames.length, names: leaveNames },
-        missed: { count: missedNames.length, names: missedNames },
-      });
-    };
-
-    const fetchUsers = async () => {
-      const { data } = await supabase.from("users").select("id, name, is_hidden").eq("absensi_status", "active");
-      uList = (data ?? []).map((r) => ({ id: r.id as string, name: r.name as string, isHidden: (r.is_hidden as boolean) ?? false }));
-      updateStats();
-    };
-    const fetchAtt = async () => {
-      const { data } = await supabase.from("attendance").select("user_id, type").eq("date", today);
-      aList = (data ?? []).map((r) => ({ userId: r.user_id as string, type: r.type as string }));
-      updateStats();
-    };
-    const fetchReqs = async () => {
-      const { data } = await supabase.from("leave_requests").select("user_id, dates").eq("status", "approved").contains("dates", [today]);
-      rList = (data ?? []).map((r) => ({ userId: r.user_id as string, dates: (r.dates as string[]) ?? [] }));
-      updateStats();
-    };
-
-    Promise.all([fetchUsers(), fetchAtt(), fetchReqs()]);
-
-    const uCh = supabase.channel("sh_users").on("postgres_changes", { event: "*", schema: "public", table: "users" }, fetchUsers).subscribe();
-    const aCh = supabase.channel("sh_att").on("postgres_changes", { event: "*", schema: "public", table: "attendance" }, fetchAtt).subscribe();
-    const rCh = supabase.channel("sh_reqs").on("postgres_changes", { event: "*", schema: "public", table: "leave_requests" }, fetchReqs).subscribe();
-
-    return () => { uCh.unsubscribe(); aCh.unsubscribe(); rCh.unsubscribe(); };
-  }, [today]);
+    if (summaryData?.summary) setSummary(summaryData.summary);
+  }, [summaryData]);
 
   // ─ Check-in ─────────────────────────────────────────────────────────────────
   const doCheckIn = useCallback(async (
@@ -223,82 +183,110 @@ export function AttendanceWidget() {
     lateReason = ""
   ): Promise<CheckInResult> => {
     if (!user) return { success: false, error: "User tidak ditemukan." };
-    const supabase = createClient();
+
     const now = new Date();
 
+    // Penentuan "telat" di sini HANYA untuk UX: menentukan apakah dialog
+    // alasan perlu dibuka sebelum request dikirim. Nilai yang tersimpan
+    // tetap dihitung ulang di server (computeLateState), jadi client
+    // tidak bisa mengarang status keterlambatan.
     const [lH, lM] = (settings.maxLate || "08:15").split(":").map(Number);
-    const lateLim = new Date(); lateLim.setHours(lH, lM, 0, 0);
+    const lateLim = new Date();
+    lateLim.setHours(lH, lM, 0, 0);
 
     let arrStat: "on_time" | "late" | "very_late" = "on_time";
     let lateFine = 0;
+
     if (now > lateLim) {
-      const vLim = new Date(); vLim.setHours(10, 0, 0, 0);
+      const vLim = new Date();
+      vLim.setHours(10, 0, 0, 0);
       arrStat = now > vLim ? "very_late" : "late";
-      const diffMins = Math.floor((now.getTime() - lateLim.getTime()) / 60000);
-      lateFine = diffMins; // lateFine is now storing late minutes
+      lateFine = Math.floor((now.getTime() - lateLim.getTime()) / 60000);
+
       if (!lateReason) {
         return { requireLateReason: true, location, arrStat, lateFine };
       }
     }
 
-    let locationStatus = "Lokasi Keblokir";
-    let radiusPenalty = 0;
-    let locationToSave: any = location;
-    if (location) {
-      const nearest = getNearestLocation(location);
-      if (nearest.dist <= nearest.radius) {
-        locationStatus = "Dalam Area";
-      } else {
-        locationStatus = "Di Luar Area";
-        if (nearest.dist > 500) radiusPenalty = 2;
-      }
-      locationToSave = {
-        lat: location.lat,
-        lng: location.lng,
-        distance: Math.round(nearest.dist),
-        officeLat: nearest.office?.lat,
-        officeLng: nearest.office?.lng,
-        officeName: nearest.office?.name
+    // formerly: insert langsung ke tabel attendance dari browser, dengan
+    // `status` dan `late_fine` dikirim dari client — jadi bisa dikirimi
+    // nilai apa saja. Dan karena stub membalas `error: null`, UI
+    // menampilkan "Berhasil Check-In" padahal tidak ada yang tersimpan.
+    //
+    // sekarang: POST ke Route Handler. checkIn, lateFine, radiusPenalty
+    // dan locationStatus semuanya dihitung server dari jam server dan
+    // jarak GPS yang dihitung ulang di server (verifyCheckInLocation).
+    try {
+      const res = await apiFetch<{
+        attendance?: {
+          checkIn: string | null;
+          status: string;
+          lateFine: number;
+          radiusPenalty: number;
+          locationStatus: string | null;
+        };
+      }>("/api/absensi/attendance", {
+        method: "POST",
+        body: JSON.stringify({
+          action: "check-in",
+          date: getToday(),
+          type: "WFO",
+          lateReason: lateReason || null,
+          location,
+        }),
+      });
+
+      const saved = res.attendance;
+
+      return {
+        success: true,
+        status: saved?.status ?? arrStat,
+        time: saved?.checkIn?.slice(0, 5) ?? getNowTime(),
+        locationStatus: saved?.locationStatus ?? "Tersimpan",
+        lateFine: saved?.lateFine ?? lateFine,
+        radiusPenalty: saved?.radiusPenalty ?? 0,
+      };
+    } catch (e) {
+      // ApiError sudah membawa pesan dari server (bahasa Indonesia).
+      return {
+        success: false,
+        error:
+          e instanceof ApiError ? e.message : "Gagal menyimpan data ke sistem.",
       };
     }
-
-    const { error } = await supabase.from("attendance").insert({
-      user_id: user.id,
-      date: getToday(),
-      check_in: getNowTime(),
-      status: arrStat,
-      type: "WFO",
-      location_in: locationToSave,
-      location_status: locationStatus,
-      late_fine: lateFine,
-      late_reason: lateReason,
-      late_reason_status: lateReason ? "pending" : null,
-      radius_penalty: radiusPenalty,
-    });
-
-    if (error) {
-      if (error.code === "23505") return { success: false, error: "Anda sudah absen hari ini." };
-      return { success: false, error: "Gagal menyimpan data ke sistem." };
-    }
-    return { success: true, status: arrStat, time: getNowTime(), locationStatus, lateFine, radiusPenalty };
   }, [user, settings]);
 
   // ─ Check-out ────────────────────────────────────────────────────────────────
-  const doCheckOut = useCallback(async (earlyReason = "") => {
-    if (!user) return { success: false, error: "User tidak ditemukan." };
-    const supabase = createClient();
-    const now = new Date();
-    const [eH, eM] = (settings.workEnd || "18:00").split(":").map(Number);
-    const endLim = new Date(); endLim.setHours(eH, eM, 0, 0);
+  const doCheckOut = useCallback(
+    async (earlyReason = ""): Promise<CheckOutResult> => {
+      if (!user) return { success: false, error: "User tidak ditemukan." };
 
-    const { error } = await supabase.from("attendance")
-      .update({ check_out: getNowTime(), early_checkout: now < endLim, early_reason: earlyReason })
-      .eq("user_id", user.id)
-      .eq("date", getToday());
+      try {
+        const res = await apiFetch<{
+          attendance?: { checkOut: string | null };
+        }>("/api/absensi/attendance", {
+          method: "POST",
+          body: JSON.stringify({
+            action: "check-out",
+            date: getToday(),
+            earlyReason: earlyReason || null,
+          }),
+        });
 
-    if (error) return { success: false, error: "Gagal melakukan check-out." };
-    return { success: true, time: getNowTime() };
-  }, [user, settings]);
+        return {
+          success: true,
+          time: res.attendance?.checkOut?.slice(0, 5) ?? getNowTime(),
+        };
+      } catch (e) {
+        return {
+          success: false,
+          error:
+            e instanceof ApiError ? e.message : "Gagal melakukan check-out.",
+        };
+      }
+    },
+    [user],
+  );
 
   // ─ UI handlers ────────────────────────────────────────────────────────────────
   const finalizeCheckIn = (result: CheckInResult) => {
