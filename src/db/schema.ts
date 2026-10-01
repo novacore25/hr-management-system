@@ -177,6 +177,11 @@ export const users = pgTable("users", {
   emergencyName: text("emergency_name"),
   emergencyPhone: varchar("emergency_phone", { length: 32 }),
   npwp: varchar("npwp", { length: 32 }),
+
+  // ── Data ketenagakerjaan (dipakai halaman /absensi/admin/staff) ────
+  joinDate: date("join_date"),
+  employmentStatus: varchar("employment_status", { length: 32 }),
+  contractEndDate: date("contract_end_date"),
   bankName: varchar("bank_name", { length: 100 }),
   bankAccountNumber: varchar("bank_account_number", { length: 64 }),
   bankAccountName: varchar("bank_account_name", { length: 255 }),

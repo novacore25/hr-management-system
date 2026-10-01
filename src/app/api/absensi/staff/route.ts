@@ -8,7 +8,8 @@ import {
   listStaff,
   updateStaff,
   createStaff,
-  staffAttendanceSummary,
+  countStaffByStatus,
+  attendanceSlip,
   type StaffPatch,
 } from "@/server/dal/staff";
 import { setKpiRole } from "@/server/dal/users";
@@ -16,7 +17,14 @@ import type { AbsensiRole, AbsensiStatus } from "@/types/index";
 
 export const dynamic = "force-dynamic";
 
-/** GET /api/absensi/staff — daftar staf (admin absensi). */
+/**
+ * GET /api/absensi/staff
+ *
+ *   status=active            → filter status absensi
+ *   departmentId=<uuid>      → filter divisi
+ *   search=<teks>            → cari nama / email
+ *   slip=1&userId=&month=    → rekap absensi untuk slip Excel
+ */
 export async function GET(request: Request) {
   return withAuth(async () => {
     await requireAbsensiAdmin();
@@ -25,20 +33,41 @@ export async function GET(request: Request) {
     const userId = searchParams.get("userId");
     const month = searchParams.get("month");
 
-    // Ringkasan absensi + cuti untuk satu staf
-    if (userId && month) {
+    // Rekap absensi untuk slip bulanan.
+    if (searchParams.get("slip") === "1") {
+      if (!userId || !month) {
+        return Response.json(
+          { ok: false, error: "Parameter 'userId' dan 'month' wajib diisi." },
+          { status: 400 },
+        );
+      }
       return {
-        summary: await staffAttendanceSummary({ userId, month }),
+        slip: await attendanceSlip({ userId, month }),
+        userId,
+        month,
       };
     }
 
-    const staff = await listStaff({
-      departmentId: searchParams.get("departmentId") ?? undefined,
-      status: (searchParams.get("status") as AbsensiStatus) ?? undefined,
-      search: searchParams.get("search") ?? undefined,
-    });
+    // Ringkasan absensi + cuti untuk satu staf.
+    if (userId && month) {
+      const { staffAttendanceSummary } = await import("@/server/dal/staff");
+      return { summary: await staffAttendanceSummary({ userId, month }) };
+    }
 
-    return { staff };
+    const [staff, counts] = await Promise.all([
+      listStaff({
+        departmentId: searchParams.get("departmentId") ?? undefined,
+        status: (searchParams.get("status") as AbsensiStatus) ?? undefined,
+        search: searchParams.get("search") ?? undefined,
+      }),
+      // Badge jumlah per tab. Kalau sedang filter status, angka tab
+      // lain tidak berubah — jadi tetap perlu seluruh tabel.
+      searchParams.get("withCounts") === "1"
+        ? countStaffByStatus()
+        : Promise.resolve(null),
+    ]);
+
+    return { staff, counts };
   });
 }
 
@@ -75,7 +104,13 @@ export async function POST(request: Request) {
   });
 }
 
-/** PATCH /api/absensi/staff — ubah data staf. */
+/**
+ * PATCH /api/absensi/staff — ubah data staf.
+ *
+ * Pemisahan wewenang:
+ *   - Profil + absensi role/status/kuota  → admin absensi
+ *   - kpiRole                             → hanya HR / Executive
+ */
 export async function PATCH(request: Request) {
   return withAuth(async () => {
     const admin = await requireAbsensiAdmin();
@@ -88,35 +123,28 @@ export async function PATCH(request: Request) {
       );
     }
 
-    // Role KPI punyaotorisasi sendiri (HR/Executive),
-    // bukan ikut aturan absensi admin.
-    if (body.kpiRole) {
+    // Role KPI punya aturan sendiri, terpisah dari absensi admin.
+    if (body.kpiRole !== undefined) {
       await requireKpiRole("hr", "executive");
       await setKpiRole(body.id, body.kpiRole);
     }
 
     const patch: StaffPatch = {};
-    for (const key of [
-      "name",
-      "position",
-      "departmentId",
-      "absensiRole",
-      "absensiStatus",
-      "leaveQuota",
-      "sickQuota",
-      "isHidden",
-    ] as const) {
-      if (body[key] !== undefined) {
-        (patch as Record<string, unknown>)[key] = body[key];
-      }
+    for (const [key, value] of Object.entries(body)) {
+      if (key === "id" || key === "kpiRole") continue;
+      if (value === undefined) continue;
+      (patch as Record<string, unknown>)[key] = value;
     }
 
-    const staff =
-      Object.keys(patch).length > 0
-        ? await updateStaff(body.id, patch, admin.id)
-        : null;
+    if (Object.keys(patch).length === 0) {
+      return { ok: true };
+    }
 
-    return { staff };
+    const result = await updateStaff(body.id, patch, admin.id);
+    if (!result.ok) {
+      return Response.json({ ok: false, error: result.error }, { status: 400 });
+    }
+    return { staff: result.staff };
   });
 }
 
@@ -132,7 +160,10 @@ export async function DELETE(request: Request) {
       );
     }
 
-    const staff = await updateStaff(id, { absensiStatus: "deleted" }, admin.id);
-    return { staff };
+    const result = await updateStaff(id, { absensiStatus: "deleted" }, admin.id);
+    if (!result.ok) {
+      return Response.json({ ok: false, error: result.error }, { status: 400 });
+    }
+    return { staff: result.staff };
   });
 }

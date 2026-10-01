@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { createClient } from "@/lib/supabase/client";
+import { useState, useCallback } from "react";
+import { useApiQuery, useApiMutation } from "@/hooks/useApi";
+import { apiFetch, withQuery } from "@/lib/api-client";
 import type { AbsensiStatus } from "@/types";
 import ConfirmDialog from "@/components/absensi/ConfirmDialog";
 import { Search, UserMinus, UserCheck, RotateCcw, User, Settings2, X } from "lucide-react";
@@ -10,30 +11,49 @@ import { toast } from "sonner";
 import { parseLateMinutes } from "@/lib/utils";
 import type { KpiRole } from "@/types";
 
+/**
+ * Bentuk baris staf yang dikirim /api/absensi/staff.
+ *
+ * formerly memakai kolom Supabase yang tidak pernah ada di schema Drizzle:
+ * ttl, address_ktp, phone_wa, emergency_contact. Sekarang memakai kolom
+ * ternormalisasi: birthPlace + birthDate, address, phone,
+ * emergencyName + emergencyPhone.
+ */
 interface StaffUser {
   id: string;
   name: string;
   email: string;
-  absensiRole: "staff" | "admin";
+  photoUrl: string | null;
   kpiRole: KpiRole;
+  absensiRole: "staff" | "admin";
   absensiStatus: AbsensiStatus;
+  departmentId: string | null;
+  departmentName: string | null;
+  position: string | null;
   leaveQuota: number;
   sickQuota: number;
   isHidden: boolean;
-  departmentId: string | null;
-  departmentName: string | null;
+  leaveUsed: number;
+  sickUsed: number;
+
   nik: string | null;
-  ttl: string | null;
-  addressKtp: string | null;
-  phoneWa: string | null;
-  emergencyContact: string | null;
-  position: string | null;
+  birthPlace: string | null;
+  birthDate: string | null;
+  gender: string | null;
+  religion: string | null;
+  maritalStatus: string | null;
+  address: string | null;
+  city: string | null;
+  province: string | null;
+  postalCode: string | null;
+  phone: string | null;
+  emergencyName: string | null;
+  emergencyPhone: string | null;
+  npwp: string | null;
+
   joinDate: string | null;
   employmentStatus: string | null;
   contractEndDate: string | null;
-  npwp: string | null;
-  photoUrl: string | null;
-  religion: string | null;
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -49,74 +69,82 @@ type ConfirmCfg = { title: string; msg: string; type: "warning" | "danger"; onCo
 
 export default function AdminStaffPage() {
   const [statusFilter, setStatusFilter] = useState<AbsensiStatus>("active");
-  const [users, setUsers] = useState<StaffUser[]>([]);
   const [editingProfile, setEditingProfile] = useState<StaffUser | null>(null);
   const [profileEdits, setProfileEdits] = useState<Partial<StaffUser>>({});
   const [profileTab, setProfileTab] = useState<"personal" | "roles" | "quotas">("personal");
-  const [counts, setCounts] = useState<Record<string, number>>({});
   const [searchTerm, setSearchTerm] = useState("");
-  const [isLoading, setIsLoading] = useState(true);
   const [confirmCfg, setConfirmCfg] = useState<ConfirmCfg>(null);
-  const [departments, setDepartments] = useState<{ id: string; name: string }[]>([]);
-  const [selectedPeriod, setSelectedPeriod] = useState(() => new Date().toISOString().substring(0, 7));
+  const [selectedPeriod, setSelectedPeriod] = useState(() =>
+    new Date().toISOString().substring(0, 7),
+  );
 
   const [kpiUser, setKpiUser] = useState<StaffUser | null>(null);
-  const [kpiWeights, setKpiWeights] = useState({ result: 50, activity: 30, quality: 20, leadTim: 50, hr: 50 });
+  const [kpiWeights, setKpiWeights] = useState({
+    result: 50,
+    activity: 30,
+    quality: 20,
+    leadTim: 50,
+    hr: 50,
+  });
   const [globalKpiModalOpen, setGlobalKpiModalOpen] = useState(false);
+
+  // formerly: `SELECT` seluruh tabel users + departments dari browser,
+  // plus realtime channel yang memicu fetch ulang setiap perubahan.
+  //
+  // sekarang: server yang memfilter dan menghitung badge per status,
+  // sehingga tab yang sedang tidak aktif tidak ikut ter-download.
+  const buildStaff = useCallback(
+    () =>
+      withQuery("/api/absensi/staff", {
+        status: statusFilter,
+        withCounts: "1",
+      }),
+    [statusFilter],
+  );
+
+  const { data: staffData, isLoading, refetch: refetchStaff } = useApiQuery<{
+    staff: StaffUser[];
+    counts: Record<string, number> | null;
+  }>(buildStaff, [statusFilter], 30_000);
+
+  const buildDepts = useCallback(() => "/api/departments", []);
+  const { data: deptData } = useApiQuery<{
+    departments: { id: string; name: string }[];
+  }>(buildDepts, [], 60_000);
+
+  const users = staffData?.staff ?? [];
+  const counts = staffData?.counts ?? {};
+  const departments = deptData?.departments ?? [];
+
+  const patchStaff = useApiMutation<Record<string, unknown>, unknown>(
+    "/api/absensi/staff",
+    "PATCH",
+  );
+  const putKpiWeights = useApiMutation<Record<string, unknown>, unknown>(
+    "/api/kpi-settings",
+    "PUT",
+  );
+
   const [kpiSaving, setKpiSaving] = useState(false);
+  const [slipLoading, setSlipLoading] = useState<string | null>(null);
 
-  useEffect(() => {
-    const supabase = createClient();
+  const openKpiModal = async (u: StaffUser) => {
+    const tid = toast.loading("Memuat pengaturan KPI...");
+    try {
+      const res = await apiFetch<{
+        weights: { result: number; activity: number; quality: number; leadTim: number; hr: number };
+      }>(withQuery("/api/kpi-settings", { userId: u.id }));
 
-    const fetchAll = async () => {
-      const [usersRes, deptsRes] = await Promise.all([
-        supabase.from("users").select("id, name, email, absensi_role, kpi_role, absensi_status, leave_quota, sick_quota, is_hidden, department_id, departments(name), nik, ttl, address_ktp, phone_wa, emergency_contact, position, join_date, employment_status, contract_end_date, npwp, photo_url, religion"),
-        supabase.from("departments").select("id, name").order("name"),
-      ]);
-
-      const allUsers = ((usersRes.data as any[]) ?? []).map((r: any) => ({
-        id: r.id as string,
-        name: r.name as string,
-        email: r.email as string,
-        absensiRole: (r.absensi_role as "staff" | "admin") ?? "staff",
-        kpiRole: (r.kpi_role as KpiRole) ?? "tim",
-        absensiStatus: (r.absensi_status as AbsensiStatus) ?? "pending",
-        leaveQuota: (r.leave_quota as number) ?? 12,
-        sickQuota: (r.sick_quota as number) ?? 14,
-        isHidden: (r.is_hidden as boolean) ?? false,
-        departmentId: r.department_id as string | null,
-        departmentName: ((r.departments as unknown) as { name: string } | null)?.name ?? null,
-        nik: (r.nik as string) ?? null,
-        ttl: (r.ttl as string) ?? null,
-        addressKtp: (r.address_ktp as string) ?? null,
-        phoneWa: (r.phone_wa as string) ?? null,
-        emergencyContact: (r.emergency_contact as string) ?? null,
-        position: (r.position as string) ?? null,
-        joinDate: r.join_date as string | null,
-        employmentStatus: r.employment_status as string | null,
-        contractEndDate: r.contract_end_date as string | null,
-        npwp: (r.npwp as string) ?? null,
-        photoUrl: r.photo_url as string | null,
-        religion: (r.religion as string) ?? null,
-      }));
-
-      const newCounts: Record<string, number> = {};
-      STATUS_TABS.forEach((s) => { newCounts[s] = allUsers.filter((u) => u.absensiStatus === s).length; });
-      setCounts(newCounts);
-      setUsers(allUsers.filter((u) => u.absensiStatus === statusFilter));
-      setIsLoading(false);
-
-      setDepartments((deptsRes.data ?? []).map((d) => ({ id: d.id as string, name: d.name as string })));
-    };
-
-    fetchAll();
-
-    const ch = supabase.channel("admin_staff_watch")
-      .on("postgres_changes", { event: "*", schema: "public", table: "users" }, fetchAll)
-      .subscribe();
-
-    return () => { ch.unsubscribe(); };
-  }, [statusFilter]);
+      setKpiWeights(res.weights);
+      setKpiUser(u);
+      toast.dismiss(tid);
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Gagal memuat bobot KPI.",
+        { id: tid },
+      );
+    }
+  };
 
   const getEdit = <K extends keyof StaffUser>(key: K): StaffUser[K] =>
     (profileEdits[key] !== undefined ? profileEdits[key] : editingProfile?.[key]) as StaffUser[K];
@@ -130,203 +158,218 @@ export default function AdminStaffPage() {
       setEditingProfile(null);
       return;
     }
-    const supabase = createClient();
-    const tid = toast.loading("Memperbarui profil...");
-    try {
-      const updatePayload: any = {};
-      if (profileEdits.name !== undefined) updatePayload.name = profileEdits.name;
-      if (profileEdits.email !== undefined) updatePayload.email = profileEdits.email;
-      if (profileEdits.absensiRole !== undefined) updatePayload.absensi_role = profileEdits.absensiRole;
-      if (profileEdits.kpiRole !== undefined) updatePayload.kpi_role = profileEdits.kpiRole;
-      if (profileEdits.leaveQuota !== undefined) updatePayload.leave_quota = profileEdits.leaveQuota;
-      if (profileEdits.sickQuota !== undefined) updatePayload.sick_quota = profileEdits.sickQuota;
-      if (profileEdits.isHidden !== undefined) updatePayload.is_hidden = profileEdits.isHidden;
-      if (profileEdits.departmentId !== undefined) updatePayload.department_id = profileEdits.departmentId;
-      if (profileEdits.nik !== undefined) updatePayload.nik = profileEdits.nik;
-      if (profileEdits.ttl !== undefined) updatePayload.ttl = profileEdits.ttl;
-      if (profileEdits.addressKtp !== undefined) updatePayload.address_ktp = profileEdits.addressKtp;
-      if (profileEdits.phoneWa !== undefined) updatePayload.phone_wa = profileEdits.phoneWa;
-      if (profileEdits.emergencyContact !== undefined) updatePayload.emergency_contact = profileEdits.emergencyContact;
-      if (profileEdits.position !== undefined) updatePayload.position = profileEdits.position;
-      if (profileEdits.joinDate !== undefined) updatePayload.join_date = profileEdits.joinDate;
-      if (profileEdits.employmentStatus !== undefined) updatePayload.employment_status = profileEdits.employmentStatus;
-      if (profileEdits.contractEndDate !== undefined) updatePayload.contract_end_date = profileEdits.contractEndDate;
-      if (profileEdits.npwp !== undefined) updatePayload.npwp = profileEdits.npwp;
-      if (profileEdits.religion !== undefined) updatePayload.religion = profileEdits.religion;
 
-      const { error } = await supabase.from("users").update(updatePayload).eq("id", editingProfile.id);
-      if (error) throw error;
+    const tid = toast.loading("Memperbarui profil...");
+
+    const res = await patchStaff.mutate({
+      id: editingProfile.id,
+      ...profileEdits,
+    });
+
+    if (res.ok) {
       toast.success("Profil berhasil diperbarui.", { id: tid });
       setEditingProfile(null);
       setProfileEdits({});
-    } catch (err: unknown) {
-      toast.error("Gagal: " + (err instanceof Error ? err.message : "Unknown"), { id: tid });
+      void refetchStaff();
+    } else {
+      toast.error(res.error ?? "Gagal memperbarui profil.", { id: tid });
     }
   };
 
-  const openKpiModal = async (u: StaffUser) => {
-    const supabase = createClient();
-    const tid = toast.loading("Memuat pengaturan KPI...");
-    try {
-      const { data } = await supabase.from("kpi_settings").select("*").eq("user_id", u.id).maybeSingle();
-      if (data) {
-        setKpiWeights({ 
-          result: data.result_weight, 
-          activity: data.activity_weight, 
-          quality: data.quality_weight,
-          leadTim: data.lead_tim_weight ?? 50,
-          hr: data.hr_weight ?? 50
-        });
-      } else {
-        setKpiWeights({ result: 50, activity: 30, quality: 20, leadTim: 50, hr: 50 });
-      }
-      setKpiUser(u);
-      toast.dismiss(tid);
-    } catch (err: unknown) {
-      toast.error("Gagal: " + (err instanceof Error ? err.message : "Unknown"), { id: tid });
+  /**
+   * Validasi bobot sebelum dikirim.
+   *
+   * Server juga memvalidasi (lihat PUT /api/kpi-settings), tapi slider di
+   * form bisa dibiarkan di posisi tidak seimbang. Lebih baik user tahu
+   * sebelum menekan Simpan.
+   */
+  function weightsBalanced() {
+    const perf = kpiWeights.result + kpiWeights.activity + kpiWeights.quality;
+    const pers = kpiWeights.leadTim + kpiWeights.hr;
+    if (perf !== 100) {
+      toast.error("Total bobot Performance harus tepat 100%");
+      return false;
     }
-  };
+    if (pers !== 100) {
+      toast.error("Total bobot Personality harus tepat 100%");
+      return false;
+    }
+    return true;
+  }
 
   const saveKpiWeights = async () => {
     if (!kpiUser) return;
-    if (kpiWeights.result + kpiWeights.activity + kpiWeights.quality !== 100) {
-      toast.error("Total bobot Performance harus tepat 100%");
-      return;
-    }
-    if (kpiWeights.leadTim + kpiWeights.hr !== 100) {
-      toast.error("Total bobot Personality harus tepat 100%");
-      return;
-    }
+    if (!weightsBalanced()) return;
+
     const tid = toast.loading("Menyimpan pengaturan KPI...");
     setKpiSaving(true);
-    try {
-      const supabase = createClient();
-      const { error } = await supabase.from("kpi_settings").upsert({
-        user_id: kpiUser.id,
-        result_weight: kpiWeights.result,
-        activity_weight: kpiWeights.activity,
-        quality_weight: kpiWeights.quality,
-        lead_tim_weight: kpiWeights.leadTim,
-        hr_weight: kpiWeights.hr,
-      }, { onConflict: "user_id" });
-      if (error) throw error;
+
+    const res = await putKpiWeights.mutate({
+      userId: kpiUser.id,
+      ...kpiWeights,
+    });
+
+    setKpiSaving(false);
+
+    if (res.ok) {
       toast.success("Pengaturan KPI berhasil disimpan.", { id: tid });
       setKpiUser(null);
-    } catch (err: unknown) {
-      toast.error("Gagal menyimpan KPI: " + (err instanceof Error ? err.message : "Unknown"), { id: tid });
-    } finally {
-      setKpiSaving(false);
+    } else {
+      toast.error(res.error ?? "Gagal menyimpan KPI.", { id: tid });
     }
   };
 
   const saveGlobalKpiWeights = async () => {
-    if (kpiWeights.result + kpiWeights.activity + kpiWeights.quality !== 100) {
-      toast.error("Total bobot Performance harus tepat 100%");
-      return;
-    }
-    if (kpiWeights.leadTim + kpiWeights.hr !== 100) {
-      toast.error("Total bobot Personality harus tepat 100%");
-      return;
-    }
+    if (!weightsBalanced()) return;
+
     const tid = toast.loading("Menerapkan bobot global...");
     setKpiSaving(true);
-    try {
-      const supabase = createClient();
-      const activeUsers = users.filter(u => u.absensiStatus === 'active');
-      const upserts = activeUsers.map(u => ({
-        user_id: u.id,
-        result_weight: kpiWeights.result,
-        activity_weight: kpiWeights.activity,
-        quality_weight: kpiWeights.quality,
-        lead_tim_weight: kpiWeights.leadTim,
-        hr_weight: kpiWeights.hr,
-      }));
-      const { error } = await supabase.from("kpi_settings").upsert(upserts, { onConflict: "user_id" });
-      if (error) throw error;
-      toast.success("Bobot global berhasil diterapkan ke seluruh staf aktif.", { id: tid });
+
+    // formerly: upsert per user di browser, jadi hanya kena staf yang
+    // kebetulan sedang tampil di tab aktif. Sekarang satu operasi server
+    // untuk seluruh staf aktif.
+    const res = await putKpiWeights.mutate({ scope: "all", ...kpiWeights });
+
+    setKpiSaving(false);
+
+    if (res.ok) {
+      const affected = (res.data as { affected?: number } | undefined)?.affected ?? 0;
+      toast.success(`Bobot global diterapkan ke ${affected} staf aktif.`, { id: tid });
       setGlobalKpiModalOpen(false);
-    } catch (err: unknown) {
-      toast.error("Gagal menyimpan bobot global: " + (err instanceof Error ? err.message : "Unknown"), { id: tid });
-    } finally {
-      setKpiSaving(false);
+    } else {
+      toast.error(res.error ?? "Gagal menyimpan bobot global.", { id: tid });
     }
   };
 
   const updateStatus = (userId: string, newStatus: AbsensiStatus) => {
-    const labels: Record<string, string> = { resigned: "Resign", deleted: "Hapus", active: "Aktif", rejected: "Tolak" };
+    const labels: Record<string, string> = {
+      resigned: "Resign",
+      deleted: "Hapus",
+      active: "Aktif",
+      rejected: "Tolak",
+    };
+
     setConfirmCfg({
       title: `Konfirmasi ${labels[newStatus] ?? newStatus}`,
       msg: `Yakin ingin memindahkan status staf ini ke ${labels[newStatus] ?? newStatus}?`,
       type: newStatus === "deleted" ? "danger" : "warning",
       onConfirm: async () => {
-        const supabase = createClient();
         const tid = toast.loading("Memperbarui status...");
-        try {
-          const { error } = await supabase.from("users").update({ absensi_status: newStatus }).eq("id", userId);
-          if (error) throw error;
+
+        const res = await patchStaff.mutate({ id: userId, absensiStatus: newStatus });
+
+        if (res.ok) {
           toast.success("Status berhasil diperbarui.", { id: tid });
-        } catch (err: unknown) {
-          toast.error("Gagal: " + (err instanceof Error ? err.message : "Unknown"), { id: tid });
-        } finally { setConfirmCfg(null); }
+          void refetchStaff();
+        } else {
+          toast.error(res.error ?? "Gagal memperbarui status.", { id: tid });
+        }
+
+        setConfirmCfg(null);
       },
     });
   };
 
   const handleSlipAbsen = async (u: StaffUser) => {
-    const supabase = createClient();
     const tid = toast.loading(`Mengambil data absensi ${u.name}...`);
+    setSlipLoading(u.id);
+
     try {
-      const startStr = `${selectedPeriod}-01`;
-      const endStr   = `${selectedPeriod}-31`;
-      const { data: logs, error } = await supabase
-        .from("attendance")
-        .select("date, type, status, check_in, check_out, late_fine, radius_penalty, late_reason_status")
-        .eq("user_id", u.id)
-        .gte("date", startStr)
-        .lte("date", endStr)
-        .order("date");
-      if (error) throw error;
-      if (!logs || logs.length === 0) {
-        toast.error(`Tidak ada absen untuk ${u.name} pada ${selectedPeriod}`, { id: tid });
+      // formerly: query attendance langsung dari browser dengan
+      // rentang tanggal `YYYY-MM-01` .. `YYYY-MM-31`. Tanggal 31
+      // tidak selalu ada (Februari), jadi baris terakhir bisa terlewat.
+      // Server sekarang pakai batas bulan yang benar.
+      const res = await apiFetch<{
+        slip: Array<{
+          date: string | null;
+          type: string | null;
+          status: string | null;
+          checkIn: string | null;
+          checkOut: string | null;
+          lateFine: number;
+          radiusPenalty: number;
+          lateReasonStatus: string | null;
+        }>;
+      }>(
+        withQuery("/api/absensi/staff", {
+          slip: "1",
+          userId: u.id,
+          month: selectedPeriod,
+        }),
+      );
+
+      const logs = res.slip;
+
+      if (logs.length === 0) {
+        toast.error(
+          `Tidak ada absen untuk ${u.name} pada ${selectedPeriod}`,
+          { id: tid },
+        );
         return;
       }
-      const workbook  = new ExcelJS.Workbook();
+
+      const workbook = new ExcelJS.Workbook();
       const worksheet = workbook.addWorksheet("Slip Absen");
       worksheet.columns = [
-        { header: "Tanggal",      key: "date",              width: 15 },
-        { header: "Tipe",         key: "type",              width: 10 },
-        { header: "Status",       key: "status",            width: 15 },
-        { header: "Check In",     key: "checkIn",           width: 12 },
-        { header: "Check Out",    key: "checkOut",          width: 12 },
-        { header: "Menit Telat",  key: "lateFine",          width: 15 },
-        { header: "Denda Radius", key: "radiusPenalty",     width: 15 },
-        { header: "Status Alasan",key: "lateReasonStatus",  width: 15 },
+        { header: "Tanggal", key: "date", width: 15 },
+        { header: "Tipe", key: "type", width: 10 },
+        { header: "Status", key: "status", width: 15 },
+        { header: "Check In", key: "checkIn", width: 12 },
+        { header: "Check Out", key: "checkOut", width: 12 },
+        { header: "Menit Telat", key: "lateFine", width: 15 },
+        { header: "Denda Radius", key: "radiusPenalty", width: 15 },
+        { header: "Status Alasan", key: "lateReasonStatus", width: 15 },
       ];
+
       for (const l of logs) {
-        const lrsRaw = l.late_reason_status as string | null;
-        const lrsLabel = lrsRaw === "accepted" ? "Diterima" : lrsRaw === "rejected" ? "Ditolak" : lrsRaw === "pending" ? "Menunggu" : "-";
+        const raw = l.lateReasonStatus;
+        const label =
+          raw === "accepted"
+            ? "Diterima"
+            : raw === "rejected"
+              ? "Ditolak"
+              : raw === "pending"
+                ? "Menunggu"
+                : "-";
+
         worksheet.addRow({
-          date:             l.date as string,
-          type:             (l.type as string) ?? "-",
-          status:           ((l.status as string) ?? "-").replace("_", " ").toUpperCase(),
-          checkIn:          (l.check_in as string | null) ?? "-",
-          checkOut:         (l.check_out as string | null) ?? "-",
-          lateFine:         parseLateMinutes((l.late_fine as number) ?? 0),
-          radiusPenalty:    (l.radius_penalty as number) ?? 0,
-          lateReasonStatus: lrsLabel,
+          date: l.date ?? "-",
+          type: l.type ?? "-",
+          status: (l.status ?? "-").replace("_", " ").toUpperCase(),
+          checkIn: l.checkIn ?? "-",
+          checkOut: l.checkOut ?? "-",
+          lateFine: parseLateMinutes(l.lateFine),
+          radiusPenalty: l.radiusPenalty,
+          lateReasonStatus: label,
         });
       }
+
       worksheet.getRow(1).font = { bold: true };
-      worksheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE0E0E0" } };
+      worksheet.getRow(1).fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: "FFE0E0E0" },
+      };
+
       const buffer = await workbook.xlsx.writeBuffer();
-      const blob   = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-      const url    = URL.createObjectURL(blob);
-      const a      = document.createElement("a");
-      a.href = url; a.download = `Slip_Absen_${u.name.replace(/\s+/g, "_")}_${selectedPeriod}.xlsx`; a.click();
+      const blob = new Blob([buffer], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `Slip_Absen_${u.name.replace(/\s+/g, "_")}_${selectedPeriod}.xlsx`;
+      a.click();
       URL.revokeObjectURL(url);
+
       toast.success(`Slip absen ${u.name} berhasil diunduh`, { id: tid });
-    } catch (err: unknown) {
-      toast.error("Gagal: " + (err instanceof Error ? err.message : "Unknown"), { id: tid });
+    } catch (err) {
+      toast.error(
+        "Gagal: " + (err instanceof Error ? err.message : "Unknown"),
+        { id: tid },
+      );
+    } finally {
+      setSlipLoading(null);
     }
   };
 
@@ -379,7 +422,7 @@ export default function AdminStaffPage() {
         {STATUS_TABS.map((s) => (
           <button
             key={s}
-            onClick={() => { setStatusFilter(s); setIsLoading(true); }}
+            onClick={() => setStatusFilter(s)}
             className="px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all whitespace-nowrap border flex items-center gap-2"
             style={statusFilter === s ? {
               background: "var(--ab-primary)", color: "#fff",
@@ -473,7 +516,7 @@ export default function AdminStaffPage() {
                   </div>
                   <div>
                     <span className="block font-black uppercase tracking-widest text-[8px] mb-1">No. WA</span>
-                    <span className="font-bold text-[var(--ab-text-main)]">{u.phoneWa ?? "-"}</span>
+                    <span className="font-bold text-[var(--ab-text-main)]">{u.phone ?? "-"}</span>
                   </div>
                   <div>
                     <span className="block font-black uppercase tracking-widest text-[8px] mb-1">Status Karyawan</span>
@@ -494,6 +537,7 @@ export default function AdminStaffPage() {
                   className="flex-1 py-3 rounded-2xl text-[9px] font-black uppercase tracking-widest transition-all text-white flex items-center justify-center gap-2 shadow-lg"
                   style={{ background: "var(--ab-primary)", boxShadow: "0 4px 12px -3px var(--ab-primary-glow)" }}
                   onClick={() => handleSlipAbsen(u)}
+                  disabled={slipLoading === u.id}
                 >
                   <RotateCcw size={10} /> Slip
                 </button>
@@ -709,20 +753,49 @@ export default function AdminStaffPage() {
                     <input type="text" value={getEdit("npwp") ?? ""} onChange={e => patchEdit({ npwp: e.target.value })} className="ab-input text-xs w-full" placeholder="Cth: 12.345.678.9-123.000" />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[9px] font-black uppercase text-[var(--ab-text-dim)] tracking-widest ml-1">Tempat, Tanggal Lahir (TTL)</label>
-                    <input type="text" value={getEdit("ttl") ?? ""} onChange={e => patchEdit({ ttl: e.target.value })} className="ab-input text-xs w-full" placeholder="Jakarta, 01 Jan 1990" />
+                    <label className="text-[9px] font-black uppercase text-[var(--ab-text-dim)] tracking-widest ml-1">Tempat Lahir</label>
+                    <input type="text" value={getEdit("birthPlace") ?? ""} onChange={e => patchEdit({ birthPlace: e.target.value })} className="ab-input text-xs w-full" placeholder="Jakarta" />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black uppercase text-[var(--ab-text-dim)] tracking-widest ml-1">Tanggal Lahir</label>
+                    <input type="date" value={getEdit("birthDate") ?? ""} onChange={e => patchEdit({ birthDate: e.target.value })} className="ab-input text-xs w-full" />
                   </div>
                   <div className="space-y-1">
                     <label className="text-[9px] font-black uppercase text-[var(--ab-text-dim)] tracking-widest ml-1">No. WhatsApp</label>
-                    <input type="text" value={getEdit("phoneWa") ?? ""} onChange={e => patchEdit({ phoneWa: e.target.value })} className="ab-input text-xs w-full" placeholder="08123456789" />
+                    <input type="text" value={getEdit("phone") ?? ""} onChange={e => patchEdit({ phone: e.target.value })} className="ab-input text-xs w-full" placeholder="08123456789" />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[9px] font-black uppercase text-[var(--ab-text-dim)] tracking-widest ml-1">Kontak Darurat</label>
-                    <input type="text" value={getEdit("emergencyContact") ?? ""} onChange={e => patchEdit({ emergencyContact: e.target.value })} className="ab-input text-xs w-full" placeholder="Nama & No HP" />
+                    <label className="text-[9px] font-black uppercase text-[var(--ab-text-dim)] tracking-widest ml-1">Status Kawin</label>
+                    <select value={getEdit("maritalStatus") ?? ""} onChange={e => patchEdit({ maritalStatus: e.target.value })} className="ab-input text-xs w-full bg-white dark:bg-slate-900 appearance-none">
+                      <option value="">Pilih Status</option>
+                      {["Belum Menikah", "Menikah", "Cerai Hidup", "Cerai Mati"].map((s) => (
+                        <option key={s} value={s}>{s}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black uppercase text-[var(--ab-text-dim)] tracking-widest ml-1">Nama Kontak Darurat</label>
+                    <input type="text" value={getEdit("emergencyName") ?? ""} onChange={e => patchEdit({ emergencyName: e.target.value })} className="ab-input text-xs w-full" placeholder="Nama Lengkap" />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black uppercase text-[var(--ab-text-dim)] tracking-widest ml-1">No. Kontak Darurat</label>
+                    <input type="text" value={getEdit("emergencyPhone") ?? ""} onChange={e => patchEdit({ emergencyPhone: e.target.value })} className="ab-input text-xs w-full" placeholder="08123456789" />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black uppercase text-[var(--ab-text-dim)] tracking-widest ml-1">Kota</label>
+                    <input type="text" value={getEdit("city") ?? ""} onChange={e => patchEdit({ city: e.target.value })} className="ab-input text-xs w-full" placeholder="Jakarta Selatan" />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black uppercase text-[var(--ab-text-dim)] tracking-widest ml-1">Provinsi</label>
+                    <input type="text" value={getEdit("province") ?? ""} onChange={e => patchEdit({ province: e.target.value })} className="ab-input text-xs w-full" placeholder="DKI Jakarta" />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black uppercase text-[var(--ab-text-dim)] tracking-widest ml-1">Kode Pos</label>
+                    <input type="text" value={getEdit("postalCode") ?? ""} onChange={e => patchEdit({ postalCode: e.target.value })} className="ab-input text-xs w-full" placeholder="12345" />
                   </div>
                   <div className="space-y-1 md:col-span-2">
                     <label className="text-[9px] font-black uppercase text-[var(--ab-text-dim)] tracking-widest ml-1">Alamat KTP</label>
-                    <textarea value={getEdit("addressKtp") ?? ""} onChange={e => patchEdit({ addressKtp: e.target.value })} className="ab-input text-xs w-full h-20 resize-none py-3" placeholder="Alamat lengkap sesuai KTP" />
+                    <textarea value={getEdit("address") ?? ""} onChange={e => patchEdit({ address: e.target.value })} className="ab-input text-xs w-full h-20 resize-none py-3" placeholder="Alamat lengkap sesuai KTP" />
                   </div>
                 </div>
               )}

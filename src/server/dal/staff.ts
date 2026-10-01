@@ -35,6 +35,27 @@ export type StaffRow = {
   leaveUsed: number;
   sickUsed: number;
   createdAt: string;
+
+  // ── Profil HR ───────────────────────────────────────────────
+  nik: string | null;
+  birthPlace: string | null;
+  birthDate: string | null;
+  gender: string | null;
+  religion: string | null;
+  maritalStatus: string | null;
+  address: string | null;
+  city: string | null;
+  province: string | null;
+  postalCode: string | null;
+  phone: string | null;
+  emergencyName: string | null;
+  emergencyPhone: string | null;
+  npwp: string | null;
+
+  // ── Data ketenagakerjaan ─────────────────────────────────────
+  joinDate: string | null;
+  employmentStatus: string | null;
+  contractEndDate: string | null;
 };
 
 const staffSelect = {
@@ -53,7 +74,32 @@ const staffSelect = {
   isHidden: users.isHidden,
   createdAt: users.createdAt,
   departmentName: departments.name,
+
+  nik: users.nik,
+  birthPlace: users.birthPlace,
+  birthDate: users.birthDate,
+  gender: users.gender,
+  religion: users.religion,
+  maritalStatus: users.maritalStatus,
+  address: users.address,
+  city: users.city,
+  province: users.province,
+  postalCode: users.postalCode,
+  phone: users.phone,
+  emergencyName: users.emergencyName,
+  emergencyPhone: users.emergencyPhone,
+  npwp: users.npwp,
+
+  joinDate: users.joinDate,
+  employmentStatus: users.employmentStatus,
+  contractEndDate: users.contractEndDate,
 };
+
+/** Kolom `date` datang sebagai string YYYY-MM-DD dari driver. */
+function isoDay(value: Date | string | null): string | null {
+  if (!value) return null;
+  return String(value).slice(0, 10);
+}
 
 /**
  * Kuota terpakai bulan berjalan (hanya request approved).
@@ -137,22 +183,123 @@ export async function listStaff(params?: {
       leaveUsed: u.leave,
       sickUsed: u.sick,
       createdAt: r.createdAt.toISOString(),
+
+      nik: r.nik,
+      birthPlace: r.birthPlace,
+      birthDate: isoDay(r.birthDate),
+      gender: r.gender,
+      religion: r.religion,
+      maritalStatus: r.maritalStatus,
+      address: r.address,
+      city: r.city,
+      province: r.province,
+      postalCode: r.postalCode,
+      phone: r.phone,
+      emergencyName: r.emergencyName,
+      emergencyPhone: r.emergencyPhone,
+      npwp: r.npwp,
+
+      joinDate: isoDay(r.joinDate),
+      employmentStatus: r.employmentStatus,
+      contractEndDate: isoDay(r.contractEndDate),
     };
   });
+}
+
+/**
+ * Jumlah staf per status absensi.
+ *
+ * Dihitung server supaya tab di UI tidak perlu menarik seluruh tabel
+ * users hanya untuk menghitung badge.
+ */
+export async function countStaffByStatus(): Promise<
+  Record<AbsensiStatus, number>
+> {
+  const rows = await db
+    .select({ status: users.absensiStatus, total: sql<number>`count(*)::int` })
+    .from(users)
+    .groupBy(users.absensiStatus);
+
+  const out = {
+    active: 0,
+    pending: 0,
+    rejected: 0,
+    resigned: 0,
+    deleted: 0,
+  } as Record<AbsensiStatus, number>;
+
+  for (const r of rows) out[r.status] = Number(r.total);
+  return out;
 }
 
 
 export type StaffPatch = {
   name?: string;
+  email?: string;
   position?: string | null;
   departmentId?: string | null;
   absensiRole?: AbsensiRole;
   absensiStatus?: AbsensiStatus;
-  kpiRole?: string;
   leaveQuota?: number;
   sickQuota?: number;
   isHidden?: boolean;
+
+  // Profil HR
+  nik?: string | null;
+  birthPlace?: string | null;
+  birthDate?: string | null;
+  gender?: string | null;
+  religion?: string | null;
+  maritalStatus?: string | null;
+  address?: string | null;
+  city?: string | null;
+  province?: string | null;
+  postalCode?: string | null;
+  phone?: string | null;
+  emergencyName?: string | null;
+  emergencyPhone?: string | null;
+  npwp?: string | null;
+
+  // Data ketenagakerjaan
+  joinDate?: string | null;
+  employmentStatus?: string | null;
+  contractEndDate?: string | null;
 };
+
+/**
+ * Field profil yang boleh diubah admin absensi.
+ *
+ * `kpiRole` TIDAK ada di sini — role KPI punya aturan sendiri
+ * (HR/Executive) dan ditangani terpisah di route.
+ */
+const PROFILE_FIELDS = [
+  "name",
+  "email",
+  "position",
+  "departmentId",
+  "absensiRole",
+  "absensiStatus",
+  "leaveQuota",
+  "sickQuota",
+  "isHidden",
+  "nik",
+  "birthPlace",
+  "birthDate",
+  "gender",
+  "religion",
+  "maritalStatus",
+  "address",
+  "city",
+  "province",
+  "postalCode",
+  "phone",
+  "emergencyName",
+  "emergencyPhone",
+  "npwp",
+  "joinDate",
+  "employmentStatus",
+  "contractEndDate",
+] as const satisfies readonly (keyof StaffPatch)[];
 
 /**
  * Update data staf.
@@ -165,22 +312,78 @@ export async function updateStaff(
   id: string,
   patch: StaffPatch,
   actorId: string,
-): Promise<StaffRow | null> {
-  const values: Record<string, unknown> = { updatedAt: new Date() };
+): Promise<{ ok: true; staff: StaffRow | null } | { ok: false; error: string }> {
+  const [existing] = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.id, id))
+    .limit(1);
 
-  if (patch.name !== undefined) values.name = patch.name.trim();
-  if (patch.position !== undefined) values.position = patch.position;
-  if (patch.departmentId !== undefined)
-    values.departmentId = patch.departmentId || null;
-  if (patch.absensiRole !== undefined)
-    values.absensiRole = patch.absensiRole;
-  if (patch.absensiStatus !== undefined)
-    values.absensiStatus = patch.absensiStatus;
-  if (patch.leaveQuota !== undefined)
-    values.leaveQuota = Math.max(0, Math.floor(Number(patch.leaveQuota)));
-  if (patch.sickQuota !== undefined)
-    values.sickQuota = Math.max(0, Math.floor(Number(patch.sickQuota)));
-  if (patch.isHidden !== undefined) values.isHidden = patch.isHidden;
+  if (!existing) {
+    return { ok: false, error: "Staf tidak ditemukan." };
+  }
+
+  const values: Record<string, unknown> = { updatedAt: new Date() };
+  const touched: string[] = [];
+
+  for (const field of PROFILE_FIELDS) {
+    if (patch[field] === undefined) continue;
+    const value = patch[field];
+
+    if (value === "") {
+      values[field] = null;
+      touched.push(field);
+      continue;
+    }
+
+    switch (field) {
+      case "name":
+        values.name = String(value).trim();
+        break;
+      case "email":
+        // Email adalah identitas login Auth.js. Mengubahnya berarti user
+        // tidak bisa masuk lagi dengan akun Google lamanya, jadi unik
+        // dijamin dan sudah dicek di bawah sebelum disimpan.
+        values.email = String(value).trim().toLowerCase();
+        break;
+      case "departmentId":
+        values.departmentId = value || null;
+        break;
+      case "leaveQuota":
+        values.leaveQuota = Math.max(0, Math.floor(Number(value)));
+        break;
+      case "sickQuota":
+        values.sickQuota = Math.max(0, Math.floor(Number(value)));
+        break;
+      case "isHidden":
+        values.isHidden = Boolean(value);
+        break;
+      default:
+        values[field] = value;
+    }
+    touched.push(field);
+  }
+
+  if (touched.length === 0) {
+    const all = await listStaff();
+    return { ok: true, staff: all.find((s) => s.id === id) ?? null };
+  }
+
+  // Email harus unik.
+  if (values.email) {
+    const [clash] = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(and(eq(users.email, values.email as string), sql`${users.id} <> ${id}`))
+      .limit(1);
+
+    if (clash) {
+      return {
+        ok: false,
+        error: `Email ${values.email as string} sudah dipakai staf lain.`,
+      };
+    }
+  }
 
   await db.update(users).set(values).where(eq(users.id, id));
 
@@ -188,11 +391,57 @@ export async function updateStaff(
     actorId,
     action: "staff_updated",
     targetUserId: id,
-    details: JSON.stringify(patch),
+    details: touched.join(","),
   });
 
   const all = await listStaff();
-  return all.find((s) => s.id === id) ?? null;
+  return { ok: true, staff: all.find((s) => s.id === id) ?? null };
+}
+
+/**
+ * Rekap absensi satu staf untuk slip bulanan.
+ *
+ * Dipakai tombol "Slip Absen" di /absensi/admin/staff. formerly query
+ * ini jalan dari browser; sekarang server yang memfilter, dan hanya
+ * admin absensi yang boleh memanggil.
+ */
+export async function attendanceSlip(params: {
+  userId: string;
+  month: string; // YYYY-MM
+}) {
+  const [from, to] = monthBounds(params.month);
+
+  const rows = await db
+    .select({
+      date: attendance.date,
+      type: attendance.type,
+      status: attendance.status,
+      checkIn: attendance.checkIn,
+      checkOut: attendance.checkOut,
+      lateFine: attendance.lateFine,
+      radiusPenalty: attendance.radiusPenalty,
+      lateReasonStatus: attendance.lateReasonStatus,
+    })
+    .from(attendance)
+    .where(
+      and(
+        eq(attendance.userId, params.userId),
+        gte(attendance.date, from),
+        lte(attendance.date, to),
+      ),
+    )
+    .orderBy(asc(attendance.date));
+
+  return rows.map((r) => ({
+    date: isoDay(r.date),
+    type: r.type,
+    status: r.status,
+    checkIn: r.checkIn ? String(r.checkIn).slice(0, 5) : null,
+    checkOut: r.checkOut ? String(r.checkOut).slice(0, 5) : null,
+    lateFine: Number(r.lateFine ?? 0),
+    radiusPenalty: Number(r.radiusPenalty ?? 0),
+    lateReasonStatus: r.lateReasonStatus,
+  }));
 }
 
 /** Buat user baru (dipakai admin, tanpa akun Google dulu). */

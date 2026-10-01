@@ -739,3 +739,54 @@ export async function setUserWeights(
 
   return getUserWeights(userId);
 }
+
+/**
+ * Terapkan bobot yang sama ke seluruh staf aktif.
+ *
+ * formerly ini di-loop di browser dengan upsert per user, jadi
+ * hanya afectan staf yang kebetulan termuat di tab aktif. Sekarang
+ * satu operasi server untuk semua staf aktif.
+ *
+ * Returns jumlah user yang diperbarui.
+ */
+export async function applyWeightsToActiveStaff(
+  weights: KpiSettingsShape,
+  actorId: string,
+): Promise<number> {
+  const active = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.absensiStatus, "active"));
+
+  if (active.length === 0) return 0;
+
+  const now = new Date();
+  const values = active.map((u) => ({
+    userId: u.id,
+    resultWeight: weights.result,
+    activityWeight: weights.activity,
+    qualityWeight: weights.quality,
+    leadTimWeight: weights.leadTim,
+    hrWeight: weights.hr,
+    updatedBy: actorId,
+    updatedAt: now,
+  }));
+
+  await db
+    .insert(kpiSettings)
+    .values(values)
+    .onConflictDoUpdate({
+      target: kpiSettings.userId,
+      set: {
+        resultWeight: weights.result,
+        activityWeight: weights.activity,
+        qualityWeight: weights.quality,
+        leadTimWeight: weights.leadTim,
+        hrWeight: weights.hr,
+        updatedBy: actorId,
+        updatedAt: now,
+      },
+    });
+
+  return active.length;
+}
