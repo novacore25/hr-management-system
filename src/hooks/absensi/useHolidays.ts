@@ -1,40 +1,83 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { createClient } from "@/lib/supabase/client";
-import type { Holiday } from "@/types/absensi";
+/**
+ * SHIM — hook lama, sekarang memakai Route Handler server.
+ *
+ * Halaman-halaman lama masih mengimpor dari file ini. Struktur
+ * return value dipertahankan supaya tidak perlu rewrite semua
+ * sekaligus.
+ *
+ * TODO(Fase 4b): ganti import halaman langsung ke
+ * @/hooks/absensi/useAttendance lalu hapus file ini.
+ */
 
+import { useCallback } from "react";
+import { useApiQuery } from "@/hooks/useApi";
+import { withQuery } from "@/lib/api-client";
+import type { AbsensiSettings, Holiday } from "@/types/absensi";
+
+/** @deprecated Pakai useAbsensiSettings dari @/hooks/absensi/useAttendance. */
+export function useAbsensiSettings() {
+  const build = useCallback(() => "/api/absensi/settings", []);
+  const { data, isLoading, error, refetch } = useApiQuery<{
+    settings: AbsensiSettings;
+  }>(build, []);
+
+  return {
+    settings: data?.settings ?? null,
+    isLoading,
+    error,
+    refresh: refetch,
+  };
+}
+
+/** @deprecated Pakai useHolidays dari @/hooks/absensi/useAttendance. */
 export function useHolidays() {
-  const [holidays, setHolidays] = useState<Holiday[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const build = useCallback(
+    () => "/api/absensi/settings?include=holidays",
+    [],
+  );
+  const { data, isLoading, error, refetch } = useApiQuery<{
+    holidays: Holiday[];
+  }>(build, [], 300_000);
 
-  useEffect(() => {
-    const supabase = createClient();
+  const holidays = data?.holidays ?? [];
 
-    const fetch = async () => {
-      const { data } = await supabase
-        .from("holidays")
-        .select("id, date, description")
-        .order("date", { ascending: true });
-      setHolidays(
-        (data ?? []).map((r) => ({
-          id: r.id as string,
-          date: r.date as string,
-          description: (r.description as string) ?? "",
-        }))
-      );
-      setIsLoading(false);
-    };
+  return {
+    holidays,
+    /** Turunan: daftar tanggal YYYY-MM-DD, dipakai form cuti. */
+    holidayDates: holidays.map((h) => h.date),
+    isLoading,
+    error,
+    refresh: refetch,
+  };
+}
 
-    fetch();
+/**
+ * @deprecated Pakai useAttendanceToday dari
+ * @/hooks/absensi/useAttendance.
+ *
+ * Parameter `userId` diabaikan — server selalu memakai session
+ * sehingga user tidak bisa mengintip absensi orang lain lewat
+ * parameter ini.
+ */
+export function useAttendanceToday(userId?: string | null) {
+  void userId;
+  const today = new Date().toISOString().slice(0, 10);
 
-    const channel = supabase
-      .channel("holidays_watch")
-      .on("postgres_changes", { event: "*", schema: "public", table: "holidays" }, fetch)
-      .subscribe();
+  const build = useCallback(
+    () => withQuery("/api/absensi/attendance", { mine: "1", date: today }),
+    [today],
+  );
 
-    return () => { channel.unsubscribe(); };
-  }, []);
+  const { data, isLoading, error, refetch } = useApiQuery<{
+    attendance: import("@/types/absensi").Attendance | null;
+  }>(build, [today], 15_000);
 
-  return { holidays, holidayDates: holidays.map((h) => h.date), isLoading };
+  return {
+    attendance: data?.attendance ?? null,
+    isLoading,
+    error,
+    refresh: refetch,
+  };
 }
