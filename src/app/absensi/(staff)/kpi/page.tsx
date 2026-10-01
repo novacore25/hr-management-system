@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
-import { useAuth } from "@/contexts/AuthContext";
+import { useApiQuery } from "@/hooks/useApi";
+import { withQuery } from "@/lib/api-client";
 import { TrendingUp, Target, BarChart3, ArrowRight, Award, Zap } from "lucide-react";
 
 interface KpiSummary {
@@ -27,64 +27,51 @@ function getPerfLabel(avg: number): { label: string; color: string } {
 }
 
 export default function StaffKpiPage() {
-  const { user } = useAuth();
-  const router   = useRouter();
-  const [summary, setSummary] = useState<KpiSummary | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const router = useRouter();
+  const { year, month } = getCurrentYearMonth();
 
-  useEffect(() => {
-    if (!user?.id) return;
-    const supabase  = createClient();
-    const { year, month } = getCurrentYearMonth();
-    const monthLabel = new Date().toLocaleDateString("id-ID", { month: "long", year: "numeric" });
+  // formerly: query kpi_assignments untuk user ini + 1 realtime channel.
+  // sekarang: server yang memilih assignment milik user yang login
+  // (tidak ada userId dari browser), jadi tidak bisa dibaca orang lain.
+  const buildPath = useCallback(
+    () => withQuery("/api/absensi/team", { view: "my-kpi", year, month }),
+    [year, month],
+  );
 
-    const fetchSummary = async () => {
-      const { data } = await supabase
-        .from("kpi_assignments")
-        .select("id, achievement_percentage")
-        .eq("user_id", user.id)
-        .eq("year", year)
-        .eq("month", month);
+  const { data, isLoading } = useApiQuery<{
+    kpis: Array<{ achievementPercentage: number }>;
+  }>(buildPath, [year, month], 60_000);
 
-      if (!data || data.length === 0) {
-        setSummary({
-          totalKpis: 0,
-          avgAchievement: 0,
-          performanceLabel: "Belum Ada Data",
-          performanceColor: "var(--ab-text-dim)",
-          monthLabel,
-        });
-        setIsLoading(false);
-        return;
-      }
+  const summary = useMemo<KpiSummary>(() => {
+    const monthLabel = new Date().toLocaleDateString("id-ID", {
+      month: "long",
+      year: "numeric",
+    });
 
-      const total   = data.length;
-      const avgAch  = data.reduce((sum, r) => sum + ((r.achievement_percentage as number) ?? 0), 0) / total;
-      const { label, color } = getPerfLabel(avgAch);
-
-      setSummary({
-        totalKpis: total,
-        avgAchievement: Math.round(avgAch),
-        performanceLabel: label,
-        performanceColor: color,
+    const rows = data?.kpis ?? [];
+    if (rows.length === 0) {
+      return {
+        totalKpis: 0,
+        avgAchievement: 0,
+        performanceLabel: "Belum Ada Data",
+        performanceColor: "var(--ab-text-dim)",
         monthLabel,
-      });
-      setIsLoading(false);
+      };
+    }
+
+    const avgAch =
+      rows.reduce((sum, r) => sum + (r.achievementPercentage ?? 0), 0) /
+      rows.length;
+    const { label, color } = getPerfLabel(avgAch);
+
+    return {
+      totalKpis: rows.length,
+      avgAchievement: Math.round(avgAch),
+      performanceLabel: label,
+      performanceColor: color,
+      monthLabel,
     };
-
-    fetchSummary();
-
-    const ch = supabase
-      .channel("kpi_absensi_" + user.id)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "kpi_assignments", filter: `user_id=eq.${user.id}` },
-        fetchSummary
-      )
-      .subscribe();
-
-    return () => { ch.unsubscribe(); };
-  }, [user?.id]);
+  }, [data]);
 
   if (isLoading) {
     return (
@@ -218,7 +205,7 @@ export default function StaffKpiPage() {
       </button>
 
       <p className="text-center text-[9px] font-black text-[var(--ab-text-dim)] uppercase tracking-widest opacity-40">
-        Data diperbarui secara realtime
+        Data diperbarui tiap 60 detik
       </p>
     </div>
   );

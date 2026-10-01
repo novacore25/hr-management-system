@@ -921,6 +921,8 @@ export const letterTypes = pgTable("letter_types", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
   code: text("code").notNull(),
+  /** URL template DOCX di object storage (diisi di Fase 4d). */
+  templateUrl: text("template_url"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -935,6 +937,10 @@ export const companyLetters = pgTable(
       .notNull()
       .references(() => letterTypes.id, { onDelete: "cascade" }),
     runningNumber: integer("running_number").notNull(),
+    /**
+     * Bulan dalam bentuk ROMAWI ("I".."XII"), karena nomor surat resmi
+     * memakai format `001/ST/HR-TNT/X/2026`.
+     */
     month: text("month").notNull(),
     year: integer("year").notNull(),
     fullNumber: text("full_number").notNull(),
@@ -947,10 +953,16 @@ export const companyLetters = pgTable(
       .defaultNow(),
   },
   (t) => ({
+    /**
+     * Urutan nomor adalah per (perusahaan, tipe surat, tahun) — BUKAN per
+     * bulan. Indeks lama (company, year, month, running_number) salah:
+     * dua tipe surat berbeda di bulan yang sama bisa sama-sama punya
+     * running_number = 1 dan bentrok.
+     */
     uniqueNumber: uniqueIndex("company_letters_number_unique").on(
       t.company,
       t.year,
-      t.month,
+      t.letterTypeId,
       t.runningNumber,
     ),
   }),

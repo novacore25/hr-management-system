@@ -336,27 +336,40 @@ export interface ApiResponse<T> {
 // SURAT MENYURAT & SLIP GAJI TYPES
 // ==========================================
 
+/**
+ * Tipe surat (surat menyurat, slipsalary, dsb).
+ *
+ * Field sudah camelCase mengikuti respons Route Handler, bukan
+ * snake_case Supabase.
+ */
 export interface LetterType {
   id: string;
   name: string;
   code: string;
-  template_url?: string;
-  created_at?: string;
+  templateUrl?: string | null;
+  createdAt?: string;
 }
 
+/**
+ * Surat yang sudah diterbitkan.
+ *
+ * `letterTypeName` / `letterTypeCode` sudah di-join oleh server, jadi
+ * halaman tidak perlu select nested.
+ */
 export interface CompanyLetter {
   id: string;
   company: 'TNT' | 'HYPE' | 'GOAT' | 'NOVA';
-  letter_type_id: string;
-  running_number: number;
+  letterTypeId: string;
+  letterTypeName: string;
+  letterTypeCode: string;
+  runningNumber: number;
   month: string;
   year: number;
-  full_number: string;
-  issued_to?: string | null;
-  file_url?: string;
-  created_at?: string;
-  letter_types?: LetterType;
-  users?: Partial<User>;
+  fullNumber: string;
+  issuedTo?: string | null;
+  issuedToName?: string | null;
+  fileUrl?: string | null;
+  createdAt: string;
 }
 
 export type PayrollCompany = 'TNT' | 'Hype' | 'Nova';
