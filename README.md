@@ -98,7 +98,37 @@ src/
 
 ---
 
+## Dokumentasi Penting
+
+| File | Isi |
+|---|---|
+| **[`AGENTS.md`](AGENTS.md)** | Wajib dibaca AI assistant / developer baru. Aturan kerja, jebakan yang sudah pernah terjadi, cara verifikasi |
+| [`docs/STATUS.md`](docs/STATUS.md) | Phase mana yang selesai, apa yang tersisa, migrasi yang perlu dibuat |
+| [`docs/DECISIONS.md`](docs/DECISIONS.md) | Keputusan arsitektur + apa yang dikorbankan |
+| [`docs/LOCAL-TESTING.md`](docs/LOCAL-TESTING.md) | Menjalankan app lokal dengan data uji |
+
+> **Migrasi dari Supabase ke VPS belum 100% selesai.** Data asli belum
+> dipindahkan. Cek `docs/STATUS.md` sebelum mengira fitur sudah final.
+
+---
+
 ## Menjalankan Secara Lokal
+
+> **Untuk migrasi ini:** sudah ada environment uji lengkap dengan data
+> sintetis di Postgres lokal. Ikuti **`docs/LOCAL-TESTING.md`** — itu
+> cara paling cepat memverifikasi functionality tanpa menyentuh data
+> produksi.
+
+Ringkasnya:
+
+```powershell
+# Migrasi + data uji ke hr_local_test
+npm run verify          # typecheck + stub guard + test
+npx next dev -p 3100
+node scripts/local-dev-session.mjs u-hr-001   # sesi tanpa Google OAuth
+```
+
+### Setup dari nol
 
 ```bash
 # 1. Install

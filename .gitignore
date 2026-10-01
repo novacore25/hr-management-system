@@ -50,3 +50,6 @@ yarn-error.log*
 .firebase/
 firebase-debug.log
 firestore-debug.log
+
+# Token sesi lokal - JANGAN pernah di-commit (lihat scripts/local-dev-session.mjs)
+scripts/local-dev-session.mjs
