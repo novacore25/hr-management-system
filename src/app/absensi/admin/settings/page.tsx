@@ -224,7 +224,7 @@ export default function AdminSettingsPage() {
         await supabase.from("department_locations" as any).insert({ department_id: deptId, office_location_id: officeId });
       } else {
         setOfficeLocations(prev => prev.map(o => o.id === officeId ? { ...o, deptIds: o.deptIds.filter(id => id !== deptId) } : o));
-        await supabase.from("department_locations" as any).delete().match({ department_id: deptId, office_location_id: officeId });
+        await supabase.from("department_locations" as any).delete().eq("department_id", deptId).eq("office_location_id", officeId);
       }
     } catch (e) { toast.error("Gagal mengupdate relasi."); }
   };

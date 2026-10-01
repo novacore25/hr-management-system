@@ -1,218 +1,62 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
-import { createClient } from "@/lib/supabase/client";
-import { ASSIGNMENT_SELECT, rowToAssignmentWithDetails } from "@/lib/supabase/assignmentHelpers";
-import { todayISODate, getPerformanceCategory } from "@/lib/utils";
-import type { KpiAssignment, KPI, DailyReport } from "@/types";
+import { useCallback } from "react";
+import { useApiQuery } from "./useApi";
+import { withQuery } from "@/lib/api-client";
+import type { KpiAssignmentWithDetails, KPI } from "@/types";
 import type { Period } from "@/components/kpi/PeriodPicker";
 
-function firstDayOfMonth(year: number, month: number): string {
-  return `${year}-${String(month).padStart(2, "0")}-01`;
-}
+/**
+ * Assignment untuk periode terpilih (bulan atau rentang).
+ *
+ * formerly: query multi-round + realtime Supabase dari browser,
+ * plus rekap rentang yang hanya jalan di sebagian halaman
+ * (4 halaman punya array kosong sehingga selalu 0%).
+ *
+ * Sekarang: satu request ke /api/assignments/period, semua
+ * perhitungan rentang dilakukan di server — seragam untuk semua halaman.
+ */
+export function useAssignmentsForPeriod(
+  period: Period,
+  department?: string | string[],
+) {
+  const deptKey = Array.isArray(department)
+    ? department.join(",")
+    : (department ?? "");
 
-function lastDayOfMonth(year: number, month: number): string {
-  const last = new Date(year, month, 0).getDate();
-  return `${year}-${String(month).padStart(2, "0")}-${String(last).padStart(2, "0")}`;
-}
+  const build = useCallback(() => {
+    const base =
+      period.type === "range"
+        ? withQuery("/api/assignments/period", {
+            type: "range",
+            from: period.start.slice(0, 7), // "2026-01-15" -> "2026-01"
+            to: period.end.slice(0, 7),
+            departments: deptKey || undefined,
+          })
+        : withQuery("/api/assignments/period", {
+            type: "month",
+            year: new Date().getFullYear(),
+            month: new Date().getMonth() + 1,
+            departments: deptKey || undefined,
+          });
+    return base;
+  }, [period.type, period.type === "range" ? period.start : "", period.type === "range" ? period.end : "", deptKey]);
 
-function parseISODate(value: string) {
-  const [year, month, day] = value.split("-").map(Number);
-  return { year, month, day };
-}
-
-export function useAssignmentsForPeriod(period: Period, department?: string | string[]) {
-  const now = new Date();
-  const currentYear = now.getFullYear();
-  const currentMonth = now.getMonth() + 1;
-
-  const [assignments, setAssignments] = useState<KpiAssignment[]>([]);
-  const [kpisMap, setKpisMap] = useState<Record<string, KPI>>({});
-  const [assignmentsLoading, setAssignmentsLoading] = useState(true);
-
-  useEffect(() => {
-    setAssignmentsLoading(true);
-    setAssignments([]);
-
-    const departments =
-      typeof department === "string"
-        ? department ? [department] : []
-        : department ?? [];
-    const filterByDept = department !== undefined;
-
-    const supabase = createClient();
-
-    async function fetchUserIds(): Promise<string[]> {
-      if (!filterByDept || departments.length === 0) return [];
-      const { data: deptRows } = await supabase
-        .from("departments")
-        .select("id")
-        .in("name", departments);
-      const deptIds = (deptRows ?? []).map((d) => d.id);
-      if (deptIds.length === 0) return [];
-
-      const { data: userRows } = await supabase
-        .from("users")
-        .select("id")
-        .in("department_id", deptIds);
-      return (userRows ?? []).map((u) => u.id);
-    }
-
-    async function fetchAll() {
-      const userIds = await fetchUserIds();
-
-      if (filterByDept && userIds.length === 0) {
-        setAssignments([]);
-        setKpisMap({});
-        setAssignmentsLoading(false);
-        return;
-      }
-
-      if (period.type === "month") {
-        let q = supabase
-          .from("kpi_assignments")
-          .select(ASSIGNMENT_SELECT)
-          .eq("year", currentYear)
-          .eq("month", currentMonth)
-          .eq("status", "active");
-
-        if (filterByDept) q = q.in("user_id", userIds);
-
-        const { data } = await q;
-        const rows = (data ?? []).map(rowToAssignmentWithDetails as any) as KpiAssignment[];
-        setAssignments(rows);
-
-        const map: Record<string, KPI> = {};
-        rows.forEach((a: any) => { if (a.kpi) map[a.kpiId] = a.kpi; });
-        setKpisMap(map);
-      } else {
-        // Range mode: fetch all months in range
-        const start = parseISODate(period.start);
-        const end = parseISODate(period.end);
-
-        // Build list of (year, month) pairs in range
-        const monthPairs: Array<[number, number]> = [];
-        let y = start.year, m = start.month;
-        while (y < end.year || (y === end.year && m <= end.month)) {
-          monthPairs.push([y, m]);
-          m++; if (m > 12) { m = 1; y++; }
-        }
-
-        const uniqueYears = [...new Set(monthPairs.map(([y]) => y))];
-        const monthsByYear: Record<number, number[]> = {};
-        monthPairs.forEach(([y, m]) => {
-          monthsByYear[y] = monthsByYear[y] ?? [];
-          if (!monthsByYear[y].includes(m)) monthsByYear[y].push(m);
-        });
-
-        const queries = Object.entries(monthsByYear).map(([yearStr, months]) => {
-          let q = supabase
-            .from("kpi_assignments")
-            .select(ASSIGNMENT_SELECT)
-            .eq("year", Number(yearStr))
-            .in("month", months)
-            .in("status", ["active", "completed"]);
-
-          if (filterByDept) q = q.in("user_id", userIds);
-          return q;
-        });
-
-        const results = await Promise.all(queries);
-        const allRows = results.flatMap((r) =>
-          (r.data ?? []).map(rowToAssignmentWithDetails as any)
-        );
-        // Deduplicate by id
-        const seen = new Set<string>();
-        const unique = allRows.filter((a: any) => {
-          if (seen.has(a.id)) return false;
-          seen.add(a.id);
-          return true;
-        }) as KpiAssignment[];
-
-        // Dynamically override actualTotal for the custom date range
-        if (period.type === "range") {
-          const assignIds = unique.map((a) => a.id);
-          if (assignIds.length > 0) {
-            const { data: reports } = await supabase
-              .from("daily_reports")
-              .select("assignment_id, value")
-              .gte("date", period.start)
-              .lte("date", period.end)
-              .in("assignment_id", assignIds);
-            
-            const sums: Record<string, number> = {};
-            reports?.forEach((r) => {
-              sums[r.assignment_id] = (sums[r.assignment_id] || 0) + (r.value || 0);
-            });
-            
-            unique.forEach((a) => {
-              a.actualTotal = sums[a.id] || 0;
-              // Recalculate achievement percentage based on the new actualTotal
-              a.achievementPercentage = a.monthlyTarget > 0 ? (a.actualTotal / a.monthlyTarget) * 100 : 0;
-              a.performanceCategory = getPerformanceCategory(a.achievementPercentage) as any;
-            });
-          }
-        }
-
-        setAssignments(unique);
-
-        const map: Record<string, KPI> = {};
-        unique.forEach((a: any) => { if (a.kpi) map[a.kpiId] = a.kpi; });
-        setKpisMap(map);
-      }
-
-      setAssignmentsLoading(false);
-    }
-
-    fetchAll();
-
-    // Realtime: re-fetch when assignments or monthly_scores change
-    const channel = supabase
-      .channel(`period_assignments_${period.type}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "kpi_assignments" }, fetchAll)
-      .on("postgres_changes", { event: "*", schema: "public", table: "monthly_scores" }, fetchAll)
-      .subscribe();
-
-    return () => { channel.unsubscribe(); };
-  }, [
-    currentYear,
-    currentMonth,
+  const { data, isLoading, error, refetch } = useApiQuery<{
+    assignments: KpiAssignmentWithDetails[];
+    kpisMap: Record<string, KPI>;
+  }>(build, [
     period.type,
     period.type === "range" ? period.start : "",
     period.type === "range" ? period.end : "",
-    JSON.stringify(department),
+    deptKey,
   ]);
 
-  // Sync quality KPI scores from monthlyScores
-  const syncedAssignments = useMemo(() => {
-    return assignments.map((a) => {
-      const kpiType = a.kpiType ?? kpisMap[a.kpiId]?.type;
-
-      if (kpiType === "quality") {
-        let scoreKey: string;
-        if (period.type === "month") {
-          scoreKey = `${currentYear}-${currentMonth}`;
-        } else {
-          const endDate = parseISODate(period.end);
-          scoreKey = `${endDate.year}-${endDate.month}`;
-        }
-        const ms = a.monthlyScores?.[scoreKey];
-        return {
-          ...a,
-          actualTotal: ms?.actualTotal ?? 0,
-          achievementPercentage: ms?.achievementPercentage ?? 0,
-          performanceCategory: (ms?.performanceCategory ?? getPerformanceCategory(0)) as KpiAssignment["performanceCategory"],
-          qualityNotes: ms?.qualityNotes ?? "",
-        };
-      }
-
-      return a;
-    });
-  }, [assignments, period, kpisMap, currentYear, currentMonth]);
-
   return {
-    assignments: syncedAssignments,
-    kpisMap,
-    isLoading: assignmentsLoading,
+    assignments: data?.assignments ?? [],
+    kpisMap: data?.kpisMap ?? {},
+    isLoading,
+    error,
+    refresh: refetch,
   };
 }

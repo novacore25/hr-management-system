@@ -465,15 +465,24 @@ export const monthlyScores = pgTable(
   }),
 );
 
+/**
+ * Bobot skor per user.
+ *
+ * Lima kolom ini HARUS sama persis dengan yang dipakai
+ * calcWeightedScore() di src/lib/utils.ts:
+ *   result, activity, quality  -> 70% bobot performa
+ *   leadTim, hr                -> 30% bobot kepribadian
+ */
 export const kpiSettings = pgTable("kpi_settings", {
-  userId: varchar("user_id", { length: 255 })
+  userId: text("user_id")
     .primaryKey()
     .references(() => users.id, { onDelete: "cascade" }),
-  quantityWeight: integer("quantity_weight").notNull().default(60),
-  qualityWeight: integer("quality_weight").notNull().default(40),
-  leadTimWeight: integer("lead_tim_weight").notNull().default(0),
-  hrWeight: integer("hr_weight").notNull().default(0),
-  updatedBy: varchar("updated_by", { length: 255 }).references(() => users.id, {
+  resultWeight: integer("result_weight").notNull().default(50),
+  activityWeight: integer("activity_weight").notNull().default(30),
+  qualityWeight: integer("quality_weight").notNull().default(20),
+  leadTimWeight: integer("lead_tim_weight").notNull().default(50),
+  hrWeight: integer("hr_weight").notNull().default(50),
+  updatedBy: text("updated_by").references(() => users.id, {
     onDelete: "set null",
   }),
   updatedAt: timestamp("updated_at", { withTimezone: true })

@@ -219,9 +219,10 @@ export default function AdminDashboardPage() {
     fetchData();
     const supabase = createClient();
     // Fetch all office locations for distance calculation
-    supabase.from('office_locations').select('id, name, lat, lng, radius').then(({ data }) => {
+    (async () => {
+      const { data } = await supabase.from('office_locations').select('id, name, lat, lng, radius');
       if (data) setOfficeLocations(data as { id: string; name: string; lat: number; lng: number; radius: number }[]);
-    });
+    })();
     const ch = supabase.channel("admin_dash_" + filterDate)
       .on("postgres_changes", { event: "*", schema: "public", table: "attendance" }, fetchData)
       .on("postgres_changes", { event: "*", schema: "public", table: "leave_requests" }, fetchData)

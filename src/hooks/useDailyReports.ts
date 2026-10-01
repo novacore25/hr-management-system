@@ -1,116 +1,56 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { createClient } from "@/lib/supabase/client";
+import { useCallback } from "react";
+import { useApiQuery } from "./useApi";
+import { withQuery } from "@/lib/api-client";
 import type { DailyReport } from "@/types";
 
-function rowToReport(row: Record<string, unknown>): DailyReport {
-  return {
-    id: row.id as string,
-    assignmentId: row.assignment_id as string,
-    kpiId: (row.kpi_id as string) ?? "",
-    userId: row.user_id as string,
-    department: "",
-    date: row.date as string,
-    actualValue: row.value as number,   // DB column is "value", type uses "actualValue"
-    notes: (row.notes as string) ?? "",
-    isHolidayRollover: false,
-    originalDate: null,
-    createdAt: row.created_at as DailyReport["createdAt"],
-    updatedAt: row.updated_at as DailyReport["updatedAt"],
-  };
-}
+/**
+ * Laporan harian dari server (src/server/dal/assignments.ts).
+ *
+ * formerly: query + realtime Supabase dari browser.
+ * Sekarang: Route Handler dengan polling 30 detik.
+ */
 
+/** Semua laporan untuk satu assignment milik user yang login. */
 export function useDailyReportsForAssignment(
   assignmentId: string | undefined,
-  userId: string | undefined
+  userId?: string,
 ) {
-  const [reports, setReports] = useState<DailyReport[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const build = useCallback(
+    () =>
+      assignmentId
+        ? withQuery("/api/daily-reports", { assignmentId, userId })
+        : null,
+    [assignmentId, userId],
+  );
 
-  useEffect(() => {
-    if (!assignmentId || !userId) {
-      setReports([]);
-      setIsLoading(false);
-      return;
-    }
+  const { data, isLoading, error, refetch } = useApiQuery<{
+    reports: DailyReport[];
+  }>(build, [assignmentId, userId]);
 
-    const supabase = createClient();
-
-    async function fetch() {
-      const { data } = await supabase
-        .from("daily_reports")
-        .select("*")
-        .eq("assignment_id", assignmentId!)
-        .eq("user_id", userId!)
-        .order("date", { ascending: false });
-      setReports((data ?? []).map(rowToReport as any));
-      setIsLoading(false);
-    }
-
-    fetch();
-
-    const channel = supabase
-      .channel(`reports_${assignmentId}`)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "daily_reports", filter: `assignment_id=eq.${assignmentId}` },
-        fetch
-      )
-      .subscribe();
-
-    return () => { channel.unsubscribe(); };
-  }, [assignmentId, userId]);
-
-  return { reports, isLoading };
+  return { reports: data?.reports ?? [], isLoading, error, refresh: refetch };
 }
 
+/** Laporan dalam rentang tanggal. */
 export function useDailyReportsInRange(
   startDate: string,
   endDate: string,
-  options?: { userId?: string; assignmentIds?: string[] }
+  options?: { userId?: string },
 ) {
-  const [reports, setReports] = useState<DailyReport[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const userId = options?.userId;
 
-  useEffect(() => {
-    if (!startDate || !endDate) {
-      setReports([]);
-      setIsLoading(false);
-      return;
-    }
+  const build = useCallback(
+    () =>
+      startDate && endDate
+        ? withQuery("/api/daily-reports", { from: startDate, to: endDate, userId })
+        : null,
+    [startDate, endDate, userId],
+  );
 
-    const supabase = createClient();
+  const { data, isLoading, error, refetch } = useApiQuery<{
+    reports: DailyReport[];
+  }>(build, [startDate, endDate, userId]);
 
-    async function fetch() {
-      let q = supabase
-        .from("daily_reports")
-        .select("*")
-        .gte("date", startDate)
-        .lte("date", endDate)
-        .order("date", { ascending: false });
-
-      if (options?.userId) {
-        q = q.eq("user_id", options.userId);
-      }
-      if (options?.assignmentIds && options.assignmentIds.length > 0) {
-        q = q.in("assignment_id", options.assignmentIds);
-      }
-
-      const { data } = await q;
-      setReports((data ?? []).map(rowToReport as any));
-      setIsLoading(false);
-    }
-
-    fetch();
-
-    const channel = supabase
-      .channel(`reports_range_${startDate}_${endDate}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "daily_reports" }, fetch)
-      .subscribe();
-
-    return () => { channel.unsubscribe(); };
-  }, [startDate, endDate, options?.userId, JSON.stringify(options?.assignmentIds)]);
-
-  return { reports, isLoading };
+  return { reports: data?.reports ?? [], isLoading, error, refresh: refetch };
 }

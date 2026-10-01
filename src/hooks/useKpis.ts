@@ -1,108 +1,67 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { createClient } from "@/lib/supabase/client";
-import type { KPI, KpiType } from "@/types";
+import { useCallback } from "react";
+import { useApiQuery } from "./useApi";
+import { withQuery } from "@/lib/api-client";
+import type { KPI } from "@/types";
 
-function rowToKpi(row: Record<string, unknown>): KPI {
-  const dept = (row.departments as { name: string } | null)?.name ?? "";
+/**
+ * Data KPI dari server (src/server/dal/kpi.ts).
+ * formerly: query langsung ke Supabase dari browser.
+ */
+export function useKpis(year: number, month: number) {
+  const build = useCallback(
+    () => withQuery("/api/kpis", { year, month }),
+    [year, month],
+  );
+
+  const { data, isLoading, error, refetch } = useApiQuery<{ kpis: KPI[] }>(
+    build,
+    [year, month],
+  );
+
   return {
-    id: row.id as string,
-    title: row.title as string,
-    description: (row.description as string) ?? "",
-    type: (row.type as KpiType) ?? "result",
-    unit: (row.unit as KPI["unit"]) ?? "number",
-    period: (row.period as KPI["period"]) ?? "monthly",
-    status: (row.status as KPI["status"]) ?? "active",
-    department: dept,
-    brand: (row.brand as string | undefined) ?? undefined,
-    createdBy: (row.created_by as string) ?? "",
-    monthlyTarget: (row.monthly_target as number) ?? 0,
-    year: (row.year as number) ?? 0,
-    month: (row.month as number) ?? 0,
-    hideActual: !!row.hide_actual,
-    deletedAt: row.deleted_at as string | undefined,
-    createdAt: row.created_at as KPI["createdAt"],
-    updatedAt: row.updated_at as KPI["updatedAt"],
+    kpis: data?.kpis ?? [],
+    isLoading,
+    error,
+    refresh: refetch,
   };
 }
 
-export function useKpis(year: number, month: number) {
-  const [kpis, setKpis] = useState<KPI[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [trigger, setTrigger] = useState(0);
-
-  const refresh = () => setTrigger(t => t + 1);
-
-  useEffect(() => {
-    const supabase = createClient();
-
-    async function fetch() {
-      const { data } = await supabase
-        .from("kpis")
-        .select("*, departments(name)")
-        .eq("year", year)
-        .eq("month", month)
-        .order("created_at", { ascending: false });
-      setKpis((data ?? []).map(rowToKpi));
-      setIsLoading(false);
-    }
-
-    fetch();
-  }, [year, month, trigger]);
-
-  return { kpis, isLoading, refresh };
-}
-
+/** KPI milik satu divisi (menggunakan departmentId). */
 export function useDepartmentKpis(
-  department: string | undefined,
+  departmentId: string | undefined,
   year: number,
-  month: number
+  month: number,
 ) {
-  const [kpis, setKpis] = useState<KPI[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [trigger, setTrigger] = useState(0);
+  const build = useCallback(
+    () =>
+      departmentId
+        ? withQuery("/api/kpis", { department: departmentId, year, month })
+        : null,
+    [departmentId, year, month],
+  );
 
-  const refresh = () => setTrigger(t => t + 1);
+  const { data, isLoading, error } = useApiQuery<{ kpis: KPI[] }>(build, [
+    departmentId,
+    year,
+    month,
+  ]);
 
-  useEffect(() => {
-    if (!department) {
-      setKpis([]);
-      setIsLoading(false);
-      return;
-    }
-
-    const supabase = createClient();
-
-    async function fetch() {
-      // Get department id first
-      const { data: deptRow } = await supabase
-        .from("departments")
-        .select("id")
-        .eq("name", department!)
-        .single();
-
-      if (!deptRow) {
-        setKpis([]);
-        setIsLoading(false);
-        return;
-      }
-
-      const { data } = await supabase
-        .from("kpis")
-        .select("*, departments(name)")
-        .eq("department_id", deptRow.id)
-        .eq("year", year)
-        .eq("month", month);
-
-      setKpis((data ?? []).map(rowToKpi));
-      setIsLoading(false);
-    }
-
-    fetch();
-  }, [department, year, month, trigger]);
-
-  return { kpis, isLoading, refresh };
+  return { kpis: data?.kpis ?? [], isLoading, error };
 }
 
-export { rowToKpi };
+/** KPI termasuk yang sudah di-trash. Butuh role HR/Executive. */
+export function useTrashedKpis(year: number, month: number) {
+  const build = useCallback(
+    () => withQuery("/api/kpis", { year, month, includeTrash: "1" }),
+    [year, month],
+  );
+
+  const { data, isLoading, error, refetch } = useApiQuery<{ kpis: KPI[] }>(
+    build,
+    [year, month],
+  );
+
+  return { kpis: data?.kpis ?? [], isLoading, error, refresh: refetch };
+}

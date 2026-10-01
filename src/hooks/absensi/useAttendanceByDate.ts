@@ -43,17 +43,17 @@ export function useAttendanceRange(userId: string | null, startDate: string, end
     if (!userId || !startDate || !endDate) { setIsLoading(false); return; }
     const supabase = createClient();
 
-    supabase
-      .from("attendance")
-      .select("*")
-      .eq("user_id", userId)
-      .gte("date", startDate)
-      .lte("date", endDate)
-      .order("date", { ascending: true })
-      .then(({ data }) => {
-        setRecords((data ?? []).map((r) => rowToAttendance(r as Record<string, unknown>)));
-        setIsLoading(false);
-      });
+    (async () => {
+      const { data } = await supabase
+        .from("attendance")
+        .select("*")
+        .eq("user_id", userId)
+        .gte("date", startDate)
+        .lte("date", endDate)
+        .order("date", { ascending: true });
+      setRecords((data ?? []).map((r) => rowToAttendance(r)));
+      setIsLoading(false);
+    })();
   }, [userId, startDate, endDate]);
 
   return { records, isLoading };

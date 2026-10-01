@@ -70,22 +70,52 @@ export function KpiFormPage({ kpiId, allowedDepartments, backHref }: KpiFormPage
 
   useEffect(() => {
     if (!kpiId) return;
-    const supabase = createClient();
-    supabase.from("kpis").select("*, departments(name)").eq("id", kpiId).single().then(({ data }) => {
-      if (data) {
-        setTitle(data.title);
-        setBrand(data.brand || "");
-        setDescription(data.description || "");
-        setType(data.type);
-        setUnit(data.unit);
-        setPeriod(data.period);
-        setDepartment((data as any).departments?.name || "");
-        setMonthlyTarget(String(data.monthly_target));
-        setHideActual(!!data.hide_actual);
-        setSelectedMonth(`${data.year}-${String(data.month).padStart(2, "0")}`);
+
+    // formerly: query langsung ke Supabase dari browser
+    // sekarang: Route Handler dengan guard role di server
+    let cancelled = false;
+
+    async function loadKpi() {
+      try {
+        const res = await fetch(`/api/kpis?id=${encodeURIComponent(kpiId!)}`, {
+          credentials: "include",
+          cache: "no-store",
+        });
+        const json = (await res.json()) as {
+          ok: boolean;
+          data?: { kpi?: Record<string, any> | null };
+        };
+
+        const kpi = json.data?.kpi;
+        if (cancelled) return;
+
+        if (kpi) {
+          setTitle(kpi.title);
+          setBrand(kpi.brand || "");
+          setDescription(kpi.description || "");
+          setType(kpi.type);
+          setUnit(kpi.unit);
+          setPeriod(kpi.period);
+          setDepartment(kpi.department || "");
+          setMonthlyTarget(String(kpi.monthlyTarget ?? 0));
+          setHideActual(Boolean(kpi.hideActual));
+          setSelectedMonth(`${kpi.year}-${String(kpi.month).padStart(2, "0")}`);
+        } else {
+          // Gagal memuat -> jangan biarkan form tersimpan kosong lalu
+          // di-submit (sebelumnya ini bisa menimpa data dengan blank).
+          setError("KPI tidak ditemukan atau Anda tidak punya akses.");
+        }
+      } catch {
+        if (!cancelled) setError("Gagal memuat data KPI.");
+      } finally {
+        if (!cancelled) setLoadingKpi(false);
       }
-      setLoadingKpi(false);
-    });
+    }
+
+    void loadKpi();
+    return () => {
+      cancelled = true;
+    };
   }, [kpiId]);
 
   async function handleSubmit(e: React.FormEvent) {

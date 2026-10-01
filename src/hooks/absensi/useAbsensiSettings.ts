@@ -24,19 +24,19 @@ export function useAbsensiSettings() {
   useEffect(() => {
     const supabase = createClient();
 
-    supabase
-      .from("absensi_settings")
-      .select("*")
-      .eq("id", 1)
-      .single()
-      .then(({ data }) => {
-        if (data) setSettings(rowToSettings(data as Record<string, unknown>));
-        setIsLoading(false);
-      });
+    (async () => {
+      const { data } = await supabase
+        .from("absensi_settings")
+        .select("*")
+        .eq("id", 1)
+        .single();
+      if (data) setSettings(rowToSettings(data as Record<string, unknown>));
+      setIsLoading(false);
+    })();
 
     const channel = supabase
       .channel("absensi_settings_watch")
-      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "absensi_settings" }, (payload) => {
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "absensi_settings" }, (payload: any) => {
         setSettings(rowToSettings(payload.new as Record<string, unknown>));
       })
       .subscribe();

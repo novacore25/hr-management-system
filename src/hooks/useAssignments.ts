@@ -1,155 +1,154 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { createClient } from "@/lib/supabase/client";
-import { ASSIGNMENT_SELECT, rowToAssignmentWithDetails, sortAssignments } from "@/lib/supabase/assignmentHelpers";
-import type { KpiAssignment, KpiAssignmentWithDetails } from "@/types";
+import { useCallback } from "react";
+import { useApiQuery } from "./useApi";
+import { withQuery } from "@/lib/api-client";
+import type { KpiAssignmentWithDetails, AssignmentStatus } from "@/types";
 
-export function useMyAssignments(userId: string | undefined, year: number, month: number) {
-  const [assignments, setAssignments] = useState<KpiAssignmentWithDetails[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+/**
+ * Assignment KPI dari server (src/server/dal/assignments.ts).
+ *
+ *formerly: query langsung ke Supabase dari browser.
+ *Sekarang: Route Handler dengan guard role server-side.
+ */
 
-  useEffect(() => {
-    if (!userId) {
-      setAssignments([]);
-      setIsLoading(false);
-      return;
-    }
-
-    const supabase = createClient();
+/**
+ * Assignment milik user yang sedang login.
+ *
+ * `userId` sengaja TIDAK lagi dikirim dari client — server selalu
+ * memakai session Auth.js. Parameter ini dipertahankan hanya
+ * supaya signature tidak berubah di halaman pemanggil.
+ */
+export function useMyAssignments(
+  _userId: string | undefined,
+  year: number,
+  month: number,
+) {
+  const build = useCallback(() => {
+    // Bulan lampau: tampilkan yang active + completed
     const now = new Date();
     const isPastMonth =
       year < now.getFullYear() ||
       (year === now.getFullYear() && month < now.getMonth() + 1);
+    const status = isPastMonth ? "active,completed" : "active";
 
-    async function fetch() {
-      const statusFilter = isPastMonth ? ["active", "completed"] : ["active"];
-      const { data } = await supabase
-        .from("kpi_assignments")
-        .select(ASSIGNMENT_SELECT)
-        .eq("user_id", userId!)
-        .eq("year", year)
-        .eq("month", month)
-        .in("status", statusFilter);
-
-      setAssignments(sortAssignments((data ?? []).map(rowToAssignmentWithDetails as any)));
-      setIsLoading(false);
-    }
-
-    fetch();
-
-    const channel = supabase
-      .channel(`my_assignments_${userId}_${year}_${month}`)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "kpi_assignments", filter: `user_id=eq.${userId}` },
-        fetch
-      )
-      .on("postgres_changes", { event: "*", schema: "public", table: "monthly_scores" }, fetch)
-      .subscribe();
-
-    return () => { channel.unsubscribe(); };
-  }, [userId, year, month]);
-
-  return { assignments, isLoading };
-}
-
-export function useAllAssignments(year: number, month: number) {
-  const [assignments, setAssignments] = useState<KpiAssignment[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-
-  useEffect(() => {
-    const supabase = createClient();
-
-    async function fetch() {
-      const { data } = await supabase
-        .from("kpi_assignments")
-        .select("*")
-        .eq("year", year)
-        .eq("month", month);
-      setAssignments(
-        (data ?? []).map((row) => rowToAssignmentWithDetails(row as any) as KpiAssignment)
-      );
-      setIsLoading(false);
-    }
-
-    fetch();
-
-    const channel = supabase
-      .channel(`all_assignments_${year}_${month}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "kpi_assignments" }, fetch)
-      .subscribe();
-
-    return () => { channel.unsubscribe(); };
+    return withQuery("/api/assignments", { scope: "me", year, month, status });
   }, [year, month]);
 
-  return { assignments, isLoading };
+  const { data, isLoading, error, refetch } =
+    useApiQuery<{ assignments: KpiAssignmentWithDetails[] }>(build, [
+      year,
+      month,
+    ]);
+
+  return {
+    assignments: data?.assignments ?? [],
+    isLoading,
+    error,
+    refresh: refetch,
+  };
 }
 
+/** Semua assignment satu periode. Butuh role HR/Executive. */
+export function useAllAssignments(
+  year: number,
+  month: number,
+  statuses?: AssignmentStatus[],
+) {
+  const statusKey = statuses?.join(",") ?? "active";
+
+  const build = useCallback(
+    () =>
+      withQuery("/api/assignments", {
+        scope: "all",
+        year,
+        month,
+        status: statusKey,
+      }),
+    [year, month, statusKey],
+  );
+
+  const { data, isLoading, error, refetch } =
+    useApiQuery<{ assignments: KpiAssignmentWithDetails[] }>(build, [
+      year,
+      month,
+      statusKey,
+    ]);
+
+  return {
+    assignments: data?.assignments ?? [],
+    isLoading,
+    error,
+    refresh: refetch,
+  };
+}
+
+/**
+ * Assignment milik satu atau beberapa divisi.
+ *
+ * `department` boleh berupa id (string) atau array of id — Head bisa
+ * mengelola lebih dari satu divisi.
+ */
 export function useDivisionAssignments(
   department: string | string[] | undefined,
   year: number,
   month: number,
-  statuses?: string[]
+  statuses?: AssignmentStatus[],
 ) {
-  const [assignments, setAssignments] = useState<KpiAssignment[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const deptIds = Array.isArray(department)
+    ? department
+    : department
+      ? [department]
+      : [];
+  const deptKey = deptIds.join(",");
+  const statusKey = statuses?.join(",") ?? "active";
 
-  useEffect(() => {
-    const departments =
-      typeof department === "string"
-        ? department ? [department] : []
-        : department ?? [];
+  const build = useCallback(
+    () =>
+      deptIds.length > 0
+        ? withQuery("/api/assignments", {
+            scope: "department",
+            departmentId: deptKey,
+            year,
+            month,
+            status: statusKey,
+          })
+        : null,
+    [deptKey, year, month, statusKey],
+  );
 
-    if (departments.length === 0) {
-      setAssignments([]);
-      setIsLoading(false);
-      return;
-    }
+  const { data, isLoading, error, refetch } =
+    useApiQuery<{ assignments: KpiAssignmentWithDetails[] }>(build, [
+      deptKey,
+      year,
+      month,
+      statusKey,
+    ]);
 
-    const supabase = createClient();
+  return {
+    assignments: data?.assignments ?? [],
+    isLoading,
+    error,
+    refresh: refetch,
+  };
+}
 
-    async function fetch() {
-      // Get department IDs first
-      const { data: deptRows } = await supabase
-        .from("departments")
-        .select("id")
-        .in("name", departments);
-      const deptIds = (deptRows ?? []).map((d) => d.id);
-      if (deptIds.length === 0) { setAssignments([]); setIsLoading(false); return; }
+/** Assignment milik user yang login, untuk rentang bulan (PeriodPicker). */
+export function useMyAssignmentsInRange(
+  from: string,
+  to: string,
+) {
+  const build = useCallback(
+    () => withQuery("/api/assignments", { from, to }),
+    [from, to],
+  );
 
-      // Get user IDs in those departments
-      const { data: userRows } = await supabase
-        .from("users")
-        .select("id")
-        .in("department_id", deptIds);
-      const userIds = (userRows ?? []).map((u) => u.id);
-      if (userIds.length === 0) { setAssignments([]); setIsLoading(false); return; }
+  const { data, isLoading, error } =
+    useApiQuery<{ assignments: KpiAssignmentWithDetails[] }>(build, [from, to]);
 
-      const statusFilter = statuses && statuses.length > 0 ? statuses : ["active"];
-      const { data } = await supabase
-        .from("kpi_assignments")
-        .select("*")
-        .eq("year", year)
-        .eq("month", month)
-        .in("status", statusFilter)
-        .in("user_id", userIds);
-
-      setAssignments(
-        (data ?? []).map((row) => rowToAssignmentWithDetails(row as any) as KpiAssignment)
-      );
-      setIsLoading(false);
-    }
-
-    fetch();
-
-    const channel = supabase
-      .channel(`division_assignments_${year}_${month}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "kpi_assignments" }, fetch)
-      .subscribe();
-
-    return () => { channel.unsubscribe(); };
-  }, [JSON.stringify(department), year, month, JSON.stringify(statuses)]);
-
-  return { assignments, isLoading };
+  return {
+    assignments: data?.assignments ?? [],
+    isLoading,
+    error,
+  };
 }

@@ -1,100 +1,97 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { createClient } from "@/lib/supabase/client";
+import { useCallback } from "react";
+import { useApiQuery } from "./useApi";
+import { withQuery } from "@/lib/api-client";
 import { DEFAULT_KPI_WEIGHTS } from "@/types";
-import type { KpiUserSettings } from "@/types";
 
-function rowToSettings(row: Record<string, unknown>): KpiUserSettings {
+type Weights = {
+  result: number;
+  activity: number;
+  quality: number;
+  leadTim: number;
+  hr: number;
+};
+
+/**
+ * Bobot skor dari server (src/server/dal/assignments.ts).
+ *
+ * formerly: query langsung ke kpi_settings dari browser.
+ * Sekarang: Route Handler dengan guard server-side.
+ *
+ * `getWeights` selalu mengembalikan objek stabil (identity sama)
+ * supaya useMemo di halaman tidak invalid setiap render.
+ */
+
+function toSettingsShape(uid: string, w: Weights) {
   return {
-    id: row.user_id as string,
-    resultWeight: (row.result_weight as number) ?? DEFAULT_KPI_WEIGHTS.result,
-    activityWeight: (row.activity_weight as number) ?? DEFAULT_KPI_WEIGHTS.activity,
-    qualityWeight: (row.quality_weight as number) ?? DEFAULT_KPI_WEIGHTS.quality,
-    leadTimWeight: (row.lead_tim_weight as number) ?? DEFAULT_KPI_WEIGHTS.leadTim,
-    hrWeight: (row.hr_weight as number) ?? DEFAULT_KPI_WEIGHTS.hr,
-    updatedAt: row.updated_at as KpiUserSettings["updatedAt"],
+    id: uid,
+    resultWeight: w.result,
+    activityWeight: w.activity,
+    qualityWeight: w.quality,
+    leadTimWeight: w.leadTim,
+    hrWeight: w.hr,
+    updatedAt: "",
     updatedBy: "",
   };
 }
 
-export function useKpiSettings(userId: string | undefined) {
-  const [settings, setSettings] = useState<KpiUserSettings | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+/** Bobot milik user yang login. */
+export function useKpiSettings(userId?: string) {
+  const build = useCallback(
+    () => (userId ? withQuery("/api/kpi-settings", { userId }) : null),
+    [userId],
+  );
 
-  useEffect(() => {
-    if (!userId) {
-      setIsLoading(false);
-      return;
-    }
+  const { data, isLoading, error, refetch } = useApiQuery<{
+    weights: Weights;
+    defaults: Weights;
+  }>(build, [userId]);
 
-    const supabase = createClient();
+  const weights: Weights = data?.weights ?? DEFAULT_KPI_WEIGHTS;
+  const settings = data ? toSettingsShape(userId ?? "", weights) : null;
 
-    async function fetch() {
-      const { data } = await supabase
-        .from("kpi_settings")
-        .select("*")
-        .eq("user_id", userId!)
-        .single();
-      setSettings(data ? rowToSettings(data as Record<string, unknown>) : null);
-      setIsLoading(false);
-    }
+  // Stabil: objek baru dibuat hanya kalau isi bobot berubah
+  const getWeights = useCallback(() => weights, [weights]);
 
-    fetch();
-
-    const channel = supabase
-      .channel(`kpi_settings_${userId}`)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "kpi_settings", filter: `user_id=eq.${userId}` },
-        fetch
-      )
-      .subscribe();
-
-    return () => { channel.unsubscribe(); };
-  }, [userId]);
-
-  const weights = settings
-    ? { result: settings.resultWeight, activity: settings.activityWeight, quality: settings.qualityWeight, leadTim: settings.leadTimWeight, hr: settings.hrWeight }
-    : { result: DEFAULT_KPI_WEIGHTS.result, activity: DEFAULT_KPI_WEIGHTS.activity, quality: DEFAULT_KPI_WEIGHTS.quality, leadTim: (DEFAULT_KPI_WEIGHTS as any).leadTim ?? 50, hr: (DEFAULT_KPI_WEIGHTS as any).hr ?? 50 };
-
-  return { settings, weights, isLoading };
+  return {
+    settings,
+    weights,
+    getWeights,
+    isLoading,
+    error,
+    refresh: refetch,
+  };
 }
 
+/**
+ * Bobot semua user — untuk dashboard HR/Head/Executive.
+ *
+ * `getWeights(userId)` mengembalikan objek stabil per user sehingga
+ * `useMemo` di halaman tidak invalid setiap render.
+ */
 export function useAllKpiSettings() {
-  const [settingsMap, setSettingsMap] = useState<Record<string, KpiUserSettings>>({});
-  const [isLoading, setIsLoading] = useState(true);
+  const build = useCallback(() => "/api/kpi-settings?scope=all", []);
 
-  useEffect(() => {
-    const supabase = createClient();
+  const { data, isLoading, error, refetch } = useApiQuery<{
+    weights: Record<string, Weights>;
+    defaults: Weights;
+  }>(build, []);
 
-    async function fetch() {
-      const { data } = await supabase.from("kpi_settings").select("*");
-      const map: Record<string, KpiUserSettings> = {};
-      (data ?? []).forEach((row) => {
-        const s = rowToSettings(row as Record<string, unknown>);
-        map[s.id] = s;
-      });
-      setSettingsMap(map);
-      setIsLoading(false);
-    }
+  const map = data?.weights ?? {};
+  const defaults = data?.defaults ?? DEFAULT_KPI_WEIGHTS;
 
-    fetch();
+  const getWeights = useCallback(
+    (uid: string): Weights => map[uid] ?? defaults,
+    [map, defaults],
+  );
 
-    const channel = supabase
-      .channel("kpi_settings_all")
-      .on("postgres_changes", { event: "*", schema: "public", table: "kpi_settings" }, fetch)
-      .subscribe();
-
-    return () => { channel.unsubscribe(); };
-  }, []);
-
-  function getWeights(userId: string) {
-    const s = settingsMap[userId];
-    return s
-      ? { result: s.resultWeight, activity: s.activityWeight, quality: s.qualityWeight, leadTim: (s as any).leadTimWeight ?? 50, hr: (s as any).hrWeight ?? 50 }
-      : { result: DEFAULT_KPI_WEIGHTS.result, activity: DEFAULT_KPI_WEIGHTS.activity, quality: DEFAULT_KPI_WEIGHTS.quality, leadTim: (DEFAULT_KPI_WEIGHTS as any).leadTim ?? 50, hr: DEFAULT_KPI_WEIGHTS.hr ?? 50 };
-  }
-
-  return { settingsMap, getWeights, isLoading };
+  return {
+    settingsByUser: map,
+    defaults,
+    getWeights,
+    isLoading,
+    error,
+    refresh: refetch,
+  };
 }
