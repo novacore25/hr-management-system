@@ -28,6 +28,7 @@ function toKpi(row: KpiRow): KpiInternal {
     monthlyTarget: Number(row.monthlyTarget),
     year: row.year,
     month: row.month,
+    brand: row.brand ?? undefined,
     deletedAt: row.deletedAt ? row.deletedAt.toISOString() : null,
     hideActual: row.hideActual,
     createdAt: row.createdAt.toISOString(),
@@ -46,6 +47,9 @@ const baseSelect = {
   year: kpis.year,
   month: kpis.month,
   status: kpis.status,
+  // Ditambahkan migrasi 0011. Halaman executive/quality sudah merender
+  // label brand sejak lama; tanpa kolom ini badge-nya tidak pernah muncul.
+  brand: kpis.brand,
   createdBy: kpis.createdBy,
   departmentId: kpis.departmentId,
   deletedAt: kpis.deletedAt,
@@ -127,6 +131,8 @@ export type NewKpiInput = {
   status: KpiStatus;
   createdBy: string;
   departmentId: string | null;
+  /** Brand / sub-divisi (TNT, Iswhite, Syb, ...). Nullable. */
+  brand?: string | null;
   hideActual?: boolean;
 };
 
@@ -145,6 +151,7 @@ export async function createKpi(input: NewKpiInput): Promise<KpiInternal> {
       status: input.status,
       createdBy: input.createdBy,
       departmentId: input.departmentId,
+      brand: input.brand ?? null,
       hideActual: input.hideActual ?? false,
       deletedAt: null,
       createdAt: new Date(),
@@ -168,6 +175,7 @@ export async function updateKpi(
   if (patch.status !== undefined) values.status = patch.status;
   if (patch.hideActual !== undefined) values.hideActual = patch.hideActual;
   if (patch.departmentId !== undefined) values.departmentId = patch.departmentId;
+  if (patch.brand !== undefined) values.brand = patch.brand;
   if (patch.monthlyTarget !== undefined) {
     values.monthlyTarget = String(patch.monthlyTarget);
   }

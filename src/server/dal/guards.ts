@@ -151,12 +151,29 @@ export async function requireActiveAbsensiStaff() {
   return p;
 }
 
-/** Pembungkus Route Handler: tangkap error auth → response JSON. */
+/**
+ * Pembungkus Route Handler: tangkap error auth → response JSON.
+ *
+ * PENTING: kalau handler sudah mengembalikan `Response` sendiri (misal
+ * `return Response.json({ ok: false, error: "..." }, { status: 400 })`),
+ * `Response` itu/langsung dikembalikan apa adanya.
+ *
+ * formerly `withAuth` selalu membungkus hasil handler dengan
+ * `Response.json({ ok: true, data })`. Karena `Response` yang dikembalikan
+ * handler tidak bisa di-serialize, hasilnya jadi `{ ok: true, data: {} }`
+ * dengan status **200** — termasuk untuk penolakan validasi.
+ *
+ * Akibatnya: "Nilai harus angka", "Bulan harus 1-12", "Dividerlu bukan
+ * milik Anda" — semuanya sampai ke browser sebagai sukses dengan data
+ * kosong. Client `apiFetch` bahkan melempar error karena `data` bukan
+ * bentuk yang diharapkan. Bug ini tidak terlihat di log maupun di typecheck.
+ */
 export async function withAuth<T>(
   handler: () => Promise<T>,
 ): Promise<Response> {
   try {
     const data = await handler();
+    if (data instanceof Response) return data;
     return Response.json({ ok: true, data });
   } catch (e) {
     if (e instanceof UnauthorizedError || e instanceof ForbiddenError) {

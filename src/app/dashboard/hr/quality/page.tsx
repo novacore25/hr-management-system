@@ -49,10 +49,19 @@ export default function HrQualityPage() {
     role === "executive" ||
     role === "developer";
 
+  /**
+   * `scope=all` wajib di sini, bukan default `self`.
+   *
+   * formerly halaman ini query `kpi_assignments` tanpa filter user, jadi HR
+   * melihat SEMUA KPI kualitas bulan itu. Kalau `self`, HR hanya melihat KPI
+   * miliknya sendiri — lebih sedikit dari sebelumnya, dan itu perubahan
+   * perilaku yang tidak diminta.
+   */
   const build = useCallback(
     () =>
       allowed
         ? withQuery("/api/kpi/quality", {
+            scope: "all",
             year: String(year),
             month: String(month),
           })

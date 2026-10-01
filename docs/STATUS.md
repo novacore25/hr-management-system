@@ -29,6 +29,8 @@ sebagian halaman `/dashboard/**`, modul overtime, payroll, storage, dan
 | Guard `verify:stub` (stub import) | ✅ |
 | Health check `/api/health` | ✅ |
 | Migrations 0000–0009 | ✅ semua di VPS |
+| Migrations 0010–0011 | ⬜ baru, harus di VPS |
+| `withAuth` meneruskan Response apa adanya | ✅ baru (semua Route Handler) |
 
 ### Fase 1 — Pembersihan
 
@@ -75,7 +77,7 @@ overtime & payroll yang sengaja ditunda.
 
 ## Yang BELUM selesai
 
-### `/dashboard/**` — 13 halaman masih kosong
+### `/dashboard/**` — 10 halaman masih kosong
 
 Ini Prioritas 1. Semuanya memanggil stub sehingga tampil kosong, padahal
 fitur intinya sudah ada servernya.
@@ -84,19 +86,42 @@ fitur intinya sudah ada servernya.
 |---|---|---|
 | `/dashboard/hr/kpi` | 14 | 817 baris — terbesar |
 | `/dashboard/hr/employees` | 3 | 432 |
-| `/dashboard/head/quality` | 3 | 461 |
-| `/dashboard/hr/evaluasi-hr` | 3 | 243 |
 | `/dashboard/head/kpi-setup` | 4 | 330 |
 | `/dashboard/head/penugasan` | 2 | 332 |
 | `/dashboard/head/penugasan/new` | 3 | 388 |
-| `/dashboard/executive/quality` | 3 | 400 |
 | `/dashboard/tim/history` | 3 | 345 |
 | `/dashboard/hr/assignments` | 2 | 391 |
 | `/dashboard/hr/assignments/new` | 3 | 538 |
 | `/dashboard/developer/import` | 5 | 661 |
 | `/dashboard/developer/feedbacks` | 2 | 192 |
 
-Sudah jadi: `/dashboard/hr/quality` (commit `65e4dca`).
+Sudah jadi: `/dashboard/hr/quality`, `/dashboard/head/quality`,
+`/dashboard/executive/quality`, `/dashboard/hr/evaluasi-hr`.
+
+### Halaman KPI kualitas — sudah selesai, dengan tiga perbaikan
+
+Empat halaman itu formerly melakukan 2 operasi dari browser per Simpan
+(upsert `monthly_scores` + update `kpi_assignments`), percentage dihitung
+di client, `monthly_scores.monthly_target` tidak pernah ditulis, dan
+`achievement_percentage` bisa ditulis apa pun termasuk di luar 0-100.
+
+Sekarang satu request; percentage, target, dan kelayakan divisi diputuskan
+server. Yang ikut ditemukan:
+
+1. **Scoping bocor.** Divisi Head datang dari `AuthContext`. Sekarang dari
+   `users.managed_departments` di database, dan `assertCanScore` menolak
+   assignment di luar divisi itu.
+2. **`kpis.brand` tidak pernah ada** di schema, padahal
+   `executive/quality` sudah `select` dan merender label-nya. Badge brand
+   tidak pernah tampil. Ditambahkan di migrasi `0011`.
+3. **Tipe KPI terbuang.** Halaman lama menampilkan `quality` **dan**
+   `lead_tim` dalam satu daftar; `evaluasi-hr` memakai `lead_tim` + `hr`.
+   Filter server awalnya hanya `quality`, jadi KPI Lead Tim hilang.
+
+Endpoint: `GET/PUT /api/kpi/quality` dengan `scope=self|managed|all`,
+`kpiTypes`, `departmentId`, `year`, `month`.
+
+Verifikasi: `npm run verify:quality` (32 assert).
 
 Component pendukung yang juga masih pakai stub:
 `components/kpi/{DailyInputForm,DailyActivityFeed,DailyReportsViewer}`,
@@ -136,25 +161,34 @@ Yang perlu diputuskan dulu:
 
 ---
 
-## Migrasi 0010 — BELUM ADA, perlu dibuat
+## Migrasi 0010 — SUDAH ADA, belum di VPS
 
-Ditemukan saat menyiapkan database uji:
+File: `drizzle/0010_unique_constraints.sql`. Sudah diuji di database lokal:
+tidak ada duplikat, keempat constraint terpasang.
 
-`departments.name` **tidak punya constraint UNIQUE** (hanya PK `id`).
-Sama untuk `office_locations.name`, `kpis.title`, `letter_types.code`.
+`departments.name` **tidak punya UNIQUE** (hanya PK `id`). Sama untuk
+`office_locations.name`, `letter_types.code`, dan kombinasi
+`kpis(title, year, month)`.
 
-Dampak: dua admin bisa membuat divisi "TNT" dua kali. Dropdown filter
-KPI jadi ambigu, `department_locations` bisa menunjuk divisi yang salah.
+Dampak: dua admin bisa membuat divisi "TNT" dua kali. Dropdown filter KPI
+jadi ambigu, `department_locations` bisa menunjuk divisi yang salah.
 
-**Cara aman:** cek duplikat dulu, kalau ada **BAIL dan lapor** — jangan
-langsung drop data. Contoh:
+`kpis.title` sengaja **tidak** di-unique-kan: judul KPI memang boleh sama
+antar bulan ("Kualitas Absensi" muncul tiap bulan). Yang unik adalah
+kombinasi dengan periode.
 
-```sql
-SELECT name, count(*) FROM departments
-GROUP BY name HAVING count(*) > 1;
-```
+⚠️ Di VPS: jalankan bagian 1 (hanya laporan duplikat) dulu dan **periksa
+hasilnya** sebelum bagian 2. Kalau bagian 1 melaporkan duplikat, jangan
+lanjut — lapor, jangan drop data.
 
-Pola yang sama kemungkinan berlaku untuk 3 tabel lain.
+---
+
+## Migrasi 0011 — SUDAH ADA, belum di VPS
+
+`ALTER TABLE kpis ADD COLUMN IF NOT EXISTS brand varchar(64);`
+
+Menambahkan kolom yang sudah lama dibaca halaman `executive/quality` tapi
+tidak pernah ada di schema Drizzle.
 
 ---
 

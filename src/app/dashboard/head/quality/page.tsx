@@ -1,49 +1,54 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
-import { createClient } from "@/lib/supabase/client";
-import { useAllUsers } from "@/hooks/useUsers";
+import { useCallback, useMemo, useState } from "react";
+import { useApiQuery, useApiMutation } from "@/hooks/useApi";
+import { withQuery } from "@/lib/api-client";
 import { useAuth } from "@/contexts/AuthContext";
 import { getKpiRole } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PerformanceBadge } from "@/components/ui/badge";
 import { ChevronDown } from "lucide-react";
-import { cn, formatPercentage, getPerformanceCategory, monthName } from "@/lib/utils";
-import type { KpiAssignment, KPI } from "@/types";
+import {
+  cn,
+  formatPercentage,
+  getPerformanceCategory,
+  monthName,
+} from "@/lib/utils";
+import { toast } from "sonner";
+import type { PerformanceCategory } from "@/types";
 
-interface QualityItem {
-  assignment: KpiAssignment;
-  kpi: KPI;
+/** Baris dari GET /api/kpi/quality — lihat src/server/dal/quality.ts. */
+interface QualityRow {
+  assignmentId: string;
+  userId: string;
+  userName: string;
+  departmentName: string;
+  kpiTitle: string;
+  monthlyTarget: number;
+  actualTotal: number;
+  achievementPercentage: number;
+  performanceCategory: PerformanceCategory;
+  notes: string;
+  hasScore: boolean;
 }
+
+type Grouped = Record<string, Record<string, { userName: string; items: QualityRow[] }>>;
 
 export default function HeadQualityPage() {
   const { user } = useAuth();
-  const { users } = useAllUsers();
   const now = new Date();
 
   const role = user ? getKpiRole(user) : null;
-  if (role === "tim") {
-    return (
-      <div className="flex h-40 items-center justify-center rounded-xl border border-dashed border-border">
-        <p className="text-sm text-muted-foreground">Akses tidak diizinkan.</p>
-      </div>
-    );
-  }
+  const allowed = role === null || role !== "tim";
 
-  const managedDepartments: string[] =
-    user?.managedDepartments && user.managedDepartments.length > 0
-      ? user.managedDepartments
-      : user?.department ? [user.department] : [];
+  const [filterMonth, setFilterMonth] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  });
+  const selectedYear = parseInt(filterMonth.split("-")[0], 10);
+  const selectedMonthNum = parseInt(filterMonth.split("-")[1], 10);
 
-  const [filterMonth, setFilterMonth] = useState(
-    () => `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`
-  );
-  const selectedYear = parseInt(filterMonth.split("-")[0]);
-  const selectedMonthNum = parseInt(filterMonth.split("-")[1]);
-
-  const [qualityItems, setQualityItems] = useState<QualityItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [inputValues, setInputValues] = useState<Record<string, string>>({});
   const [noteValues, setNoteValues] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState<string | null>(null);
@@ -51,201 +56,92 @@ export default function HeadQualityPage() {
   const [expandedDepts, setExpandedDepts] = useState<Set<string>>(new Set());
   const [expandedUsers, setExpandedUsers] = useState<Set<string>>(new Set());
 
-  useEffect(() => {
-    if (!user || managedDepartments.length === 0 || users.length === 0) return;
-    async function load() {
-      setIsLoading(true);
-      setInputValues({});
-      setNoteValues({});
-      setExpandedUsers(new Set());
-
-      const supabase = createClient();
-
-      // First, get all users in the managed departments
-      const teamUserIds = users
-        .filter(u => u.department && managedDepartments.includes(u.department))
-        .map(u => u.id);
-      
-      // Also include the head's own ID so they can see their own
-      if (user?.id) teamUserIds.push(user.id);
-
-      if (teamUserIds.length === 0) {
-        setQualityItems([]);
-        setIsLoading(false);
-        return;
-      }
-
-      const { data: aRows } = await supabase
-        .from("kpi_assignments")
-        .select("*, kpis(id, title, type, unit, monthly_target, departments(name)), monthly_scores(*)")
-        .eq("year", selectedYear)
-        .eq("status", "active")
-        .in("user_id", teamUserIds);
-
-      const items: QualityItem[] = [];
-      const initNotes: Record<string, string> = {};
-      const scoreKey = `${selectedYear}-${selectedMonthNum}`;
-
-      (aRows ?? []).forEach((row: any) => {
-        const kpiRow = row.kpis;
-        if (!kpiRow || (kpiRow.type !== "quality" && kpiRow.type !== "lead_tim")) return;
-
-        const msRows = (row.monthly_scores as any[]) ?? [];
-        const monthlyScores: Record<string, any> = {};
-        msRows.forEach((ms: any) => {
-          monthlyScores[`${ms.year}-${ms.month}`] = {
-            actualTotal: ms.actual_total,
-            achievementPercentage: ms.achievement_percentage,
-            performanceCategory: getPerformanceCategory(ms.achievement_percentage),
-            qualityNotes: ms.quality_notes ?? "",
-          };
-        });
-
-        const assignment: KpiAssignment = {
-          id: row.id,
-          kpiId: row.kpi_id,
-          userId: row.user_id,
-          department: kpiRow.departments?.name ?? "",
-          kpiType: kpiRow.type as any,
-          status: row.status,
-          monthlyTarget: row.monthly_target ?? 0,
-          actualTotal: row.actual_total ?? 0,
-          achievementPercentage: row.achievement_percentage ?? 0,
-          performanceCategory: getPerformanceCategory(row.achievement_percentage ?? 0) as any,
-          weight: row.weight ?? 0,
-          notes: row.notes ?? "",
-          year: row.year,
-          month: row.month,
-          currentDailyTarget: 0,
-          expectedTotal: 0,
-          workingDaysTotal: 0,
-          workingDaysElapsed: 0,
-          workingDaysRemaining: 0,
-          activeDays: 0,
-          heldAt: null,
-          cancelledAt: null,
-          completedAt: null,
-          createdAt: row.created_at,
-          updatedAt: row.updated_at,
-          qualityNotes: row.quality_notes ?? "",
-          monthlyScores: Object.keys(monthlyScores).length > 0 ? monthlyScores : undefined,
-        };
-
-        const kpi: KPI = {
-          id: kpiRow.id,
-          title: kpiRow.title,
-          description: "",
-          type: kpiRow.type,
-          unit: kpiRow.unit ?? "percentage",
-          period: "monthly",
-          status: "active",
-          department: kpiRow.departments?.name ?? "",
-          createdBy: "",
-          monthlyTarget: kpiRow.monthly_target ?? 0,
-          year: selectedYear,
-          month: selectedMonthNum,
-          createdAt: "",
-          updatedAt: "",
-        };
-
-        items.push({ assignment, kpi });
-
-        const ms = monthlyScores[scoreKey];
-        const note = ms?.qualityNotes ?? assignment.qualityNotes ?? "";
-        if (note) initNotes[row.id] = note;
-      });
-
-      setQualityItems(items);
-      setNoteValues(initNotes);
-      setIsLoading(false);
-    }
-    load();
-  }, [user, users, managedDepartments.join(","), selectedYear]);
-
-  const grouped = useMemo(() => {
-    const userMap: Record<string, string> = {};
-    users.forEach((u) => { userMap[u.id] = u.name; });
-
-    const map: Record<string, Record<string, { userName: string; items: QualityItem[] }>> = {};
-    
-    // 1. Pre-populate map with all users in managedDepartments
-    users.forEach(u => {
-      if (u.department && managedDepartments.includes(u.department)) {
-        if (!map[u.department]) map[u.department] = {};
-        map[u.department][u.id] = { userName: u.name, items: [] };
-      }
-    });
-
-    // 2. Also pre-populate the Head's own department if they have one, to show their own KPIs
-    if (user && user.department && !map[user.department]) {
-      map[user.department] = {};
-      map[user.department][user.id] = { userName: user.name, items: [] };
-    }
-
-    // 3. Fill in the actual items
-    qualityItems.forEach((item) => {
-      const dept = item.assignment.department || "—";
-      const uid = item.assignment.userId;
-      if (!map[dept]) map[dept] = {};
-      if (!map[dept][uid]) map[dept][uid] = { userName: userMap[uid] ?? uid, items: [] };
-      map[dept][uid].items.push(item);
-    });
-
-    return map;
-  }, [qualityItems, users, managedDepartments, user]);
-
-  const deptNames = useMemo(
-    () => {
-      // Sort so managed departments come first, then others
-      const allDepts = Object.keys(grouped);
-      return allDepts.sort((a, b) => {
-        const aManaged = managedDepartments.includes(a) ? 0 : 1;
-        const bManaged = managedDepartments.includes(b) ? 0 : 1;
-        if (aManaged !== bManaged) return aManaged - bManaged;
-        return a.localeCompare(b);
-      });
-    },
-    [grouped, managedDepartments]
+  /**
+   * formerly: halaman mengambil `user.managedDepartments` dari AuthContext,
+   * menyaring daftar user di browser, lalu mengirim `user_id` mana yang
+   * boleh ditanyakan. Divisi itu datang dari browser, jadi Head bisa
+   * mengubahnya dan membaca divisi orang lain.
+   *
+   * sekarang: `scope=managed` — server yang membaca `managed_departments`
+   * dari baris `users` milik aktornya dan menyaring di SQL.
+   */
+  const build = useCallback(
+    () =>
+      allowed
+        ? withQuery("/api/kpi/quality", {
+            scope: "managed",
+            year: String(selectedYear),
+            month: String(selectedMonthNum),
+          })
+        : null,
+    [allowed, selectedYear, selectedMonthNum],
   );
 
-  async function handleSave(assignmentId: string, monthlyTarget: number) {
+  const { data, isLoading, refetch } = useApiQuery<{ rows: QualityRow[] }>(
+    build,
+    [allowed, selectedYear, selectedMonthNum],
+  );
+
+  const saveScore = useApiMutation<Record<string, unknown>, unknown>(
+    "/api/kpi/quality",
+    "PUT",
+  );
+
+  const rows = useMemo<QualityRow[]>(() => data?.rows ?? [], [data]);
+
+  const notesFromServer = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const r of rows) if (r.notes) map[r.assignmentId] = r.notes;
+    return map;
+  }, [rows]);
+
+  const grouped = useMemo<Grouped>(() => {
+    const map: Grouped = {};
+    for (const row of rows) {
+      const dept = row.departmentName || "—";
+      if (!map[dept]) map[dept] = {};
+      if (!map[dept][row.userId]) {
+        map[dept][row.userId] = { userName: row.userName, items: [] };
+      }
+      map[dept][row.userId].items.push(row);
+    }
+    return map;
+  }, [rows]);
+
+  const deptNames = useMemo(() => Object.keys(grouped).sort((a, b) => a.localeCompare(b)), [grouped]);
+
+  /**
+   * formerly: upsert ke monthly_scores lalu update kpi_assignments — dua
+   * request dari browser, dengan `achievement_percentage` dihitung di
+   * client dan `monthly_scores.monthly_target` tidak pernah ditulis.
+   *
+   * sekarang: satu request; percentage, target, dan kelayakan divisi
+   * semuanya diputuskan server.
+   */
+  async function handleSave(assignmentId: string) {
     const value = parseFloat(inputValues[assignmentId]);
-    if (isNaN(value) || value < 0) return;
+
+    if (!Number.isFinite(value) || value < 0) {
+      toast.error("Nilai harus angka dan tidak boleh negatif.");
+      return;
+    }
+
     setSaving(assignmentId);
-    try {
-      const pct = monthlyTarget > 0 ? (value / monthlyTarget) * 100 : 0;
-      const category = getPerformanceCategory(pct);
-      const notes = noteValues[assignmentId] ?? "";
-      const scoreKey = `${selectedYear}-${selectedMonthNum}`;
+    const res = await saveScore.mutate({
+      assignmentId,
+      year: selectedYear,
+      month: selectedMonthNum,
+      actualTotal: value,
+      notes: noteValues[assignmentId] ?? null,
+    });
+    setSaving(null);
 
-      const supabase = createClient();
-      await supabase.from("monthly_scores").upsert({
-        assignment_id: assignmentId,
-        year: selectedYear,
-        month: selectedMonthNum,
-        actual_total: value,
-        achievement_percentage: pct,
-      }, { onConflict: "assignment_id,year,month" });
-
-      await supabase.from("kpi_assignments").update({
-        actual_total: value,
-        achievement_percentage: pct,
-        quality_notes: notes,
-      } as any).eq("id", assignmentId);
-
+    if (res.ok) {
+      toast.success("Nilai KPI kualitas disimpan.");
       setInputValues((prev) => ({ ...prev, [assignmentId]: "" }));
-      setQualityItems((prev) =>
-        prev.map((q) => {
-          if (q.assignment.id !== assignmentId) return q;
-          const updatedMonthlyScores = {
-            ...(q.assignment.monthlyScores ?? {}),
-            [scoreKey]: { actualTotal: value, achievementPercentage: pct, performanceCategory: category as any, qualityNotes: notes },
-          };
-          return { ...q, assignment: { ...q.assignment, actualTotal: value, achievementPercentage: pct, performanceCategory: category as any, qualityNotes: notes, monthlyScores: updatedMonthlyScores } };
-        })
-      );
-    } finally {
-      setSaving(null);
+      void refetch();
+    } else {
+      toast.error(res.error ?? "Gagal menyimpan nilai.");
     }
   }
 
@@ -255,7 +151,11 @@ export default function HeadQualityPage() {
       if (next.has(dept)) {
         next.delete(dept);
         const uids = Object.keys(grouped[dept] ?? {});
-        setExpandedUsers((p2) => { const n2 = new Set(p2); uids.forEach((id) => n2.delete(dept + id)); return n2; });
+        setExpandedUsers((p) => {
+          const n = new Set(p);
+          uids.forEach((id) => n.delete(dept + id));
+          return n;
+        });
       } else {
         next.add(dept);
       }
@@ -267,18 +167,25 @@ export default function HeadQualityPage() {
     const key = dept + uid;
     setExpandedUsers((prev) => {
       const next = new Set(prev);
-      if (next.has(key)) next.delete(key); else next.add(key);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
   }
 
-  if (managedDepartments.length === 0) {
+  // Pengecekan role dipindah ke BAWAH semua hook. formerly `return`
+  // bersyarat ada sebelum useState, padahal `role` baru terisi setelah
+  // AuthContext selesai memuat — jumlah hook berubah antar render dan
+  // React melempar "Rendered fewer hooks than expected" (halaman putih).
+  if (!allowed) {
     return (
       <div className="flex h-40 items-center justify-center rounded-xl border border-dashed border-border">
-        <p className="text-sm text-muted-foreground">Tidak ada departemen yang dikelola</p>
+        <p className="text-sm text-muted-foreground">Akses tidak diizinkan.</p>
       </div>
     );
   }
+
+  const totalItems = rows.length;
 
   return (
     <div className="space-y-6">
@@ -286,7 +193,9 @@ export default function HeadQualityPage() {
         <div>
           <h2 className="text-base font-semibold">Input KPI Kualitas Tim</h2>
           <p className="text-sm text-muted-foreground">
-            {isLoading ? "Memuat..." : `${qualityItems.length} KPI Kualitas & Lead Tim • ${monthName(selectedMonthNum)} ${selectedYear} • ${managedDepartments.join(", ")}`}
+            {isLoading
+              ? "Memuat..."
+              : `${totalItems} KPI Kualitas & Lead Tim • ${monthName(selectedMonthNum)} ${selectedYear} • ${deptNames.join(", ") || "—"}`}
           </p>
         </div>
         <input
@@ -299,7 +208,11 @@ export default function HeadQualityPage() {
 
       {!isLoading && deptNames.length > 0 && (
         <div className="flex items-center gap-2 flex-wrap">
-          <Button variant="outline" size="sm" onClick={() => setExpandedDepts(new Set(deptNames))}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setExpandedDepts(new Set(deptNames))}
+          >
             Expand Tim
           </Button>
           <Button
@@ -307,13 +220,22 @@ export default function HeadQualityPage() {
             size="sm"
             onClick={() => {
               setExpandedDepts(new Set(deptNames));
-              const allKeys = deptNames.flatMap((d) => Object.keys(grouped[d] ?? {}).map((uid) => d + uid));
+              const allKeys = deptNames.flatMap((d) =>
+                Object.keys(grouped[d] ?? {}).map((uid) => d + uid),
+              );
               setExpandedUsers(new Set(allKeys));
             }}
           >
             Expand Staff
           </Button>
-          <Button variant="outline" size="sm" onClick={() => { setExpandedDepts(new Set()); setExpandedUsers(new Set()); }}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setExpandedDepts(new Set());
+              setExpandedUsers(new Set());
+            }}
+          >
             Collapse All
           </Button>
         </div>
@@ -324,15 +246,26 @@ export default function HeadQualityPage() {
           <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
         </div>
       ) : deptNames.length === 0 ? (
-        <div className="flex h-40 items-center justify-center rounded-xl border border-dashed border-border">
-          <p className="text-sm text-muted-foreground">Tidak ada KPI kualitas aktif bulan ini</p>
+        <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border">
+          <p className="text-sm text-muted-foreground">
+            Tidak ada KPI kualitas aktif bulan ini
+          </p>
+          {role === "head" && (
+            <p className="text-xs text-muted-foreground/70">
+              Divisi yang Anda kelola belum punya penugasan KPI bertipe quality
+              atau lead tim.
+            </p>
+          )}
         </div>
       ) : (
         <div className="space-y-3">
           {deptNames.map((dept) => {
             const usersInDept = grouped[dept] ?? {};
             const isDeptOpen = expandedDepts.has(dept);
-            const totalKpi = Object.values(usersInDept).reduce((s, u) => s + u.items.length, 0);
+            const totalKpi = Object.values(usersInDept).reduce(
+              (s, u) => s + u.items.length,
+              0,
+            );
 
             return (
               <div key={dept} className="rounded-xl border border-border overflow-hidden">
@@ -340,11 +273,17 @@ export default function HeadQualityPage() {
                   onClick={() => toggleDept(dept)}
                   className="w-full flex items-center gap-3 px-4 py-3 bg-card hover:bg-accent/50 transition-colors text-left"
                 >
-                  <ChevronDown className={cn("h-4 w-4 text-muted-foreground shrink-0 transition-transform duration-200", isDeptOpen && "rotate-180")} />
+                  <ChevronDown
+                    className={cn(
+                      "h-4 w-4 text-muted-foreground shrink-0 transition-transform duration-200",
+                      isDeptOpen && "rotate-180",
+                    )}
+                  />
                   <div className="flex-1 min-w-0">
                     <span className="text-sm font-semibold">{dept}</span>
                     <span className="text-xs text-muted-foreground ml-2">
-                      {Object.keys(usersInDept).length} staff · {totalKpi} KPI kualitas
+                      {Object.keys(usersInDept).length} staff · {totalKpi} KPI
+                      kualitas
                     </span>
                   </div>
                 </button>
@@ -352,16 +291,14 @@ export default function HeadQualityPage() {
                 {isDeptOpen && (
                   <div className="border-t border-border bg-muted/20 divide-y divide-border">
                     {Object.entries(usersInDept).map(([uid, { userName, items }]) => {
-                      const userKey = dept + uid;
-                      const isUserOpen = expandedUsers.has(userKey);
-                      const scoreKey = `${selectedYear}-${selectedMonthNum}`;
-                      const avgPct = items.length > 0
-                        ? items.reduce((s, i) => {
-                            const ms = i.assignment.monthlyScores?.[scoreKey];
-                            return s + (ms?.achievementPercentage ?? 0);
-                          }, 0) / items.length
-                        : 0;
-                      const cat = getPerformanceCategory(avgPct) as KpiAssignment["performanceCategory"];
+                      const isUserOpen = expandedUsers.has(dept + uid);
+                      const avgPct =
+                        items.length > 0
+                          ? items.reduce(
+                              (s, i) => s + i.achievementPercentage,
+                              0,
+                            ) / items.length
+                          : 0;
 
                       return (
                         <div key={uid}>
@@ -369,80 +306,102 @@ export default function HeadQualityPage() {
                             onClick={() => toggleUser(dept, uid)}
                             className="w-full flex items-center gap-3 px-6 py-3 hover:bg-accent/40 transition-colors text-left"
                           >
-                            <ChevronDown className={cn("h-3.5 w-3.5 text-muted-foreground shrink-0 transition-transform duration-200", isUserOpen && "rotate-180")} />
+                            <ChevronDown
+                              className={cn(
+                                "h-3.5 w-3.5 text-muted-foreground shrink-0 transition-transform duration-200",
+                                isUserOpen && "rotate-180",
+                              )}
+                            />
                             <div className="flex-1 min-w-0">
                               <span className="text-sm font-medium">{userName}</span>
-                              <span className="text-xs text-muted-foreground ml-2">{items.length} KPI kualitas</span>
+                              <span className="text-xs text-muted-foreground ml-2">
+                                {items.length} KPI kualitas
+                              </span>
                             </div>
                             <div className="flex items-center gap-2 shrink-0">
-                              <span className="text-sm font-semibold tabular-nums">{formatPercentage(avgPct)}</span>
-                              <PerformanceBadge category={cat} />
+                              <span className="text-sm font-semibold tabular-nums">
+                                {formatPercentage(avgPct)}
+                              </span>
+                              <PerformanceBadge
+                                category={getPerformanceCategory(avgPct)}
+                              />
                             </div>
                           </button>
 
                           {isUserOpen && (
                             <div className="px-6 pb-3 space-y-2 bg-background/50">
-                              {items.length === 0 ? (
-                                <div className="rounded-lg border border-dashed border-border bg-card px-4 py-6 text-center">
-                                  <p className="text-sm font-medium text-muted-foreground mb-1">Belum ada KPI Kualitas</p>
-                                  <p className="text-xs text-muted-foreground/70">
-                                    Staf ini belum diberikan penugasan KPI yang berjenis "Quality" atau "Lead Tim". 
-                                    Silakan buat penugasan baru di menu Penugasan.
-                                  </p>
-                                </div>
-                              ) : (
-                                items.map(({ assignment, kpi }) => {
-                                  const monthScore = assignment.monthlyScores?.[scoreKey];
-                                  const displayActual = monthScore?.actualTotal ?? 0;
-                                  const displayPct = monthScore?.achievementPercentage ?? 0;
-                                  const displayCat = (monthScore?.performanceCategory ?? getPerformanceCategory(displayPct)) as KpiAssignment["performanceCategory"];
-                                  return (
-                                    <div key={assignment.id} className="rounded-lg border border-border bg-card px-4 py-3 flex flex-col gap-3">
-                                      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-                                        <div className="flex-1 min-w-0">
-                                          <p className="text-sm font-medium">{kpi.title}</p>
-                                          <p className="text-xs text-muted-foreground">
-                                            Aktual: {formatPercentage(displayActual)} / {formatPercentage(assignment.monthlyTarget)}
-                                          </p>
-                                        </div>
-                                        <div className="flex items-center gap-2 shrink-0">
-                                          <PerformanceBadge category={displayCat} />
-                                          <Input
-                                            type="number"
-                                            inputMode="decimal"
-                                            step="any"
-                                            min="0"
-                                            max="100"
-                                            className="w-24 h-8 text-sm"
-                                            placeholder="Nilai %"
-                                            value={inputValues[assignment.id] ?? ""}
-                                            onChange={(e) =>
-                                              setInputValues((prev) => ({ ...prev, [assignment.id]: e.target.value }))
-                                            }
-                                          />
-                                          <Button
-                                            size="sm"
-                                            className="h-8"
-                                            disabled={saving === assignment.id || !inputValues[assignment.id]}
-                                            onClick={() => handleSave(assignment.id, assignment.monthlyTarget)}
-                                          >
-                                            {saving === assignment.id ? "..." : "Simpan"}
-                                          </Button>
-                                        </div>
-                                      </div>
-                                      <textarea
-                                        rows={2}
-                                        placeholder="Catatan evaluasi (opsional)..."
-                                        className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none"
-                                        value={noteValues[assignment.id] ?? ""}
+                              {items.map((item) => (
+                                <div
+                                  key={item.assignmentId}
+                                  className="rounded-lg border border-border bg-card px-4 py-3 flex flex-col gap-3"
+                                >
+                                  <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                                    <div className="flex-1 min-w-0">
+                                      <p className="text-sm font-medium">
+                                        {item.kpiTitle}
+                                      </p>
+                                      <p className="text-xs text-muted-foreground">
+                                        Aktual: {formatPercentage(item.actualTotal)} /{" "}
+                                        {formatPercentage(item.monthlyTarget)}
+                                        {!item.hasScore && (
+                                          <span className="ml-2 text-[10px] uppercase tracking-widest">
+                                            belum diinput
+                                          </span>
+                                        )}
+                                      </p>
+                                    </div>
+                                    <div className="flex items-center gap-2 shrink-0">
+                                      <PerformanceBadge
+                                        category={item.performanceCategory}
+                                      />
+                                      <Input
+                                        type="number"
+                                        inputMode="decimal"
+                                        step="any"
+                                        min="0"
+                                        className="w-24 h-8 text-sm"
+                                        placeholder="Nilai %"
+                                        value={inputValues[item.assignmentId] ?? ""}
                                         onChange={(e) =>
-                                          setNoteValues((prev) => ({ ...prev, [assignment.id]: e.target.value }))
+                                          setInputValues((prev) => ({
+                                            ...prev,
+                                            [item.assignmentId]: e.target.value,
+                                          }))
                                         }
                                       />
+                                      <Button
+                                        size="sm"
+                                        className="h-8"
+                                        disabled={
+                                          saving === item.assignmentId ||
+                                          !inputValues[item.assignmentId]
+                                        }
+                                        onClick={() => handleSave(item.assignmentId)}
+                                      >
+                                        {saving === item.assignmentId
+                                          ? "..."
+                                          : "Simpan"}
+                                      </Button>
                                     </div>
-                                  );
-                                })
-                              )}
+                                  </div>
+                                  <textarea
+                                    rows={2}
+                                    placeholder="Catatan evaluasi (opsional)..."
+                                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none"
+                                    value={
+                                      noteValues[item.assignmentId] ??
+                                      notesFromServer[item.assignmentId] ??
+                                      ""
+                                    }
+                                    onChange={(e) =>
+                                      setNoteValues((prev) => ({
+                                        ...prev,
+                                        [item.assignmentId]: e.target.value,
+                                      }))
+                                    }
+                                  />
+                                </div>
+                              ))}
                             </div>
                           )}
                         </div>

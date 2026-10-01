@@ -1,158 +1,129 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { createClient } from "@/lib/supabase/client";
-import { useAllUsers } from "@/hooks/useUsers";
+import { useCallback, useMemo, useState } from "react";
+import { useApiQuery, useApiMutation } from "@/hooks/useApi";
+import { withQuery } from "@/lib/api-client";
 import { useAuth } from "@/contexts/AuthContext";
 import { getKpiRole } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { formatPercentage, getPerformanceCategory } from "@/lib/utils";
 import { PerformanceBadge } from "@/components/ui/badge";
-import type { KpiAssignment, KPI } from "@/types";
+import { formatPercentage } from "@/lib/utils";
+import { toast } from "sonner";
+import type { PerformanceCategory } from "@/types";
 
-interface EvaluasiHrAssignment {
-  assignment: KpiAssignment;
-  kpi: KPI;
+/** Baris dari GET /api/kpi/quality — lihat src/server/dal/quality.ts. */
+interface EvaluasiRow {
+  assignmentId: string;
   userName: string;
+  departmentName: string;
+  kpiType: "lead_tim" | "hr" | "quality";
+  kpiTitle: string;
+  monthlyTarget: number;
+  actualTotal: number;
+  achievementPercentage: number;
+  performanceCategory: PerformanceCategory;
+  notes: string;
+  hasScore: boolean;
 }
 
 export default function EvaluasiHrPage() {
   const { user } = useAuth();
-  const { users } = useAllUsers();
   const now = new Date();
 
-  const role = user ? getKpiRole(user) : null;
-  if (role && role !== "hr" && role !== "executive" && role !== "developer") {
-    return (
-      <div className="flex h-40 items-center justify-center rounded-xl border border-dashed border-border">
-        <p className="text-sm text-muted-foreground">Akses tidak diizinkan. Hanya HR yang bisa mengakses halaman ini.</p>
-      </div>
-    );
-  }
+  const year = now.getFullYear();
+  const month = now.getMonth() + 1;
 
-  const [assignments, setAssignments] = useState<EvaluasiHrAssignment[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const role = user ? getKpiRole(user) : null;
+  const allowed =
+    role === null || role === "hr" || role === "executive" || role === "developer";
+
   const [inputValues, setInputValues] = useState<Record<string, string>>({});
   const [inputNotes, setInputNotes] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState<string | null>(null);
 
-  const selectedYear = now.getFullYear();
-  const selectedMonth = now.getMonth() + 1;
+  /**
+   * formerly: halaman menyaring `kpis.type` lewat `.in("kpis.type", [...])`
+   * dari browser, lalu mencocokkan nama user lewat daftar user terpisah
+   * (`if (users.length > 0) load()` — kalau daftar itu kosong, halaman
+   * menampilkan "Tidak ada KPI" padahal assignment-nya ada).
+   *
+   * sekarang: `kpiTypes=lead_tim,hr` adalah filter SQL, dan nama user
+   * sudah ikut di-select. Halaman tidak bergantung pada daftar user.
+   */
+  const build = useCallback(
+    () =>
+      allowed
+        ? withQuery("/api/kpi/quality", {
+            scope: "all",
+            kpiTypes: "lead_tim,hr",
+            year: String(year),
+            month: String(month),
+          })
+        : null,
+    [allowed, year, month],
+  );
 
-  useEffect(() => {
-    async function load() {
-      const supabase = createClient();
-      const { data: aRows } = await supabase
-        .from("kpi_assignments")
-        .select("*, kpis(id, title, type, unit, monthly_target, departments(name)), monthly_scores(*)")
-        .eq("year", selectedYear)
-        .eq("month", selectedMonth)
-        .eq("status", "active")
-        .in("kpis.type", ["lead_tim", "hr"]);
+  const { data, isLoading, refetch } = useApiQuery<{ rows: EvaluasiRow[] }>(
+    build,
+    [allowed, year, month],
+  );
 
-      const userMap: Record<string, string> = {};
-      users.forEach((u) => { userMap[u.id] = u.name; });
+  const saveScore = useApiMutation<Record<string, unknown>, unknown>(
+    "/api/kpi/quality",
+    "PUT",
+  );
 
-      const items: EvaluasiHrAssignment[] = [];
-      (aRows ?? []).forEach((row: any) => {
-        const kpiRow = row.kpis;
-        // Supabase sometimes returns rows where inner join filter fails but keeps the row with kpis=null if not inner joined properly, but .in("kpis.type", ...) might work.
-        // Let's filter client side just in case
-        if (!kpiRow || (kpiRow.type !== "lead_tim" && kpiRow.type !== "hr")) return;
+  const rows = useMemo<EvaluasiRow[]>(() => data?.rows ?? [], [data]);
 
-        const assignment: KpiAssignment = {
-          id: row.id,
-          kpiId: row.kpi_id,
-          userId: row.user_id,
-          department: kpiRow.departments?.name ?? "",
-          kpiType: kpiRow.type,
-          status: row.status,
-          monthlyTarget: row.monthly_target ?? 0,
-          actualTotal: row.actual_total ?? 0,
-          achievementPercentage: row.achievement_percentage ?? 0,
-          performanceCategory: getPerformanceCategory(row.achievement_percentage ?? 0) as any,
-          weight: row.weight ?? 0,
-          notes: row.notes ?? "",
-          year: row.year,
-          month: row.month,
-          currentDailyTarget: 0,
-          expectedTotal: 0,
-          workingDaysTotal: 0,
-          workingDaysElapsed: 0,
-          workingDaysRemaining: 0,
-          activeDays: 0,
-          heldAt: null,
-          cancelledAt: null,
-          completedAt: null,
-          createdAt: row.created_at,
-          updatedAt: row.updated_at,
-          qualityNotes: row.quality_notes ?? "",
-        };
+  const notesFromServer = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const r of rows) if (r.notes) map[r.assignmentId] = r.notes;
+    return map;
+  }, [rows]);
 
-        const kpi: KPI = {
-          id: kpiRow.id,
-          title: kpiRow.title,
-          description: "",
-          type: kpiRow.type,
-          unit: kpiRow.unit ?? "percentage",
-          period: "monthly",
-          status: "active",
-          department: kpiRow.departments?.name ?? "",
-          createdBy: "",
-          monthlyTarget: kpiRow.monthly_target ?? 0,
-          year: selectedYear,
-          month: selectedMonth,
-          createdAt: "",
-          updatedAt: "",
-        };
-
-        items.push({ assignment, kpi, userName: userMap[row.user_id] ?? row.user_id });
-      });
-
-      setAssignments(items);
-      setIsLoading(false);
-    }
-
-    if (users.length > 0) load();
-  }, [users, selectedYear, selectedMonth]);
-
-  async function handleSave(assignmentId: string, monthlyTarget: number) {
+  /**
+   * formerly: dua operasi dari browser dengan percentage dihitung di client.
+   * Sekarang satu request; percentage dan target dihitung server.
+   */
+  async function handleSave(assignmentId: string) {
     const value = parseFloat(inputValues[assignmentId]);
-    const notes = inputNotes[assignmentId] ?? "";
-    if (isNaN(value) || value < 0) return;
-    setSaving(assignmentId);
-    try {
-      const pct = monthlyTarget > 0 ? (value / monthlyTarget) * 100 : 0;
-      const supabase = createClient();
 
-      await supabase.from("monthly_scores").upsert({
-        assignment_id: assignmentId,
-        year: selectedYear,
-        month: selectedMonth,
-        actual_total: value,
-        achievement_percentage: pct,
-      }, { onConflict: "assignment_id,year,month" });
-
-      await supabase.from("kpi_assignments").update({
-        actual_total: value,
-        achievement_percentage: pct,
-        notes: notes,
-      }).eq("id", assignmentId);
-
-      setInputValues((prev) => ({ ...prev, [assignmentId]: "" }));
-      setInputNotes((prev) => ({ ...prev, [assignmentId]: "" }));
-      
-      setAssignments((prev) =>
-        prev.map((q) =>
-          q.assignment.id === assignmentId
-            ? { ...q, assignment: { ...q.assignment, actualTotal: value, achievementPercentage: pct, performanceCategory: getPerformanceCategory(pct) as any, notes: notes } }
-            : q
-        )
-      );
-    } finally {
-      setSaving(null);
+    if (!Number.isFinite(value) || value < 0) {
+      toast.error("Nilai harus angka dan tidak boleh negatif.");
+      return;
     }
+
+    setSaving(assignmentId);
+    const res = await saveScore.mutate({
+      assignmentId,
+      year,
+      month,
+      actualTotal: value,
+      notes: inputNotes[assignmentId] ?? null,
+    });
+    setSaving(null);
+
+    if (res.ok) {
+      toast.success("Evaluasi HR disimpan.");
+      setInputValues((prev) => ({ ...prev, [assignmentId]: "" }));
+      void refetch();
+    } else {
+      toast.error(res.error ?? "Gagal menyimpan evaluasi.");
+    }
+  }
+
+  // Pengecekan role DI BAWAH semua hook — `role` baru terisi setelah
+  // AuthContext selesai memuat, jadi `return` di atas useState bikin
+  // jumlah hook berubah antar render (halaman putih).
+  if (!allowed) {
+    return (
+      <div className="flex h-40 items-center justify-center rounded-xl border border-dashed border-border">
+        <p className="text-sm text-muted-foreground">
+          Akses tidak diizinkan. Hanya HR yang bisa mengakses halaman ini.
+        </p>
+      </div>
+    );
   }
 
   if (isLoading) {
@@ -166,51 +137,74 @@ export default function EvaluasiHrPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-base font-semibold">Evaluasi HR (Personality & Work Behavior)</h2>
-        <p className="text-sm text-muted-foreground">{assignments.length} KPI Lead Tim / HR aktif bulan ini</p>
+        <h2 className="text-base font-semibold">
+          Evaluasi HR (Personality &amp; Work Behavior)
+        </h2>
+        <p className="text-sm text-muted-foreground">
+          {rows.length} KPI Lead Tim / HR aktif bulan ini
+        </p>
       </div>
 
-      {assignments.length === 0 ? (
+      {rows.length === 0 ? (
         <div className="flex h-40 items-center justify-center rounded-xl border border-dashed border-border">
-          <p className="text-sm text-muted-foreground">Tidak ada KPI Personality (Lead Tim / HR) aktif bulan ini</p>
+          <p className="text-sm text-muted-foreground">
+            Tidak ada KPI Personality (Lead Tim / HR) aktif bulan ini
+          </p>
         </div>
       ) : (
         <div className="space-y-2">
-          {assignments.map(({ assignment, kpi, userName }) => (
-            <div key={assignment.id} className="rounded-xl border border-border bg-card px-4 py-3">
+          {rows.map((row) => (
+            <div
+              key={row.assignmentId}
+              className="rounded-xl border border-border bg-card px-4 py-3"
+            >
               <div className="flex flex-col sm:flex-row sm:items-center gap-3">
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium">{kpi.title}</p>
-                  <p className="text-xs text-muted-foreground">{userName} · {assignment.department}</p>
+                  <p className="text-sm font-medium">{row.kpiTitle}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {row.userName} · {row.departmentName}
+                  </p>
                   <div className="mt-1 flex items-center gap-2">
                     <span className="text-[10px] uppercase font-bold tracking-widest text-primary/80 bg-primary/10 px-2 py-0.5 rounded-full">
-                      {kpi.type === 'lead_tim' ? 'Lead Tim' : 'HR'}
+                      {row.kpiType === "lead_tim" ? "Lead Tim" : "HR"}
                     </span>
                     <span className="text-xs text-muted-foreground">
-                      Aktual: {formatPercentage(assignment.actualTotal)} / {formatPercentage(assignment.monthlyTarget)}
+                      Aktual: {formatPercentage(row.actualTotal)} /{" "}
+                      {formatPercentage(row.monthlyTarget)}
+                      {!row.hasScore && (
+                        <span className="ml-2 text-[10px] uppercase tracking-widest">
+                          belum diinput
+                        </span>
+                      )}
                     </span>
                   </div>
-                  {assignment.notes && (
+                  {(inputNotes[row.assignmentId] ??
+                    notesFromServer[row.assignmentId]) ? (
                     <div className="mt-2 text-xs bg-slate-50 dark:bg-slate-800/50 p-2 rounded border border-slate-100 dark:border-slate-800">
                       <span className="font-semibold text-slate-500">Note: </span>
-                      <span className="italic">{assignment.notes}</span>
+                      <span className="italic">
+                        {inputNotes[row.assignmentId] ??
+                          notesFromServer[row.assignmentId]}
+                      </span>
                     </div>
-                  )}
+                  ) : null}
                 </div>
                 <div className="flex flex-col gap-2 shrink-0 sm:w-64">
                   <div className="flex items-center gap-2 justify-end">
-                    <PerformanceBadge category={assignment.performanceCategory} />
+                    <PerformanceBadge category={row.performanceCategory} />
                     <Input
                       type="number"
                       inputMode="decimal"
                       step="any"
                       min="0"
-                      max="100"
                       className="w-24 h-8 text-sm"
                       placeholder="Nilai %"
-                      value={inputValues[assignment.id] ?? ""}
+                      value={inputValues[row.assignmentId] ?? ""}
                       onChange={(e) =>
-                        setInputValues((prev) => ({ ...prev, [assignment.id]: e.target.value }))
+                        setInputValues((prev) => ({
+                          ...prev,
+                          [row.assignmentId]: e.target.value,
+                        }))
                       }
                     />
                   </div>
@@ -218,18 +212,24 @@ export default function EvaluasiHrPage() {
                     type="text"
                     className="h-8 text-sm w-full"
                     placeholder="Catatan / Note"
-                    value={inputNotes[assignment.id] ?? ""}
+                    value={inputNotes[row.assignmentId] ?? ""}
                     onChange={(e) =>
-                      setInputNotes((prev) => ({ ...prev, [assignment.id]: e.target.value }))
+                      setInputNotes((prev) => ({
+                        ...prev,
+                        [row.assignmentId]: e.target.value,
+                      }))
                     }
                   />
                   <Button
                     size="sm"
                     className="h-8 w-full"
-                    disabled={saving === assignment.id || !inputValues[assignment.id]}
-                    onClick={() => handleSave(assignment.id, assignment.monthlyTarget)}
+                    disabled={
+                      saving === row.assignmentId ||
+                      !inputValues[row.assignmentId]
+                    }
+                    onClick={() => handleSave(row.assignmentId)}
                   >
-                    {saving === assignment.id ? "Menyimpan..." : "Simpan & Update"}
+                    {saving === row.assignmentId ? "Menyimpan..." : "Simpan & Update"}
                   </Button>
                 </div>
               </div>

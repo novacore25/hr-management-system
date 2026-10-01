@@ -167,7 +167,47 @@ dipindahkan ke server:
 - `actor` audit trail (sebelumnya dari state client, bisa dipalsukan)
 - Geofence check-in (sebelumnya client bisa kirim koordinat palsu)
 
-### 3.5 `ON CONFLICT DO NOTHING` tanpa target tidak mencegah apa pun
+#### 3.5 Scoping otorisasi harus dari SERVER, bukan dari `AuthContext`
+
+Halaman `/dashboard/head/quality` mengambil `user.managedDepartments` dari
+`AuthContext` di browser lalu memakai daftar itu untuk menentukan `user_id`
+mana yang boleh ditanyakan. Head tinggal mengubah nilai itu untuk membaca —
+dan menilai — divisi yang bukan miliknya.
+
+Sekarang `scope=managed` membaca `users.managed_departments` langsung dari
+database, dan `assertCanScore` di DAL menolak assignment di luar divisi itu.
+
+Perhatikan juga: assignment milik Head sendiri sering **tidak punya**
+`department_id` (dia undivided). Filter `IN (divisi)` akan menyembunyikan KPI
+Head sendiri, jadi perlu `OR user_id = aktornya`.
+
+### 3.6 `withAuth` dulu menelan semua penolakan
+
+Ini yang paling berbahaya dan sudah diterapkan ke seluruh Route Handler.
+
+`withAuth` selalu membungkus hasil handler:
+
+```ts
+return Response.json({ ok: true, data });
+```
+
+Kalau handler mengembalikan `Response` sendiri — yang dilakukan hampir
+semua Route Handler untuk validasi — `Response` itu **tidak bisa
+di-serialize**. Hasilnya `{ ok: true, data: {} }` dengan status **200**.
+
+Artinya "Nilai harus angka", "Bulan harus 1-12", "Divisi itu bukan milik
+Anda" — semua sampai ke browser sebagai **sukses dengan data kosong**.
+Tidak ada error, tidak ada crash, `tsc` bersih, log bersih. Klien malah
+melempar error karena bentuk datanya tidak sesuai.
+
+Perbaikan: `withAuth` sekarang mengembalikan `Response` apa adanya kalau
+handler memang mengembalikan `Response`.
+
+Pelajaran generalize: **kalau sebuah pembungkus transforming mashed up
+nilai, cek dulu bentuk yang sebenarnya keluar** — jangan hanya cek status
+code.
+
+### 3.7 `ON CONFLICT DO NOTHING` tanpa target tidak mencegah apa pun
 
 Kalau tidak ada constraint yang cocok, tiap insert berhasil. Seed saya
 jalankan 7× karena error → 15 baris `departments` dari 5 yang
@@ -197,6 +237,18 @@ npm run verify            # typecheck + stub guard + test
 npm run dev               # atau: npx next dev -p 3100
 ```
 
+Dengan dev server jalan, dua pemeriksa tambahan — keduanya membaca
+**isi** respons dan **isi** database, bukan cuma status code:
+
+```powershell
+npm run verify:endpoints   # 24 endpoint: amplop, status, isi data
+npm run verify:quality     # 32 assert: scoping, penolakan, dan nilai yang tersimpan
+```
+
+`verify:quality` membersihkan baris ujinya sendiri, jadi bisa dijalankan
+berulang kali. Kalau salah satu gagal, itu bug yang tidak akan terlihat
+dari `tsc` maupun `next build`.
+
 Buat sesi tanpa OAuth:
 
 ```powershell
@@ -220,10 +272,17 @@ bukan lewat migration runner.
 
 Urutan apply: `0000_init`, `0004_auth_constraints`, `0005_seed`,
 `0006_kpi_settings_weights`, `0007_users_religion`,
-`0008_letter_numbering`, `0009_users_employment`.
+`0008_letter_numbering`, `0009_users_employment`,
+`0010_unique_constraints`, `0011_kpis_brand`.
 
 ⚠️ `0009` pernah terlewat karena tidak masuk daftar manual. Kalau ada
 kolom yang seharusnya tidak ada, cek dulu daftar migrasi yang dijalankan.
+
+`0010` punya dua bagian: bagian 1 hanya melaporkan duplikat, bagian 2
+membatalkan diri sendiri kalau duplikatnya ada. **Jalankan bagian 1
+terlebih dahulu dan periksa hasilnya** sebelum lanjut — jangan Andalkan
+`RAISE EXCEPTION` sebagai satu-satunya penjaga, karena di produksi itu
+berarti constraint tidak terpasang sama sekali.
 
 ---
 

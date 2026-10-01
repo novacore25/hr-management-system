@@ -172,7 +172,27 @@ cek daftar migrasi yang dijalankan lebih dulu.
 
 ---
 
-## 10. Data asli belum dipindahkan
+## 10. Scoping dari server, bukan dari `AuthContext`
+
+**Pilihan:** setiap filter yang membatasi "user bisa melihat siapa" dibaca
+dari database di DAL, bukan dikirim dari browser.
+
+**Alasan:** `AuthContext` adalah state di browser. Nilai `managedDepartments`
+di sana bisa diubah Head tanpa tooling apa pun, dan halaman lama memakainya
+untuk menentukan `user_id` mana yang ditanyakan — jadi bukan hanya
+membaca, tapi juga **menilai** KPI orang lain.
+
+Route Handler menerima `scope=self|managed|all`, dan `managed` berarti
+"divisi yang dikelola dari `users.managed_departments` milik aktornya".
+Per-property pun diperiksa lagi di DAL (`assertCanScore`) saat menyimpan,
+karena pembagian read dan write bisa berbeda.
+
+**Detail yang mudah terlewat:** assignment milik Head sendiri sering tidak
+punya `department_id`, jadi filter `IN (divisi)` menyembunyikan KPI-nya
+sendiri. Karena itu perlu `OR user_id = aktornya`. Kalau tidak, Head
+melihat seluruh tim tapi tidak dirinya sendiri.
+
+## 11. Data asli belum dipindahkan
 
 Keputusan sadar: **direct cutover**, bukan dual-sync.
 

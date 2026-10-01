@@ -14,6 +14,8 @@
     "db:migrate": "drizzle-kit migrate",
     "verify:build": "npm run build && tsx scripts/verify-build.ts",
     "verify:stub": "tsx scripts/verify-no-stub.ts",
+    "verify:endpoints": "node scripts/verify-endpoints.mjs",
+    "verify:quality": "node scripts/verify-quality.mjs",
     "verify": "npm run typecheck && tsx scripts/verify-no-stub.ts && npm run test"
   },
   "dependencies": {

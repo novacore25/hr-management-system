@@ -270,6 +270,14 @@ export const kpis = pgTable(
     year: integer("year").notNull(),
     month: integer("month").notNull(),
     status: varchar("status", { length: 32 }).notNull().default("draft"),
+    /**
+     * Brand / sub-divisi (TNT, Iswhite, Syb, Msglow, Nairaisday, Umum).
+     *
+     * Ditambahkan di migrasi 0011. Halaman /dashboard/executive/quality
+     * sudah membaca dan merender kolom ini sejak lama, tapi kolomnya tidak
+     * pernah ada di schema Drizzle — jadi label brand tidak pernah muncul.
+     */
+    brand: varchar("brand", { length: 64 }),
     createdBy: varchar("created_by", { length: 255 }).references(
       () => users.id,
       { onDelete: "set null" },

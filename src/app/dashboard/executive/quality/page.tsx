@@ -1,34 +1,51 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
-import { createClient } from "@/lib/supabase/client";
-import { useAllUsers } from "@/hooks/useUsers";
-import { useDepartments } from "@/hooks/useDivisions";
+import { useCallback, useMemo, useState } from "react";
+import { useApiQuery, useApiMutation } from "@/hooks/useApi";
+import { withQuery } from "@/lib/api-client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PerformanceBadge } from "@/components/ui/badge";
 import { ChevronDown } from "lucide-react";
-import { cn, formatPercentage, getPerformanceCategory, monthName, getBrandColor } from "@/lib/utils";
-import type { KpiAssignment, KPI } from "@/types";
+import {
+  cn,
+  formatPercentage,
+  getPerformanceCategory,
+  getBrandColor,
+  monthName,
+} from "@/lib/utils";
+import { toast } from "sonner";
+import type { PerformanceCategory } from "@/types";
 
-interface QualityItem {
-  assignment: KpiAssignment;
-  kpi: KPI;
+/** Baris dari GET /api/kpi/quality — lihat src/server/dal/quality.ts. */
+interface QualityRow {
+  assignmentId: string;
+  userId: string;
+  userName: string;
+  departmentName: string;
+  kpiTitle: string;
+  kpiBrand: string | null;
+  monthlyTarget: number;
+  actualTotal: number;
+  achievementPercentage: number;
+  performanceCategory: PerformanceCategory;
+  notes: string;
+  hasScore: boolean;
 }
 
+type Grouped = Record<
+  string,
+  Record<string, { userName: string; items: QualityRow[] }>
+>;
+
 export default function ExecutiveQualityPage() {
-  const { users } = useAllUsers();
-  const { departments } = useDepartments();
-  const now = new Date();
+  const [filterMonth, setFilterMonth] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  });
+  const selectedYear = parseInt(filterMonth.split("-")[0], 10);
+  const selectedMonthNum = parseInt(filterMonth.split("-")[1], 10);
 
-  const [filterMonth, setFilterMonth] = useState(
-    () => `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`
-  );
-  const selectedYear = parseInt(filterMonth.split("-")[0]);
-  const selectedMonthNum = parseInt(filterMonth.split("-")[1]);
-
-  const [qualityItems, setQualityItems] = useState<QualityItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [inputValues, setInputValues] = useState<Record<string, string>>({});
   const [noteValues, setNoteValues] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState<string | null>(null);
@@ -36,161 +53,94 @@ export default function ExecutiveQualityPage() {
   const [expandedDepts, setExpandedDepts] = useState<Set<string>>(new Set());
   const [expandedUsers, setExpandedUsers] = useState<Set<string>>(new Set());
 
-  useEffect(() => {
-    if (users.length === 0) return;
-    async function load() {
-      setIsLoading(true);
-      setInputValues({});
-      setNoteValues({});
-      setExpandedUsers(new Set());
+  const build = useCallback(
+    () =>
+      withQuery("/api/kpi/quality", {
+        scope: "all",
+        year: String(selectedYear),
+        month: String(selectedMonthNum),
+      }),
+    [selectedYear, selectedMonthNum],
+  );
 
-      const supabase = createClient();
-      const { data: aRows } = await supabase
-        .from("kpi_assignments")
-        .select("*, kpis(id, title, type, unit, monthly_target, brand, departments(name)), monthly_scores(*)")
-        .eq("year", selectedYear)
-        .eq("status", "active");
+  const { data, isLoading, refetch } = useApiQuery<{ rows: QualityRow[] }>(
+    build,
+    [selectedYear, selectedMonthNum],
+  );
 
-      const items: QualityItem[] = [];
-      const initNotes: Record<string, string> = {};
-      const scoreKey = `${selectedYear}-${selectedMonthNum}`;
+  // Dipakai hanya untuk urutan tampil divisi: divisi yang ada assignment-nya
+  // tapi tidak terdaftar di master tetap muncul, di paling akhir.
+  const { data: deptData } = useApiQuery<{ names: string[] }>(
+    useCallback(() => withQuery("/api/departments", { names: "1" }), []),
+    [],
+  );
 
-      (aRows ?? []).forEach((row: any) => {
-        const kpiRow = row.kpis;
-        if (!kpiRow || kpiRow.type !== "quality") return;
+  const saveScore = useApiMutation<Record<string, unknown>, unknown>(
+    "/api/kpi/quality",
+    "PUT",
+  );
 
-        const msRows = (row.monthly_scores as any[]) ?? [];
-        const monthlyScores: Record<string, any> = {};
-        msRows.forEach((ms: any) => {
-          monthlyScores[`${ms.year}-${ms.month}`] = {
-            actualTotal: ms.actual_total,
-            achievementPercentage: ms.achievement_percentage,
-            performanceCategory: getPerformanceCategory(ms.achievement_percentage),
-            qualityNotes: ms.quality_notes ?? "",
-          };
-        });
+  const rows = useMemo<QualityRow[]>(() => data?.rows ?? [], [data]);
 
-        const assignment: KpiAssignment = {
-          id: row.id,
-          kpiId: row.kpi_id,
-          userId: row.user_id,
-          department: kpiRow.departments?.name ?? "",
-          kpiType: "quality",
-          status: row.status,
-          monthlyTarget: row.monthly_target ?? 0,
-          actualTotal: row.actual_total ?? 0,
-          achievementPercentage: row.achievement_percentage ?? 0,
-          performanceCategory: getPerformanceCategory(row.achievement_percentage ?? 0) as any,
-          weight: row.weight ?? 0,
-          notes: row.notes ?? "",
-          year: row.year,
-          month: row.month,
-          currentDailyTarget: 0,
-          expectedTotal: 0,
-          workingDaysTotal: 0,
-          workingDaysElapsed: 0,
-          workingDaysRemaining: 0,
-          activeDays: 0,
-          heldAt: null,
-          cancelledAt: null,
-          completedAt: null,
-          createdAt: row.created_at,
-          updatedAt: row.updated_at,
-          qualityNotes: row.quality_notes ?? "",
-          monthlyScores: Object.keys(monthlyScores).length > 0 ? monthlyScores : undefined,
-        };
-
-        const kpi: KPI = {
-          id: kpiRow.id,
-          title: kpiRow.title,
-          description: "",
-          type: kpiRow.type,
-          unit: kpiRow.unit ?? "percentage",
-          period: "monthly",
-          status: "active",
-          department: kpiRow.departments?.name ?? "",
-          createdBy: "",
-          monthlyTarget: kpiRow.monthly_target ?? 0,
-          year: selectedYear,
-          month: selectedMonthNum,
-          createdAt: "",
-          updatedAt: "",
-          brand: kpiRow.brand,
-        };
-
-        items.push({ assignment, kpi });
-
-        const ms = monthlyScores[scoreKey];
-        const note = ms?.qualityNotes ?? assignment.qualityNotes ?? "";
-        if (note) initNotes[row.id] = note;
-      });
-
-      setQualityItems(items);
-      setNoteValues(initNotes);
-      setIsLoading(false);
-    }
-    load();
-  }, [users, selectedYear]);
-
-  const grouped = useMemo(() => {
-    const userMap: Record<string, string> = {};
-    users.forEach((u) => { userMap[u.id] = u.name; });
-
-    const map: Record<string, Record<string, { userName: string; items: QualityItem[] }>> = {};
-    qualityItems.forEach((item) => {
-      const dept = item.assignment.department || "—";
-      const uid = item.assignment.userId;
-      if (!map[dept]) map[dept] = {};
-      if (!map[dept][uid]) map[dept][uid] = { userName: userMap[uid] ?? uid, items: [] };
-      map[dept][uid].items.push(item);
-    });
+  const notesFromServer = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const r of rows) if (r.notes) map[r.assignmentId] = r.notes;
     return map;
-  }, [qualityItems, users]);
+  }, [rows]);
+
+  const grouped = useMemo<Grouped>(() => {
+    const map: Grouped = {};
+    for (const row of rows) {
+      const dept = row.departmentName || "—";
+      if (!map[dept]) map[dept] = {};
+      if (!map[dept][row.userId]) {
+        map[dept][row.userId] = { userName: row.userName, items: [] };
+      }
+      map[dept][row.userId].items.push(row);
+    }
+    return map;
+  }, [rows]);
 
   const deptNames = useMemo(() => {
-    const order = [...departments];
-    Object.keys(grouped).forEach((d) => { if (!order.includes(d)) order.push(d); });
+    const order = [...(deptData?.names ?? [])];
+    Object.keys(grouped).forEach((d) => {
+      if (!order.includes(d)) order.push(d);
+    });
     return order.filter((d) => grouped[d]);
-  }, [departments, grouped]);
+  }, [deptData, grouped]);
 
-  async function handleSave(assignmentId: string, monthlyTarget: number) {
+  /**
+   * formerly: dua operasi dari browser (upsert monthly_scores + update
+   * kpi_assignments) dengan percentage dihitung di client dan
+   * `monthly_scores.monthly_target` tidak pernah ditulis.
+   *
+   * sekarang: satu request; percentage, target, dan catatan dihitung
+   * serta disimpan server.
+   */
+  async function handleSave(assignmentId: string) {
     const value = parseFloat(inputValues[assignmentId]);
-    if (isNaN(value) || value < 0) return;
+
+    if (!Number.isFinite(value) || value < 0) {
+      toast.error("Nilai harus angka dan tidak boleh negatif.");
+      return;
+    }
+
     setSaving(assignmentId);
-    try {
-      const pct = monthlyTarget > 0 ? (value / monthlyTarget) * 100 : 0;
-      const category = getPerformanceCategory(pct);
-      const notes = noteValues[assignmentId] ?? "";
-      const scoreKey = `${selectedYear}-${selectedMonthNum}`;
+    const res = await saveScore.mutate({
+      assignmentId,
+      year: selectedYear,
+      month: selectedMonthNum,
+      actualTotal: value,
+      notes: noteValues[assignmentId] ?? null,
+    });
+    setSaving(null);
 
-      const supabase = createClient();
-      await supabase.from("monthly_scores").upsert({
-        assignment_id: assignmentId,
-        year: selectedYear,
-        month: selectedMonthNum,
-        actual_total: value,
-        achievement_percentage: pct,
-      }, { onConflict: "assignment_id,year,month" });
-
-      await supabase.from("kpi_assignments").update({
-        actual_total: value,
-        achievement_percentage: pct,
-        quality_notes: notes,
-      } as any).eq("id", assignmentId);
-
+    if (res.ok) {
+      toast.success("Nilai KPI kualitas disimpan.");
       setInputValues((prev) => ({ ...prev, [assignmentId]: "" }));
-      setQualityItems((prev) =>
-        prev.map((q) => {
-          if (q.assignment.id !== assignmentId) return q;
-          const updatedMonthlyScores = {
-            ...(q.assignment.monthlyScores ?? {}),
-            [scoreKey]: { actualTotal: value, achievementPercentage: pct, performanceCategory: category as any, qualityNotes: notes },
-          };
-          return { ...q, assignment: { ...q.assignment, actualTotal: value, achievementPercentage: pct, performanceCategory: category as any, qualityNotes: notes, monthlyScores: updatedMonthlyScores } };
-        })
-      );
-    } finally {
-      setSaving(null);
+      void refetch();
+    } else {
+      toast.error(res.error ?? "Gagal menyimpan nilai.");
     }
   }
 
@@ -200,7 +150,11 @@ export default function ExecutiveQualityPage() {
       if (next.has(dept)) {
         next.delete(dept);
         const uids = Object.keys(grouped[dept] ?? {});
-        setExpandedUsers((p2) => { const n2 = new Set(p2); uids.forEach((id) => n2.delete(dept + id)); return n2; });
+        setExpandedUsers((p) => {
+          const n = new Set(p);
+          uids.forEach((id) => n.delete(dept + id));
+          return n;
+        });
       } else {
         next.add(dept);
       }
@@ -212,7 +166,8 @@ export default function ExecutiveQualityPage() {
     const key = dept + uid;
     setExpandedUsers((prev) => {
       const next = new Set(prev);
-      if (next.has(key)) next.delete(key); else next.add(key);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
   }
@@ -221,9 +176,13 @@ export default function ExecutiveQualityPage() {
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h2 className="text-base font-semibold">Input KPI Kualitas (Semua Tim)</h2>
+          <h2 className="text-base font-semibold">
+            Input KPI Kualitas (Semua Tim)
+          </h2>
           <p className="text-sm text-muted-foreground">
-            {isLoading ? "Memuat..." : `${qualityItems.length} KPI kualitas · ${monthName(selectedMonthNum)} ${selectedYear}`}
+            {isLoading
+              ? "Memuat..."
+              : `${rows.length} KPI kualitas · ${monthName(selectedMonthNum)} ${selectedYear}`}
           </p>
         </div>
         <input
@@ -236,7 +195,11 @@ export default function ExecutiveQualityPage() {
 
       {!isLoading && deptNames.length > 0 && (
         <div className="flex items-center gap-2 flex-wrap">
-          <Button variant="outline" size="sm" onClick={() => setExpandedDepts(new Set(deptNames))}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setExpandedDepts(new Set(deptNames))}
+          >
             Expand Tim
           </Button>
           <Button
@@ -244,13 +207,22 @@ export default function ExecutiveQualityPage() {
             size="sm"
             onClick={() => {
               setExpandedDepts(new Set(deptNames));
-              const allKeys = deptNames.flatMap((d) => Object.keys(grouped[d] ?? {}).map((uid) => d + uid));
+              const allKeys = deptNames.flatMap((d) =>
+                Object.keys(grouped[d] ?? {}).map((uid) => d + uid),
+              );
               setExpandedUsers(new Set(allKeys));
             }}
           >
             Expand Staff
           </Button>
-          <Button variant="outline" size="sm" onClick={() => { setExpandedDepts(new Set()); setExpandedUsers(new Set()); }}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setExpandedDepts(new Set());
+              setExpandedUsers(new Set());
+            }}
+          >
             Collapse All
           </Button>
         </div>
@@ -262,26 +234,40 @@ export default function ExecutiveQualityPage() {
         </div>
       ) : deptNames.length === 0 ? (
         <div className="flex h-40 items-center justify-center rounded-xl border border-dashed border-border">
-          <p className="text-sm text-muted-foreground">Tidak ada KPI kualitas aktif bulan ini</p>
+          <p className="text-sm text-muted-foreground">
+            Tidak ada KPI kualitas aktif bulan ini
+          </p>
         </div>
       ) : (
         <div className="space-y-3">
           {deptNames.map((dept) => {
             const usersInDept = grouped[dept] ?? {};
             const isDeptOpen = expandedDepts.has(dept);
-            const totalKpi = Object.values(usersInDept).reduce((s, u) => s + u.items.length, 0);
+            const totalKpi = Object.values(usersInDept).reduce(
+              (s, u) => s + u.items.length,
+              0,
+            );
 
             return (
-              <div key={dept} className="rounded-xl border border-border overflow-hidden">
+              <div
+                key={dept}
+                className="rounded-xl border border-border overflow-hidden"
+              >
                 <button
                   onClick={() => toggleDept(dept)}
                   className="w-full flex items-center gap-3 px-4 py-3 bg-card hover:bg-accent/50 transition-colors text-left"
                 >
-                  <ChevronDown className={cn("h-4 w-4 text-muted-foreground shrink-0 transition-transform duration-200", isDeptOpen && "rotate-180")} />
+                  <ChevronDown
+                    className={cn(
+                      "h-4 w-4 text-muted-foreground shrink-0 transition-transform duration-200",
+                      isDeptOpen && "rotate-180",
+                    )}
+                  />
                   <div className="flex-1 min-w-0">
                     <span className="text-sm font-semibold">{dept}</span>
                     <span className="text-xs text-muted-foreground ml-2">
-                      {Object.keys(usersInDept).length} staff · {totalKpi} KPI kualitas
+                      {Object.keys(usersInDept).length} staff · {totalKpi} KPI
+                      kualitas
                     </span>
                   </div>
                 </button>
@@ -289,16 +275,12 @@ export default function ExecutiveQualityPage() {
                 {isDeptOpen && (
                   <div className="border-t border-border bg-muted/20 divide-y divide-border">
                     {Object.entries(usersInDept).map(([uid, { userName, items }]) => {
-                      const userKey = dept + uid;
-                      const isUserOpen = expandedUsers.has(userKey);
-                      const scoreKey = `${selectedYear}-${selectedMonthNum}`;
-                      const avgPct = items.length > 0
-                        ? items.reduce((s, i) => {
-                            const ms = i.assignment.monthlyScores?.[scoreKey];
-                            return s + (ms?.achievementPercentage ?? 0);
-                          }, 0) / items.length
-                        : 0;
-                      const cat = getPerformanceCategory(avgPct) as KpiAssignment["performanceCategory"];
+                      const isUserOpen = expandedUsers.has(dept + uid);
+                      const avgPct =
+                        items.length > 0
+                          ? items.reduce((s, i) => s + i.achievementPercentage, 0) /
+                            items.length
+                          : 0;
 
                       return (
                         <div key={uid}>
@@ -306,82 +288,121 @@ export default function ExecutiveQualityPage() {
                             onClick={() => toggleUser(dept, uid)}
                             className="w-full flex items-center gap-3 px-6 py-3 hover:bg-accent/40 transition-colors text-left"
                           >
-                            <ChevronDown className={cn("h-3.5 w-3.5 text-muted-foreground shrink-0 transition-transform duration-200", isUserOpen && "rotate-180")} />
+                            <ChevronDown
+                              className={cn(
+                                "h-3.5 w-3.5 text-muted-foreground shrink-0 transition-transform duration-200",
+                                isUserOpen && "rotate-180",
+                              )}
+                            />
                             <div className="flex-1 min-w-0">
-                              <span className="text-sm font-medium">{userName}</span>
-                              <span className="text-xs text-muted-foreground ml-2">{items.length} KPI kualitas</span>
+                              <span className="text-sm font-medium">
+                                {userName}
+                              </span>
+                              <span className="text-xs text-muted-foreground ml-2">
+                                {items.length} KPI kualitas
+                              </span>
                             </div>
                             <div className="flex items-center gap-2 shrink-0">
-                              <span className="text-sm font-semibold tabular-nums">{formatPercentage(avgPct)}</span>
-                              <PerformanceBadge category={cat} />
+                              <span className="text-sm font-semibold tabular-nums">
+                                {formatPercentage(avgPct)}
+                              </span>
+                              <PerformanceBadge
+                                category={getPerformanceCategory(avgPct)}
+                              />
                             </div>
                           </button>
 
                           {isUserOpen && (
                             <div className="px-6 pb-3 space-y-2 bg-background/50">
-                              {items.map(({ assignment, kpi }) => {
-                                const monthScore = assignment.monthlyScores?.[scoreKey];
-                                const displayActual = monthScore?.actualTotal ?? 0;
-                                const displayPct = monthScore?.achievementPercentage ?? 0;
-                                const displayCat = (monthScore?.performanceCategory ?? getPerformanceCategory(displayPct)) as KpiAssignment["performanceCategory"];
-                                return (
-                                  <div key={assignment.id} className="rounded-lg border border-border bg-card px-4 py-3 flex flex-col gap-3">
-                                    <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-                                      <div className="flex-1 min-w-0">
-                                        <div className="flex items-center gap-1.5 flex-wrap mb-1">
-                                          {kpi.brand && (
-                                            <span
-                                              className={cn(
-                                                "text-[10px] px-1.5 py-0.5 rounded border font-semibold shrink-0",
-                                                getBrandColor(kpi.brand)
-                                              )}
-                                            >
-                                              {kpi.brand}
-                                            </span>
-                                          )}
-                                          <p className="text-sm font-medium">{kpi.title}</p>
-                                        </div>
-                                        <p className="text-xs text-muted-foreground">
-                                          Aktual: {formatPercentage(displayActual)} / {formatPercentage(assignment.monthlyTarget)}
+                              {items.map((item) => (
+                                <div
+                                  key={item.assignmentId}
+                                  className="rounded-lg border border-border bg-card px-4 py-3 flex flex-col gap-3"
+                                >
+                                  <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                                        {item.kpiBrand && (
+                                          <span
+                                            className={cn(
+                                              "text-[10px] px-1.5 py-0.5 rounded border font-semibold shrink-0",
+                                              getBrandColor(item.kpiBrand),
+                                            )}
+                                          >
+                                            {item.kpiBrand}
+                                          </span>
+                                        )}
+                                        <p className="text-sm font-medium">
+                                          {item.kpiTitle}
                                         </p>
                                       </div>
-                                      <div className="flex items-center gap-2 shrink-0">
-                                        <PerformanceBadge category={displayCat} />
-                                        <Input
-                                          type="number"
-                                          inputMode="decimal"
-                                          step="any"
-                                          min="0"
-                                          max="100"
-                                          className="w-24 h-8 text-sm"
-                                          placeholder="Nilai %"
-                                          value={inputValues[assignment.id] ?? ""}
-                                          onChange={(e) =>
-                                            setInputValues((prev) => ({ ...prev, [assignment.id]: e.target.value }))
-                                          }
-                                        />
-                                        <Button
-                                          size="sm"
-                                          className="h-8"
-                                          disabled={saving === assignment.id || !inputValues[assignment.id]}
-                                          onClick={() => handleSave(assignment.id, assignment.monthlyTarget)}
-                                        >
-                                          {saving === assignment.id ? "..." : "Simpan"}
-                                        </Button>
-                                      </div>
+                                      <p className="text-xs text-muted-foreground">
+                                        Aktual:{" "}
+                                        {formatPercentage(item.actualTotal)} /{" "}
+                                        {formatPercentage(item.monthlyTarget)}
+                                        {!item.hasScore && (
+                                          <span className="ml-2 text-[10px] uppercase tracking-widest">
+                                            belum diinput
+                                          </span>
+                                        )}
+                                      </p>
                                     </div>
-                                    <textarea
-                                      rows={2}
-                                      placeholder="Catatan evaluasi (opsional)..."
-                                      className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none"
-                                      value={noteValues[assignment.id] ?? ""}
-                                      onChange={(e) =>
-                                        setNoteValues((prev) => ({ ...prev, [assignment.id]: e.target.value }))
-                                      }
-                                    />
+                                    <div className="flex items-center gap-2 shrink-0">
+                                      <PerformanceBadge
+                                        category={item.performanceCategory}
+                                      />
+                                      <Input
+                                        type="number"
+                                        inputMode="decimal"
+                                        step="any"
+                                        min="0"
+                                        className="w-24 h-8 text-sm"
+                                        placeholder="Nilai %"
+                                        value={
+                                          inputValues[item.assignmentId] ?? ""
+                                        }
+                                        onChange={(e) =>
+                                          setInputValues((prev) => ({
+                                            ...prev,
+                                            [item.assignmentId]: e.target.value,
+                                          }))
+                                        }
+                                      />
+                                      <Button
+                                        size="sm"
+                                        className="h-8"
+                                        disabled={
+                                          saving === item.assignmentId ||
+                                          !inputValues[item.assignmentId]
+                                        }
+                                        onClick={() =>
+                                          handleSave(item.assignmentId)
+                                        }
+                                      >
+                                        {saving === item.assignmentId
+                                          ? "..."
+                                          : "Simpan"}
+                                      </Button>
+                                    </div>
                                   </div>
-                                );
-                              })}
+                                  <textarea
+                                    rows={2}
+                                    placeholder="Catatan evaluasi (opsional)..."
+                                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none"
+                                    value={
+                                      noteValues[item.assignmentId] ??
+                                      notesFromServer[item.assignmentId] ??
+                                      ""
+                                    }
+                                    onChange={(e) =>
+                                      setNoteValues((prev) => ({
+                                        ...prev,
+                                        [item.assignmentId]: e.target.value,
+                                      }))
+                                    }
+                                  />
+                                </div>
+                              ))}
                             </div>
                           )}
                         </div>

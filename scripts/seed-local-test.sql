@@ -44,6 +44,8 @@ ON CONFLICT DO NOTHING;
 \echo '4. Staf uji — berbagai kombinasi divisi / role / status'
 -- id dipakai sebagai Auth.js user id, jadi bentuknya sama dengan yang
 -- dihasilkan Auth.js (text, bukan uuid).
+-- managed_departments diisi setelah VALUES (lihat blok UPDATE di bawah)
+-- karena butuh subquery ke `departments`.
 INSERT INTO users (id, email, name, kpi_role, absensi_role, absensi_status,
                    department_id, position, leave_quota, sick_quota,
                    is_hidden, religion, join_date, employment_status,
@@ -58,6 +60,9 @@ VALUES
    NULL,'Direktur',14,14,false,'Islam','2019-01-07','Tetap',
    NULL,'081200000002',NULL,'Mandiri','9876543210','Rangga Mahendra'),
 
+  -- Head mengelola divisi TNT. Dimas sendiri tidak punya department_id,
+  -- jadi tanpa managed_departments dia tidak akan melihat apa pun —
+  -- itu memang kasus tepi yang harus diuji.
   ('u-head-001','head@novacore.test','Dimas Prasetyo','head','admin','active',
    NULL,'Head of Division',14,14,false,'Kristen','2020-08-10','Tetap',
    NULL,'081200000003',NULL,'BNI','5556667770','Dimas Prasetyo'),
@@ -89,6 +94,14 @@ VALUES
    NULL,NULL,NULL,NULL,NULL,NULL)
 ON CONFLICT (id) DO NOTHING;
 
+-- Divisi yang dikelola Head. Ini yang jadi dasar scoping `scope=managed`
+-- di /api/kpi/quality — dibaca dari SERVER, bukan dari browser.
+UPDATE users
+SET managed_departments = (
+  SELECT jsonb_agg(d.id::text) FROM departments d WHERE d.name = 'TNT'
+)
+WHERE id = 'u-head-001' AND managed_departments = '[]'::jsonb;
+
 \echo '5. Pengaturan absensi global'
 INSERT INTO absensi_settings (id, work_start, work_end, max_late,
                               max_time_sick, max_time_leave, max_time_wfa,
@@ -106,18 +119,31 @@ ON CONFLICT (user_id) DO NOTHING;
 
 \echo '7. KPI + assignment quality untuk HR & Head (uji /dashboard/*/quality)'
 INSERT INTO kpis (title, description, type, unit, period, status, department_id,
-                  created_by, monthly_target, year, month)
+                  created_by, monthly_target, year, month, brand)
 VALUES
   ('Kualitas Absensi', 'Ketepatan kehadiran dan kepatuhan presensi.',
    'quality','percentage','monthly','active', NULL,
-   'u-hr-001', 90, 2026, 10),
+   'u-hr-001', 90, 2026, 10, 'Umum'),
 
   ('Kualitas Knowledge Sharing', 'PENGAIRADAN pengetahuan antar tim.',
    'quality','percentage','monthly','active', NULL,
-   'u-hr-001', 85, 2026, 10)
+   'u-hr-001', 85, 2026, 10, 'TNT'),
+
+  -- Tipe lead_tim: halaman /dashboard/head/quality menampilkannya di daftar
+  -- yang sama dengan quality. Hanya menyaring `quality` membuatnya hilang.
+  ('Kepemimpinan Tim', 'Kapasitas memimpin dan mengarahkan tim.',
+   'lead_tim','percentage','monthly','active', NULL,
+   'u-hr-001', 80, 2026, 10, NULL),
+
+  -- Tipe hr: hanya muncul di halaman Evaluasi HR.
+  ('Inisiatif & Kolaborasi', 'Perilaku kerja yang melampaui target.',
+   'hr','percentage','monthly','active', NULL,
+   'u-hr-001', 75, 2026, 10, NULL)
 ON CONFLICT DO NOTHING;
 
--- Assignment quality untuk dua staf, supaya ada >1 baris di form input.
+-- Assignment untuk beberapa staf supaya form input punya >1 baris.
+-- u-staff-003 ada di divisi HYPE — sengaja TIDAK dikelola u-head-001,
+-- jadi bisa dipakai menguji apakah scoping Head benar-benar bekerja.
 -- CATATAN: kpi_assignments TIDAK punya kolom `weight`. Halaman lama
 -- membaca `row.weight ?? 0` — itu kolom yang tidak pernah ada, jadi
 -- nilainya selalu 0 tanpa error. Kolom yang sebenarnya adalah
@@ -126,12 +152,12 @@ INSERT INTO kpi_assignments (kpi_id, kpi_type, user_id, department_id,
                              monthly_target, actual_total, achievement_percentage,
                              performance_category, quality_notes,
                              status, assigned_by, year, month)
-SELECT k.id, 'quality', u.id, u.department_id, k.monthly_target, 0, 0,
+SELECT k.id, k.type, u.id, u.department_id, k.monthly_target, 0, 0,
        'critical', '', 'active', 'u-hr-001', 2026, 10
 FROM kpis k, users u
-WHERE k.type = 'quality'
+WHERE k.type IN ('quality','lead_tim','hr')
   AND u.absensi_status = 'active'
-  AND u.id IN ('u-hr-001','u-head-001','u-staff-001')
+  AND u.id IN ('u-hr-001','u-head-001','u-staff-001','u-staff-003')
 ON CONFLICT DO NOTHING;
 
 \echo '8. Absensi 3 hari terakhir (uji dashboard admin + widget check-in)'

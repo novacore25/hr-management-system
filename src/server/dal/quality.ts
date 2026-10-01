@@ -1,6 +1,6 @@
 import "server-only";
 import { db } from "@/db";
-import { and, eq, desc, inArray } from "drizzle-orm";
+import { and, eq, or, desc, inArray } from "drizzle-orm";
 import {
   kpiAssignments,
   kpis,
@@ -25,8 +25,17 @@ export type QualityRow = {
   userName: string;
   departmentName: string;
   kpiId: string;
+  /** Tipe KPI: quality, lead_tim, atau hr. */
+  kpiType: "result" | "activity" | "quality" | "lead_tim" | "hr";
   kpiTitle: string;
   kpiUnit: string;
+  /**
+   * Brand / sub-divisi (TNT, Iswhite, Syb, ...). Nullable — hanya diisi
+   * sejak migrasi 0011. Halaman /dashboard/executive/quality sudah
+   * merender label ini sejak lama, tapi kolomnya tidak pernah ada di
+   * schema sehingga badge-nya tidak pernah muncul.
+   */
+  kpiBrand: string | null;
   monthlyTarget: number;
   /** Nilai yang tersimpan bulan ini; 0 kalau belum diinput. */
   actualTotal: number;
@@ -34,7 +43,7 @@ export type QualityRow = {
   achievementPercentage: number;
   performanceCategory: PerformanceCategory;
   notes: string;
-  /** True kalau sudah pernah diinput Who's on this month. */
+  /** True kalau bulan ini sudah pernah ada nilai yang tersimpan. */
   hasScore: boolean;
 };
 
@@ -53,20 +62,66 @@ function num(value: unknown): number {
 export async function listQualityRows(params: {
   year: number;
   month: number;
-  /** Batasi ke satu divisi (dipakai halaman Head). null = semua. */
+  /** Batasi ke satu divisi. null = semua. */
   departmentId?: string | null;
+  /**
+   * Batasi ke beberapa divisi sekaligus — ini yang dipakai `scope=managed`
+   * untuk Head, yang biasanya mengelola lebih dari satu divisi.
+   * Array kosong berarti hasil kosong, bukan "semua".
+   */
+  departmentIds?: string[] | null;
   /** Batasi ke satu user (dipakai Evaluasi HR untuk diri sendiri). */
   userId?: string | null;
+  /**
+   * User yang tetapAlways terlihat meski di luar `departmentIds`.
+   *
+   * Dipakai Head: assignment milik Head sendiri sering tidak punya
+   * `department_id` (karena dia undivided), jadi filter `IN (...)`
+   * akan menyembunyikan KPI-nya sendiri. Akibatnya Head melihat
+   * seluruh tim tapi tidak melihat dirinya — persis kebalikan dari
+   * yang diinginkan.
+   */
+  alsoIncludeUserIds?: string[] | null;
+  /**
+   * Tipe KPI yang diikutkan. Default `quality` + `lead_tim` — itu yang
+   * ditampilkan /dashboard/head/quality dan /dashboard/executive/quality.
+   *
+   * Halaman Evaluasi HR perlu `lead_tim` + `hr`, jadi menyetelnya
+   * eksplisit. Dulu halaman ini menyaring `kpis.type` lewat `.in()` di
+   * browser; sekarang filter-nya ikut pindah ke SQL.
+   */
+  kpiTypes?: Array<"quality" | "lead_tim" | "hr" | "result" | "activity">;
 }): Promise<QualityRow[]> {
+  const kpiTypes = params.kpiTypes ?? ["quality", "lead_tim"];
+
   const conds = [
     eq(kpiAssignments.year, params.year),
     eq(kpiAssignments.month, params.month),
-    eq(kpiAssignments.kpiType, "quality"),
+    inArray(kpiAssignments.kpiType, kpiTypes),
     eq(kpiAssignments.status, "active"),
   ];
 
+  if (kpiTypes.length === 0) return [];
+
   if (params.departmentId) {
     conds.push(eq(kpiAssignments.departmentId, params.departmentId));
+  }
+  if (params.departmentIds) {
+    const alsoMine = params.alsoIncludeUserIds ?? [];
+
+    if (params.departmentIds.length === 0 && alsoMine.length === 0) return [];
+
+    if (alsoMine.length === 0) {
+      conds.push(inArray(kpiAssignments.departmentId, params.departmentIds));
+    } else {
+      // Divisi yang dikelola OR assignment milik Head sendiri.
+      conds.push(
+        or(
+          inArray(kpiAssignments.departmentId, params.departmentIds),
+          inArray(kpiAssignments.userId, alsoMine),
+        )!,
+      );
+    }
   }
   if (params.userId) {
     conds.push(eq(kpiAssignments.userId, params.userId));
@@ -79,8 +134,10 @@ export async function listQualityRows(params: {
       userName: users.name,
       departmentName: departments.name,
       kpiId: kpiAssignments.kpiId,
+      kpiType: kpiAssignments.kpiType,
       kpiTitle: kpis.title,
       kpiUnit: kpis.unit,
+      kpiBrand: kpis.brand,
       monthlyTarget: kpiAssignments.monthlyTarget,
       actualTotal: kpiAssignments.actualTotal,
       achievementPercentage: kpiAssignments.achievementPercentage,
@@ -120,8 +177,10 @@ export async function listQualityRows(params: {
       userName: r.userName ?? "Unknown",
       departmentName: r.departmentName ?? "Umum",
       kpiId: r.kpiId,
+      kpiType: r.kpiType,
       kpiTitle: r.kpiTitle,
       kpiUnit: r.kpiUnit ?? "percentage",
+      kpiBrand: r.kpiBrand ?? null,
       monthlyTarget,
       actualTotal,
       achievementPercentage: pct,
@@ -130,6 +189,61 @@ export async function listQualityRows(params: {
       hasScore,
     };
   });
+}
+
+/**
+ * Siapa boleh mengisi nilai untuk sebuah assignment.
+ *
+ * PENTING: `managedDepartments` dibaca dari baris `users` milik aktor di
+ * server, bukan dari request. Halaman /dashboard/head/quality sebelumnya
+ * mengambil daftar divisi dari `AuthContext` di browser lalu memakainya
+ * untuk menentukan `user_id` mana yang boleh ditanyakan. Kalau begitu
+ * Head cukup mengubah nilai itu di browser untuk membaca — dan menilai —
+ * divisi yang bukan miliknya.
+ *
+ * Head juga boleh menilai dirinya sendiri, apa pun divisinya.
+ */
+async function assertCanScore(
+  assignmentId: string,
+  actor: { id: string; kpiRole: string; managedDepartments: string[] },
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const [assignment] = await db
+    .select({
+      userId: kpiAssignments.userId,
+      departmentId: kpiAssignments.departmentId,
+    })
+    .from(kpiAssignments)
+    .where(eq(kpiAssignments.id, assignmentId))
+    .limit(1);
+
+  if (!assignment) {
+    return { ok: false, error: "Assignment tidak ditemukan." };
+  }
+
+  // HR / Executive / Developer boleh untuk semua divisi.
+  if (["hr", "executive", "developer"].includes(actor.kpiRole)) {
+    return { ok: true };
+  }
+
+  if (actor.kpiRole === "head") {
+    if (assignment.userId === actor.id) return { ok: true };
+
+    // Assignment tanpa divisi tidak bisa dicocokkan dengan daftar yang
+    // dikelola, jadi tolak — lebih ketat lebih baik daripada meloloskan.
+    const targetDept = assignment.departmentId;
+    if (!targetDept || !actor.managedDepartments.includes(targetDept)) {
+      return {
+        ok: false,
+        error: "Assignment ini di luar divisi yang Anda kelola.",
+      };
+    }
+    return { ok: true };
+  }
+
+  return {
+    ok: false,
+    error: "Role Anda tidak punya izin untuk mengisi nilai KPI kualitas.",
+  };
 }
 
 /**
@@ -143,8 +257,8 @@ export async function listQualityRows(params: {
  *   - `achievement_percentage` dikirim dari client. Form mengetik "80" dan
  *     menulis apa pun yang diketik, termasuk di luar 0-100.
  *   - `monthly_scores.monthly_target` TIDAK pernah ditulis, jadi tetap 0.
- *     Padahal kolom itu ada dipakai untuk reports.'artinya data quality
- *     di tabel itu selalu tidak konsisten dengan assignment.
+ *     Padahal kolom itu dipakai untuk reports. Artinya data quality di
+ *     tabel itu selalu tidak konsisten dengan assignment.
  *
  * Sekarang: percentage, target, dan kategorinya dihitung server.
  */
@@ -156,11 +270,19 @@ export async function setQualityScore(
     actualTotal: number;
     notes?: string | null;
   },
-  actorId: string,
+  actor: {
+    id: string;
+    kpiRole: string;
+    managedDepartments: string[];
+  },
 ): Promise<
   | { ok: true; row: QualityRow }
   | { ok: false; error: string }
 > {
+  const allowed = await assertCanScore(params.assignmentId, actor);
+  if (!allowed.ok) return { ok: false, error: allowed.error };
+
+  const actorId = actor.id;
   const [assignment] = await db
     .select({
       id: kpiAssignments.id,
@@ -178,10 +300,19 @@ export async function setQualityScore(
     return { ok: false, error: "Assignment tidak ditemukan." };
   }
 
-  if (assignment.kpiType !== "quality") {
+  // Tiga tipe ini yang dinilai lewat form nilai KPI: Quality (halaman HR /
+  // Head / Executive), Lead Tim, dan HR (halaman Evaluasi HR). Hanya
+  // menerima "quality" membuat tombol Simpan di baris Lead Tim / HR gagal
+  // dengan pesan yang menyesatkan.
+  if (
+    assignment.kpiType !== "quality" &&
+    assignment.kpiType !== "lead_tim" &&
+    assignment.kpiType !== "hr"
+  ) {
     return {
       ok: false,
-      error: "Nilai hanya bisa diinput untuk KPI bertipe quality.",
+      error:
+        "Nilai hanya bisa diinput untuk KPI bertipe quality, lead tim, atau hr.",
     };
   }
 
