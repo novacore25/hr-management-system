@@ -1,0 +1,24 @@
+# 1) Build image (dijalankan DI VULTER oleh Coolify otomatis,
+#    tapi bisa juga manual untuk tes lokal)
+docker build \
+  --cache-from type=local,target=/app/.next/cache \
+  -t nova-hr:local .
+
+# 2) Jalankan lokal (untuk test sebelum push)
+docker run --rm -d --name nova-hr-test -p 3000:3000 \
+  -e DATABASE_URL="postgresql://user:pass@host:5432/db" \
+  -e AUTH_SECRET="dev-secret-minimal-32-chars-xxxxx" \
+  -e AUTH_TRUST_HOST=1 \
+  nova-hr:local
+
+# 3) Cek container sehat
+curl -fsS http://localhost:3000/api/health && echo " ✅ OK"
+
+# 4) Hapus setelah test
+docker rm -f nova-hr-test
+
+# ─────────────────────────────────────────────────────────────
+# PRUNE cache buildkit berkala (hemat disk, buildkit cache 2.1GB)
+# Jalankan manual SEKALI:
+docker builder prune -f --filter "until=168h"
+docker image prune -f --filter "until=168h"

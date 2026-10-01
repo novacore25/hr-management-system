@@ -2,47 +2,51 @@
 node_modules/
 /.pnp
 .pnp.js
-.yarn/install-state.gz
 
 # Next.js
 /.next/
 /out/
+next-env.d.ts
+*.tsbuildinfo
 
-# Production
+# Build output
 /build
+/dist
 
-# Env files
+# ── Env files (WAJIB strict) ─────────────────────────────────────
 .env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+.env.*
+!.env.example
+*.env
+local.env
+*.env.local
 
-# Firebase
-.firebase/
-firebase-debug.log
-firestore-debug.log
+# ── Secrets ─────────────────────────────────────────────────────
+*.pem
+*.key
+*service-account*.json
 firebase-service-account.json
-
-# Migration sensitive files
 supabase-service.json
 
-# Internal dev notes
-CLAUDE-novacore.md
-chat-summary-claude-code.md
-Resuming Nova Core Task Management.md
-
-# Misc
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# TypeScript
-*.tsbuildinfo
-next-env.d.ts
-
-# Editor
+# ── Dev tools ───────────────────────────────────────────────────
 .vscode/
 .idea/
 *.swp
 *.swo
+
+# ── Runtime / logs ─────────────────────────────────────────────
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ── Upload & backup runtime (jangan pernah commit data payroll) ─
+/data/
+/backups/
+/uploads/
+/storage/
+
+# ── Coolify / deploy artifacts ──────────────────────────────────
+.firebase/
+firebase-debug.log
+firestore-debug.log
