@@ -29,8 +29,35 @@ export interface Attendance {
 
 // ─── Leave Request ────────────────────────────────────────────────────────────
 
-export type LeaveRequestType = "leave" | "sick" | "wfa";
-export type LeaveRequestStatus = "pending" | "approved" | "rejected" | "cancelled";
+/**
+ * Tipe cuti.
+ *
+ * `urgent` (cuti mendesak) DITERIMA tapi tidak ditawarkan di form.
+ * Fitur ini pernah ada lalu dihapus kebijakan HR; nilainya tetap
+ * mungkin muncul pada data historis yang dimigrasi dari Supabase.
+ * Tanpa dia, satu baris historis itu akan gagal dimuat.
+ *
+ * Bandingkan dengan aplikasi yang masih jalan di Supabase --
+ * `LeaveRequestType` di sana juga TIDAK punya `urgent`, jadi bentuk
+ * form kita sama persis.
+ */
+export type LeaveRequestType = "leave" | "sick" | "wfa" | "urgent";
+
+/**
+ * Status cuti, termasuk tahap antara persetujuan 2 tahap:
+ * `pending` -> `approved_executive` -> `approved`.
+ *
+ * `approved_executive` berarti sudah disetujui eksekutif, menunggu
+ * HR sebagai persetujuan final. Tanpa status ini, tahap 1 tidak
+ * punya tempat untuk berhenti dan pengajuan akan langsung lompat ke
+ * final -- persetujuan 2 tahap berubah jadi 1 tahap tanpa error.
+ */
+export type LeaveRequestStatus =
+  | "pending"
+  | "approved_executive"
+  | "approved"
+  | "rejected"
+  | "cancelled";
 
 export interface LeaveRequest {
   id: string;

@@ -27,6 +27,26 @@ const select = {
   deductedLeave: leaveRequests.deductedLeave,
   cancellationRequested: leaveRequests.cancellationRequested,
   cancellationReason: leaveRequests.cancellationReason,
+  // ── Persetujuan 2 tahap (migrasi 0014) ───────────────────────
+  // Kolom ini harus ikut diselect: `Row` diturunkan dari
+  // $inferSelect, jadi satu kolom yang tidak diambil akan membuat
+  // seluruh pemanggilan typecheck gagal -- bukan hanya kolomnya
+  // yang undefined.
+  deductedUrgent: leaveRequests.deductedUrgent,
+  executiveStatus: leaveRequests.executiveStatus,
+  executiveApprovedBy: leaveRequests.executiveApprovedBy,
+  executiveApprovedByName: leaveRequests.executiveApprovedByName,
+  executiveApprovedAt: leaveRequests.executiveApprovedAt,
+  executiveNotes: leaveRequests.executiveNotes,
+  hrStatus: leaveRequests.hrStatus,
+  hrApprovedBy: leaveRequests.hrApprovedBy,
+  hrApprovedByName: leaveRequests.hrApprovedByName,
+  hrApprovedAt: leaveRequests.hrApprovedAt,
+  hrNotes: leaveRequests.hrNotes,
+  rejectionStage: leaveRequests.rejectionStage,
+  rejectionReason: leaveRequests.rejectionReason,
+  rejectedBy: leaveRequests.rejectedBy,
+  rejectedAt: leaveRequests.rejectedAt,
   createdAt: leaveRequests.createdAt,
   updatedAt: leaveRequests.updatedAt,
   userName: users.name,

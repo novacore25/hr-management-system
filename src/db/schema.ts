@@ -106,10 +106,37 @@ export const lateReasonStatusEnum = pgEnum("late_reason_status", [
   "rejected",
 ]);
 
-export const leaveTypeEnum = pgEnum("leave_type", ["leave", "sick", "wfa"]);
+/**
+ * Tipe cuti.
+ *
+ * "urgent" (cuti mendesak) DITERIMA tapi tidak ditawarkan di form.
+ * Fiturnya pernah ada lalu dihapus kebijakan HR. Enum tetap memuatnya
+ * supaya 1 pengajuan historis di Supabase yang memakainya tetap bisa
+ * dimuat -- kalau enum-nya sempit, satu baris itu membuat seluruh
+ * migrasi gagal.
+ *
+ * Aplikasi yang masih jalan di Supabase juga tidak punya "urgent" di
+ * form-nya, jadi bentuk form kita sama persis.
+ */
+export const leaveTypeEnum = pgEnum("leave_type", [
+  "leave",
+  "sick",
+  "wfa",
+  "urgent",
+]);
 
+/**
+ * Status cuti.
+ *
+ * "approved_executive" = sudah disetujui eksekutif, menunggu HR final.
+ * WAJIB ada untuk alur persetujuan 2 tahap (Executive -> HR).
+ * Tanpa nilai ini, permintaan yang disetujui tahap 1 tidak punya
+ * tempat untuk berhenti dan pengajuan akan langsung lompat ke final --
+ * persetujuan 2 tahap berubah jadi 1 tahap tanpa error.
+ */
 export const leaveStatusEnum = pgEnum("leave_status", [
   "pending",
+  "approved_executive",
   "approved",
   "rejected",
   "cancelled",
@@ -185,6 +212,35 @@ export const users = pgTable("users", {
   bankName: varchar("bank_name", { length: 100 }),
   bankAccountNumber: varchar("bank_account_number", { length: 64 }),
   bankAccountName: varchar("bank_account_name", { length: 255 }),
+
+  // Kolom dari Supabase yang belum ada di skema kita. Migrasi 0014.
+  // Tipe, DEFAULT, dan NULLABILITY diambil apa adanya dari
+  // information_schema Supabase.
+  //
+  // Sebagian besar tidak dipakai UI sekarang, tapi datanya ada di
+  // produksi: 66 user, saldo urgent total 39. Kalau kolomnya tidak
+  // ada, data itu hilang diam-diam saat migrasi.
+
+  /** Nomor KTP. */
+  addressKtp: text("address_ktp"),
+  /** Nama divisi versi teks (duplikat dari departmentId). */
+  department: text("department"),
+  emergencyContact: text("emergency_contact"),
+  /** Nomor WhatsApp (terpisah dari `phone`). */
+  phoneWa: text("phone_wa"),
+  /** Status kepegawaian versi teks. Default Supabase: 'active'. */
+  status: text("status").default("active"),
+  /** Tempat, tanggal lahir (gabungan). */
+  ttl: text("ttl"),
+  /**
+   * Sisa jatah cuti mendesak.
+   *
+   * Tidak dipakai alur mana pun sekarang, tapi angkanya nyata: total
+   * 66 kuota, terpakai 39.
+   */
+  urgentBalance: integer("urgent_balance").notNull().default(0),
+  /** Jatah cuti mendesak per user. Default Supabase: 1. */
+  urgentQuota: integer("urgent_quota").notNull().default(1),
 });
 
 export const accounts = pgTable(
@@ -278,6 +334,16 @@ export const kpis = pgTable(
      * pernah ada di schema Drizzle — jadi label brand tidak pernah muncul.
      */
     brand: varchar("brand", { length: 64 }),
+    /**
+     * Kolom warisan dari Supabase. Migrasi 0014.
+     *
+     * WARISAN: CHECK constraint Supabase membatasi nilainya ke
+     * 'quantity' atau 'quality', dan semua 2018 baris bernilai
+     * 'quantity'. Tidak dipakai kode mana pun.
+     */
+    category: varchar("category", { length: 32 }).notNull().default("quantity"),
+    /** Nama divisi versi teks (duplikat dari departmentId). */
+    department: text("department"),
     createdBy: varchar("created_by", { length: 255 }).references(
       () => users.id,
       { onDelete: "set null" },
@@ -364,6 +430,10 @@ export const kpiAssignments = pgTable(
       .default("warning"),
 
     qualityNotes: text("quality_notes"),
+    /** Catatan umum penugasan. Warisan Supabase, belum dipakai UI. */
+    notes: text("notes"),
+    /** Bobot per penugasan. Warisan Supabase, default 0. */
+    weight: numeric("weight", { precision: 7, scale: 2 }).notNull().default("0"),
 
     year: integer("year").notNull(),
     month: integer("month").notNull(),
@@ -459,6 +529,14 @@ export const monthlyScores = pgTable(
       .notNull()
       .default("0"),
     notes: text("notes"),
+    /**
+     * Catatan evaluasi. Warisan Supabase. Migrasi 0014.
+     *
+     * BEDA dari kpi_assignments.quality_notes: yang itu sudah dipakai,
+     * yang ini tidak. Keduanya dipertahankan supaya tidak ada yang
+     * hilang.
+     */
+    qualityNotes: text("quality_notes"),
     inputtedBy: varchar("inputted_by", { length: 255 }).references(
       () => users.id,
       { onDelete: "set null" },
@@ -491,6 +569,31 @@ export const kpiSettings = pgTable("kpi_settings", {
   userId: text("user_id")
     .primaryKey()
     .references(() => users.id, { onDelete: "cascade" }),
+  /**
+   * Kolom warisan dari Supabase. Migrasi 0014.
+   *
+   * Di Supabase `id` adalah primary key-nya; di sini primary key tetap
+   * `user_id` supaya kode yang sudah ada tidak berubah, jadi `id`
+   * hanya perlu UNIQUE.
+   *
+   * PENTING: DEFAULT harus ikut. Versi pertama migrasi menambah kolom
+   * tanpa DEFAULT lalu hanya mengisi baris yang sudah ada -- hasilnya
+   * setiap INSERT baru gagal dengan "null value in column id", yang
+   * muncul sebagai 500 di /api/kpi-settings, jauh dari penyebabnya.
+   */
+  id: uuid("id").notNull().defaultRandom(),
+  /**
+   * Bobot "quantity". WARISAN: semua 46 baris bernilai 60, diisi oleh
+   * trigger `create_default_kpi_settings` yang tidak pernah dipakai.
+   *
+   * Tidak ikut dihitung calcWeightedScore(). Lima bobot yang dipakai
+   * adalah result/activity/quality/leadTim/hr.
+   *
+   * Tipe integer, bukan numeric: di Supabase kolomnya numeric, tapi
+   * nilai satu-satunya 60. Skema ditulis integer supaya cocok dengan
+   * database.
+   */
+  quantityWeight: integer("quantity_weight").notNull().default(60),
   resultWeight: integer("result_weight").notNull().default(50),
   activityWeight: integer("activity_weight").notNull().default(30),
   qualityWeight: integer("quality_weight").notNull().default(20),
@@ -633,6 +736,44 @@ export const leaveRequests = pgTable(
     processedAt: timestamp("processed_at", { withTimezone: true }),
     deductedSick: integer("deducted_sick").notNull().default(0),
     deductedLeave: integer("deducted_leave").notNull().default(0),
+    /** Potongan dari kuota cuti mendesak. */
+    deductedUrgent: integer("deducted_urgent").notNull().default(0),
+
+    // Persetujuan 2 tahap: Executive lalu HR. Migrasi 0014.
+    // Mengikuti supabase/migrations/20260925_leave_requests_two_layer_approval.sql
+    // di aplikasi lama.
+    //
+    // CATATAN TIPE: di Supabase kolom *_approved_by bertipe uuid, tapi
+    // users.id di skema kita bertipe TEXT. Foreign key tidak bisa
+    // menyambung uuid ke text, jadi kolomnya varchar.
+    //
+    // CATATAN NAMA: kolom *_by menyimpan UUID user, kolom *_by_name
+    // menyimpan NAMA. Riwayat di UI menampilkan NAMA, jadi keduanya
+    // wajib ada. Satu tanpa yang lain menghasilkan baris kosong di
+    // riwayat, bukan error.
+
+    executiveStatus: varchar("executive_status", { length: 32 }).default("pending"),
+    executiveApprovedBy: varchar("executive_approved_by", { length: 255 }).references(
+      () => users.id,
+      { onDelete: "set null" },
+    ),
+    executiveApprovedByName: text("executive_approved_by_name"),
+    executiveApprovedAt: timestamp("executive_approved_at", { withTimezone: true }),
+    executiveNotes: text("executive_notes"),
+
+    hrStatus: varchar("hr_status", { length: 32 }).default("pending"),
+    hrApprovedBy: varchar("hr_approved_by", { length: 255 }).references(
+      () => users.id,
+      { onDelete: "set null" },
+    ),
+    hrApprovedByName: text("hr_approved_by_name"),
+    hrApprovedAt: timestamp("hr_approved_at", { withTimezone: true }),
+    hrNotes: text("hr_notes"),
+
+    rejectionStage: varchar("rejection_stage", { length: 32 }),
+    rejectionReason: text("rejection_reason"),
+    rejectedBy: text("rejected_by"),
+    rejectedAt: timestamp("rejected_at", { withTimezone: true }),
     cancellationRequested: boolean("cancellation_requested")
       .notNull()
       .default(false),
@@ -677,6 +818,13 @@ export const absensiSettings = pgTable("absensi_settings", {
     .default("106.628055"),
   officeRadius: integer("office_radius").notNull().default(100),
   lastSyncDate: date("last_sync_date"),
+  /**
+   * Jatah cuti mendesak default per user. Migrasi 0014.
+   * Tidak ada reset otomatis di kode mana pun; nilainya NULL di
+   * produksi, sama seperti di Supabase.
+   */
+  defaultUrgentQuota: integer("default_urgent_quota").notNull().default(1),
+  lastUrgentResetMonth: text("last_urgent_reset_month"),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -723,6 +871,8 @@ export const departmentLocations = pgTable(
     officeLocationId: uuid("office_location_id")
       .notNull()
       .references(() => officeLocations.id, { onDelete: "cascade" }),
+    /** Warisan Supabase (default now()). Migrasi 0014. */
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
   (t) => ({
     pk: uniqueIndex("department_locations_pk").on(
@@ -797,6 +947,28 @@ export const overtimeRequests = pgTable(
     totalOvertimePay: numeric("total_overtime_pay", { precision: 15, scale: 2 })
       .notNull()
       .default("0"),
+
+    /**
+     * Tarif dan hasil jam pertama vs jam berikutnya. Migrasi 0014.
+     *
+     * WARISAN dari aplikasi lama: tarif disimpan per transaksi.
+     * Aplikasi kita menghitungnya di server (lihat
+     * src/server/dal/overtime.ts) dan TIDAK membaca kolom ini -- itu
+     * memang benar, karena tarif yang dikirim browser bisa dipalsukan
+     * (AGENTS.md 3.14).
+     *
+     * Disimpan supaya riwayat lama tidak hilang.
+     */
+    firstHourRate: numeric("first_hour_rate", { precision: 15, scale: 2 }).default("0"),
+    firstHourPay: numeric("first_hour_pay", { precision: 15, scale: 2 }).default("0"),
+    subsequentHourRate: numeric("subsequent_hour_rate", {
+      precision: 15,
+      scale: 2,
+    }).default("0"),
+    subsequentHourPay: numeric("subsequent_hour_pay", {
+      precision: 15,
+      scale: 2,
+    }).default("0"),
     calculationBreakdown: jsonb("calculation_breakdown").$type<{
       baseSalary?: number;
       hourlyBaseRate?: number;

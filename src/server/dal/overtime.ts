@@ -114,6 +114,14 @@ const select = {
   hourlyBaseRate: overtimeRequests.hourlyBaseRate,
   totalOvertimePay: overtimeRequests.totalOvertimePay,
   calculationBreakdown: overtimeRequests.calculationBreakdown,
+  // Warisan dari aplikasi lama (migrasi 0014). TIDAK dipakai untuk
+  // menghitung -- tarif dihitung server dari `hourlyBaseRate` dan
+  // `payroll_staff_settings`, supaya tidak bisa dipalsukan dari browser.
+  // Hanya disimpan supaya riwayat lama ikut termigrasi.
+  firstHourRate: overtimeRequests.firstHourRate,
+  firstHourPay: overtimeRequests.firstHourPay,
+  subsequentHourRate: overtimeRequests.subsequentHourRate,
+  subsequentHourPay: overtimeRequests.subsequentHourPay,
   createdAt: overtimeRequests.createdAt,
   updatedAt: overtimeRequests.updatedAt,
   userName: users.name,

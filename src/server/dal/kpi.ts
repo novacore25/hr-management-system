@@ -50,6 +50,11 @@ const baseSelect = {
   // Ditambahkan migrasi 0011. Halaman executive/quality sudah merender
   // label brand sejak lama; tanpa kolom ini badge-nya tidak pernah muncul.
   brand: kpis.brand,
+  // Warisan Supabase (migrasi 0014). Tidak dipakai UI, tapi `KpiRow`
+  // diturunkan dari $inferSelect -- kalau kolomnya tidak ikut
+  // diselect, setiap pemanggil `rows.map(toKpi)` gagal typecheck.
+  category: kpis.category,
+  department: kpis.department,
   createdBy: kpis.createdBy,
   departmentId: kpis.departmentId,
   deletedAt: kpis.deletedAt,
