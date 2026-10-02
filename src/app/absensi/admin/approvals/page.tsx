@@ -3,7 +3,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import ConfirmDialog from "@/components/absensi/ConfirmDialog";
 import PromptDialog from "@/components/absensi/PromptDialog";
@@ -110,167 +109,145 @@ export default function AdminApprovalsPage() {
     };
   }, [adjustingReq, finalizingReq]);
 
-  const fetchOvertime = useCallback(async () => {
+const fetchOvertime = useCallback(async () => {
     try {
-      const supabase = createClient();
-      const { data, error } = await supabase
-        .from("overtime_requests" as any)
-        .select("*, users!user_id(name, position, departments(name))")
-        .order("created_at", { ascending: false });
+      // formerly `overtime_requests.select("*, users!...")` tanpa batas
+      // tanggal dari browser — jadi seluruh riwayat lembur ikut terbaca.
+      // Sekarang lewat endpoint yang sudah dijaga role-nya.
+      const res = await fetch("/api/overtime", {
+        credentials: "include",
+        cache: "no-store",
+      });
+      const json = (await res.json()) as {
+        ok: boolean;
+        data?: { requests?: any[] };
+      };
 
-      if (error) {
-        console.error("Error fetching overtime in admin approvals:", error);
-      }
+      if (!res.ok) return;
 
-      if (data) {
-        setOvertimes(
-          data.map((r: any) => ({
-            id: r.id,
-            userId: r.user_id,
-            requestDate: r.request_date,
-            overtimeDate: r.overtime_date,
-            requestedStartTime: (r.requested_start_time || "").substring(0, 5),
-            requestedEndTime: (r.requested_end_time || "").substring(0, 5),
-            requestedDurationMinutes: r.requested_duration_minutes,
-            tasks: r.tasks || [],
-            staffNotes: r.staff_notes,
-            status: r.status,
-            approvedStartTime: r.approved_start_time ? r.approved_start_time.substring(0, 5) : null,
-            approvedEndTime: r.approved_end_time ? r.approved_end_time.substring(0, 5) : null,
-            approvedDurationMinutes: r.approved_duration_minutes,
-            approvedBy: r.approved_by,
-            approvalDate: r.approval_date,
-            approvalNotes: r.approval_notes,
-            rejectionReason: r.rejection_reason,
-            actualStartTime: r.actual_start_time ? r.actual_start_time.substring(0, 5) : null,
-            actualEndTime: r.actual_end_time ? r.actual_end_time.substring(0, 5) : null,
-            actualDurationMinutes: r.actual_duration_minutes,
-            reportSubmittedAt: r.report_submitted_at,
-            taskReports: r.task_reports,
-            staffReportNotes: r.staff_report_notes,
-            proofImages: r.proof_images || [],
-            finalDurationMinutes: r.final_duration_minutes,
-            finalizedBy: r.finalized_by,
-            finalizedDate: r.finalized_date,
-            finalNotes: r.final_notes,
-            createdAt: r.created_at,
-            updatedAt: r.updated_at,
-            userName: r.users?.name,
-            userDepartment: r.users?.departments?.name,
-            userPosition: r.users?.position,
-          }))
-        );
-      }
+      setOvertimes(
+        (json.data?.requests ?? []).map((r) => ({
+          ...r,
+          requestedStartTime: (r.requestedStartTime || "").substring(0, 5),
+          requestedEndTime: (r.requestedEndTime || "").substring(0, 5),
+          approvedStartTime: r.approvedStartTime
+            ? r.approvedStartTime.substring(0, 5)
+            : null,
+          approvedEndTime: r.approvedEndTime
+            ? r.approvedEndTime.substring(0, 5)
+            : null,
+          actualStartTime: r.actualStartTime
+            ? r.actualStartTime.substring(0, 5)
+            : null,
+          actualEndTime: r.actualEndTime ? r.actualEndTime.substring(0, 5) : null,
+          tasks: r.tasks ?? [],
+          taskReports: r.taskReports ?? [],
+          proofImages: r.proofImages ?? [],
+          userName: r.userName,
+          userDepartment: r.departmentName,
+        })),
+      );
     } catch (err) {
       console.error("fetchOvertime exception:", err);
     }
   }, []);
 
-  useEffect(() => {
-    const supabase = createClient();
+  /**
+   * formerly **empat** query dari browser dengan filter berbeda:
+   * `status = pending`, `status = approved AND cancellation_requested`,
+   * `status IN (approved, rejected)`, lalu `count` user pending — plus
+   * subscription realtime di tiga tabel.
+   *
+   * sekarang satu request `?view=approvals`, dengan penyaringan di
+   * server.
+   */
+  const fetchLeave = useCallback(async () => {
+    try {
+      const res = await fetch("/api/absensi/leave?view=approvals", {
+        credentials: "include",
+        cache: "no-store",
+      });
+      const json = (await res.json()) as {
+        ok: boolean;
+        data?: {
+          pending?: any[];
+          cancellations?: any[];
+          history?: any[];
+          pendingStaffCount?: number;
+        };
+      };
 
-    const fetchPending = async () => {
-      const { data } = await supabase
-        .from("leave_requests")
-        .select("*, users(id, name, email, departments(name))")
-        .eq("status", "pending")
-        .order("created_at", { ascending: true });
+      if (!res.ok) {
+        setIsLoading(false);
+        return;
+      }
+      const d = json.data ?? {};
 
       setPendingReqs(
-        (data ?? []).map((r) => {
-          const u = r.users as any;
-          return {
-            id: r.id as string,
-            userId: r.user_id as string,
-            userName: u?.name ?? "Unknown",
-            departmentName: u?.departments?.name ?? "Umum",
-          type: r.type as string,
-          dates: (r.dates as string[]) ?? [],
-          reason: (r.reason as string) ?? "",
-          createdAt: r.created_at as string,
-        };
-      })
+        (d.pending ?? []).map((r) => ({
+          id: r.id,
+          userId: r.userId,
+          userName: r.userName ?? "Unknown",
+          departmentName: r.departmentName ?? "Umum",
+          type: r.type,
+          dates: r.dates ?? [],
+          reason: r.reason ?? "",
+          createdAt: r.createdAt,
+        })),
       );
-      setIsLoading(false);
-    };
-
-    const fetchCancel = async () => {
-      const { data } = await supabase
-        .from("leave_requests")
-        .select("*, users(id, name, email, departments(name))")
-        .eq("status", "approved")
-        .eq("cancellation_requested", true);
 
       setCancelReqs(
-        (data ?? []).map((r) => {
-          const u = r.users as any;
-          return {
-            id: r.id as string,
-            userId: r.user_id as string,
-            userName: u?.name ?? "Unknown",
-            departmentName: u?.departments?.name ?? "Umum",
-          type: r.type as string,
-          dates: (r.dates as string[]) ?? [],
-          reason: (r.reason as string) ?? "",
-          createdAt: r.created_at as string,
-          cancellationReason: r.cancellation_reason as string | null,
-          deductedSick: (r.deducted_sick as number) ?? 0,
-          deductedLeave: (r.deducted_leave as number) ?? 0,
-        };
-      })
+        (d.cancellations ?? []).map((r) => ({
+          id: r.id,
+          userId: r.userId,
+          userName: r.userName ?? "Unknown",
+          departmentName: r.departmentName ?? "Umum",
+          type: r.type,
+          dates: r.dates ?? [],
+          reason: r.reason ?? "",
+          createdAt: r.createdAt,
+          cancellationReason: r.cancellationReason ?? null,
+          deductedSick: r.deductedSick ?? 0,
+          deductedLeave: r.deductedLeave ?? 0,
+        })),
       );
-    };
-
-    const fetchPendingStaff = async () => {
-      const { count } = await supabase
-        .from("users")
-        .select("id", { count: "exact", head: true })
-        .eq("absensi_status", "pending");
-      setPendingStaffCount(count ?? 0);
-    };
-
-    const fetchHistory = async () => {
-      const { data } = await supabase
-        .from("leave_requests")
-        .select("*, users(id, name, email, departments(name))")
-        .in("status", ["approved", "rejected"])
-        .order("created_at", { ascending: false });
 
       setHistoryReqs(
-        (data ?? []).map((r) => {
-          const u = r.users as any;
-          return {
-            id: r.id as string,
-            userId: r.user_id as string,
-            userName: u?.name ?? "Unknown",
-            departmentName: u?.departments?.name ?? "Umum",
-            type: r.type as string,
-            dates: (r.dates as string[]) ?? [],
-            reason: (r.reason as string) ?? "",
-            createdAt: r.created_at as string,
-            status: r.status as string,
-            deductedSick: (r.deducted_sick as number) ?? 0,
-            deductedLeave: (r.deducted_leave as number) ?? 0,
-          };
-        })
+        (d.history ?? []).map((r) => ({
+          id: r.id,
+          userId: r.userId,
+          userName: r.userName ?? "Unknown",
+          departmentName: r.departmentName ?? "Umum",
+          type: r.type,
+          dates: r.dates ?? [],
+          reason: r.reason ?? "",
+          createdAt: r.createdAt,
+          status: r.status,
+          deductedSick: r.deductedSick ?? 0,
+          deductedLeave: r.deductedLeave ?? 0,
+        })),
       );
-    };
 
-    Promise.all([fetchPending(), fetchCancel(), fetchHistory(), fetchPendingStaff(), fetchOvertime()]);
+      setPendingStaffCount(d.pendingStaffCount ?? 0);
+    } catch (err) {
+      console.error("fetchLeave exception:", err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
 
-    const ch = supabase
-      .channel("admin_approvals")
-      .on("postgres_changes", { event: "*", schema: "public", table: "leave_requests" }, () => {
-        fetchPending();
-        fetchCancel();
-        fetchHistory();
-      })
-      .on("postgres_changes", { event: "*", schema: "public", table: "overtime_requests" }, fetchOvertime)
-      .on("postgres_changes", { event: "*", schema: "public", table: "users" }, fetchPendingStaff)
-      .subscribe();
+  useEffect(() => {
+    void fetchLeave();
+    void fetchOvertime();
 
-    return () => { ch.unsubscribe(); };
-  }, [fetchOvertime]);
+    // Polling 30 detik menggantikan subscription `postgres_changes` di
+    // tiga tabel (lihat AGENTS.md).
+    const timer = setInterval(() => {
+      void fetchLeave();
+      void fetchOvertime();
+    }, 30_000);
+    return () => clearInterval(timer);
+  }, [fetchLeave, fetchOvertime]);
 
   const formatMinutes = formatDurationDetail;
 
@@ -312,59 +289,61 @@ export default function AdminApprovalsPage() {
   };
 
   const handleApproveOvertime = async () => {
-    if (!adjustingReq || !user) return;
+    if (!adjustingReq) return;
     const durMins = calcDurationMinutes(adjustStartTime, adjustEndTime);
     if (durMins <= 0) { toast.error("Jam selesai harus lebih besar dari jam mulai."); return; }
 
     const tid = toast.loading("Menyetujui jadwal lembur...");
-    try {
-      const supabase = createClient();
-      const { error } = await supabase
-        .from("overtime_requests" as any)
-        .update({
-          status: "approved",
-          approved_start_time: adjustStartTime + ":00",
-          approved_end_time: adjustEndTime + ":00",
-          approved_duration_minutes: durMins,
-          approved_by: user.id,
-          approval_date: new Date().toISOString(),
-          approval_notes: adjustNotes.trim() || null,
-        })
-        .eq("id", adjustingReq.id);
 
-      if (error) throw error;
-      toast.success("Lembur berhasil disetujui!", { id: tid });
-      setAdjustingReq(null);
-      await fetchOvertime();
-    } catch (err: any) {
-      toast.error("Gagal: " + err.message, { id: tid });
+    // formerly `update({ status: "approved", approved_by: user.id }).eq("id")`
+    // tanpa cek status lama — approve bisa dijalankan ulang pada
+    // pengajuan yang sudah final, menimpa gaji yang sudah dibayar.
+    const res = await fetch("/api/overtime", {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        id: adjustingReq.id,
+        action: "approve",
+        approvedStartTime: adjustStartTime,
+        approvedEndTime: adjustEndTime,
+        approvalNotes: adjustNotes.trim() || null,
+      }),
+    });
+
+    const json = (await res.json().catch(() => null)) as { error?: string } | null;
+    if (!res.ok) {
+      toast.error(json?.error ?? "Gagal menyetujui.", { id: tid });
+      return;
     }
+
+    toast.success("Lembur berhasil disetujui!", { id: tid });
+    setAdjustingReq(null);
+    void fetchOvertime();
   };
 
   const handleRejectOvertime = async (reason: string) => {
-    if (!rejectingReq || !user) return;
+    if (!rejectingReq) return;
     if (!reason.trim()) { toast.error("Alasan penolakan wajib diisi."); return; }
 
     const tid = toast.loading("Menolak pengajuan lembur...");
-    try {
-      const supabase = createClient();
-      const { error } = await supabase
-        .from("overtime_requests" as any)
-        .update({
-          status: "rejected",
-          approved_by: user.id,
-          approval_date: new Date().toISOString(),
-          rejection_reason: reason.trim(),
-        })
-        .eq("id", rejectingReq.id);
 
-      if (error) throw error;
-      toast.success("Pengajuan lembur telah ditolak.", { id: tid });
-      setRejectingReq(null);
-      await fetchOvertime();
-    } catch (err: any) {
-      toast.error("Gagal: " + err.message, { id: tid });
+    const res = await fetch("/api/overtime", {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: rejectingReq.id, action: "reject", reason }),
+    });
+
+    const json = (await res.json().catch(() => null)) as { error?: string } | null;
+    if (!res.ok) {
+      toast.error(json?.error ?? "Gagal menolak pengajuan.", { id: tid });
+      return;
     }
+
+    toast.success("Pengajuan lembur telah ditolak.", { id: tid });
+    setRejectingReq(null);
+    void fetchOvertime();
   };
 
   const handleOpenFinalizeModal = (req: OvertimeRequest) => {
@@ -376,30 +355,41 @@ export default function AdminApprovalsPage() {
   };
 
   const handleFinalizeOvertime = async () => {
-    if (!finalizingReq || !user) return;
+    if (!finalizingReq) return;
     const totalMins = finalHours * 60 + finalMinutes;
 
-    const tid = toast.loading("Memfinalisasi durasi lembur...");
-    try {
-      const supabase = createClient();
-      const { error } = await supabase
-        .from("overtime_requests" as any)
-        .update({
-          status: "finalized",
-          final_duration_minutes: totalMins,
-          finalized_by: user.id,
-          finalized_date: new Date().toISOString(),
-          final_notes: finalNotes.trim() || null,
-        })
-        .eq("id", finalizingReq.id);
+    const tid = toast.loading("Mengunci durasi lembur...");
 
-      if (error) throw error;
-      toast.success(`Lembur difinalisasi menjadi ${formatMinutes(totalMins)}!`, { id: tid });
-      setFinalizingReq(null);
-      await fetchOvertime();
-    } catch (err: any) {
-      toast.error("Gagal finalisasi: " + err.message, { id: tid });
+    /**
+     * formerly `update({ status: "finalized", final_duration_minutes })`.
+     *
+     * Status langsung jadi `finalized` di sini — padahal langkah
+     * berikutnya (menghitung gaji lewat `OvertimeFinalizeModal`) jadi
+     * mustahil karena pengajuan yang sudah final tidak boleh diubah
+     * lagi. Sekarang tahap ini hanya mengunci durasi; statusnya berubah
+     * di `OvertimeFinalizeModal`.
+     */
+    const res = await fetch("/api/overtime", {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        id: finalizingReq.id,
+        action: "finalize-duration",
+        finalDurationMinutes: totalMins,
+        finalNotes: finalNotes.trim() || null,
+      }),
+    });
+
+    const json = (await res.json().catch(() => null)) as { error?: string } | null;
+    if (!res.ok) {
+      toast.error(json?.error ?? "Gagal menyimpan durasi akhir.", { id: tid });
+      return;
     }
+
+    toast.success(`Durasi lembur dikunci menjadi ${formatMinutes(totalMins)}.`, { id: tid });
+    setFinalizingReq(null);
+    void fetchOvertime();
   };
 
   const processRequest = (req: PendingRequest, action: "approve" | "reject") => {
@@ -409,20 +399,27 @@ export default function AdminApprovalsPage() {
       type: action === "approve" ? "warning" : "danger",
       onConfirm: async () => {
         const tid = toast.loading("Memproses pengajuan...");
-        try {
-          const supabase = createClient();
-          const { error } = await supabase.rpc("process_leave_request", {
-            p_request_id: req.id,
-            p_action: action,
-            p_admin_name: user?.name ?? "Admin",
-          });
-          if (error) throw error;
+
+        // formerly RPC `process_leave_request(...)`. Area itu SECURITY
+        // DEFINER yang tidak melakukan cek role, dan `p_admin_name`
+        // diambil dari state browser — jadi siapa pun yang bisa membuka
+        // halaman ini bisa mencantumkan nama orang lain sebagai pemroses.
+        // Sekarang identitas pemroses diambil dari sesi di server.
+        const res = await fetch("/api/absensi/leave", {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ id: req.id, action }),
+        });
+
+        const json = (await res.json().catch(() => null)) as { error?: string } | null;
+        if (!res.ok) {
+          toast.error(json?.error ?? "Gagal memproses pengajuan.", { id: tid });
+        } else {
           toast.success("Berhasil memproses pengajuan.", { id: tid });
-        } catch (err: unknown) {
-          toast.error("Gagal: " + (err instanceof Error ? err.message : "Unknown error"), { id: tid });
-        } finally {
-          setConfirmCfg(null);
+          void fetchLeave();
         }
+        setConfirmCfg(null);
       },
     });
   };
@@ -437,20 +434,27 @@ export default function AdminApprovalsPage() {
       type: action === "approve" ? "warning" : "danger",
       onConfirm: async () => {
         const tid = toast.loading("Memproses...");
-        try {
-          const supabase = createClient();
-          const { error } = await supabase.rpc("process_leave_cancellation", {
-            p_request_id: req.id,
-            p_action: action,
-            p_admin_name: user?.name ?? "Admin",
-          });
-          if (error) throw error;
+
+        // formerly RPC `process_leave_cancellation(...)` — masalah yang
+        // sama: tanpa cek role, dan nama pemroses dari browser.
+        const res = await fetch("/api/absensi/leave", {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            id: req.id,
+            action: action === "approve" ? "approve-cancellation" : "reject-cancellation",
+          }),
+        });
+
+        const json = (await res.json().catch(() => null)) as { error?: string } | null;
+        if (!res.ok) {
+          toast.error(json?.error ?? "Gagal memproses pembatalan.", { id: tid });
+        } else {
           toast.success("Selesai.", { id: tid });
-        } catch (err: unknown) {
-          toast.error("Gagal: " + (err instanceof Error ? err.message : "Unknown error"), { id: tid });
-        } finally {
-          setConfirmCfg(null);
+          void fetchLeave();
         }
+        setConfirmCfg(null);
       },
     });
   };

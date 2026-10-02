@@ -47,6 +47,15 @@ export interface LeaveRequest {
   cancellationReason: string | null;
   createdAt: string;
   updatedAt: string;
+  /**
+   * Nama & divisi pemohon, dari join di DAL.
+   *
+   * formerly `toLeaveRequest()` membuangnya — jadi semua halaman cuti
+   * menampilkan "Unknown" untuk nama pemohon. Select-nya sudah mengambil
+   * kedua kolom, cuma tidak diteruskan.
+   */
+  userName?: string | null;
+  departmentName?: string | null;
 }
 
 // ─── Settings ─────────────────────────────────────────────────────────────────

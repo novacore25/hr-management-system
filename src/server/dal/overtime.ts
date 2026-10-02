@@ -465,6 +465,60 @@ export async function getBaseSalary(
 }
 
 /**
+ * Kunci durasi akhir, tanpa menghitung gaji.
+ *
+ * Ini TAHAP PERSIAPAN, bukan finalisasi. formerly halaman
+ * /absensi/admin/approvals melakukan dua langkah terpisah:
+ *
+ *   1. `update({ status: "finalized", final_duration_minutes })` —
+ *      HR mengunci durasi.
+ *   2. Membuka `OvertimeFinalizeModal` untuk menghitung gaji — tapi
+ *      status sudah `finalized`, jadi tidak ada lagi yang bisa diubah.
+ *
+ * Kalau langkah 2 ikut dilakukan di sini, modal tidak akan pernah bisa
+ * dipakai. Jadi tahap ini sengaja **tidak** mengubah status; tahap
+ * kedua (`finalizeOvertime`) yang menutup prosesnya.
+ */
+export async function setFinalDuration(
+  id: string,
+  input: { finalDurationMinutes: number; finalNotes?: string | null },
+  actorId: string,
+): Promise<OvertimeWithUser> {
+  const current = await findOvertimeById(id);
+  if (!current) {
+    throw new ValidationError("Pengajuan tidak ditemukan.");
+  }
+
+  assertTransition(current.status, "finalized");
+
+  const minutes = Number(input.finalDurationMinutes);
+  if (!Number.isFinite(minutes) || minutes <= 0) {
+    throw new ValidationError("Durasi akhir harus lebih dari 0 menit.");
+  }
+
+  const approved = current.approvedDurationMinutes ?? 0;
+  if (approved > 0 && minutes > approved) {
+    throw new ValidationError(
+      `Durasi akhir ${minutes / 60} jam melebihi yang disetujui (${
+        approved / 60
+      } jam).`,
+    );
+  }
+
+  await db
+    .update(overtimeRequests)
+    .set({
+      finalDurationMinutes: Math.round(minutes),
+      finalNotes: input.finalNotes ?? null,
+      updatedAt: new Date(),
+    })
+    .where(eq(overtimeRequests.id, id));
+
+  void actorId;
+  return (await findOvertimeById(id))!;
+}
+
+/**
  * Finalisasi + hitung gaji lembur.
  *
  * formerly seluruh perhitungannya dilakukan di browser dan yang dikirim
@@ -473,7 +527,7 @@ export async function getBaseSalary(
  * untuk menghitung slip gaji.
  *
  * Sekarang server yang menghitung. Override manual tetap ada (untuk
- * kasus legitimately), tapi harus disertai alasan dan tercatat di
+ * kasus yang memang butuh), tapi harus disertai alasan dan tercatat di
  * `calculation_breakdown`.
  */
 export async function finalizeOvertime(

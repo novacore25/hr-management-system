@@ -37,8 +37,6 @@ const STUB_IMPORT = /from\s+["'][^"']*lib\/supabase\/(client|server)["']/;
  * dipindahkan - jangan pernah menambahkan.
  */
 const ALLOWLIST = [
-  "app/absensi/admin/approvals/page.tsx",
-  "app/absensi/admin/overtime/page.tsx",
   "app/absensi/admin/payroll/page.tsx",
   "app/absensi/admin/payroll/settings/page.tsx",
   "app/absensi/(staff)/payroll/page.tsx",

@@ -15,6 +15,7 @@ import {
   approveOvertime,
   rejectOvertime,
   submitOvertimeReport,
+  setFinalDuration,
   finalizeOvertime,
   cancelOwnOvertime,
   deleteOvertime,
@@ -231,6 +232,23 @@ export async function PATCH(request: Request) {
               // URL yang sudah tersimpan tetap diteruskan supaya tidak
               // hilang, tapi klien tidak bisa menambah yang baru.
               proofImages: Array.isArray(b.proofImages) ? b.proofImages : [],
+            },
+            me.id,
+          ),
+        };
+      }
+
+      case "finalize-duration": {
+        // Tahap persiapan: HR mengunci durasi akhir. Status BELUM
+        // berubah, supaya `OvertimeFinalizeModal` masih bisa dipakai
+        // untuk menghitung gaji.
+        await requireKpiRole("hr", "executive");
+        return {
+          overtime: await setFinalDuration(
+            id,
+            {
+              finalDurationMinutes: Number(b.finalDurationMinutes),
+              finalNotes: b.finalNotes ?? null,
             },
             me.id,
           ),

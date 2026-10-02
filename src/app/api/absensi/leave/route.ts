@@ -52,6 +52,37 @@ export async function GET(request: Request) {
 
     await requireAbsensiAdmin();
 
+    /**
+     * `view=approvals` — satu hasil untuk seluruh kebutuhan halaman
+     * /absensi/admin/approvals.
+     *
+     * formerly halaman itu melakukan **empat** query dari browser dengan
+     * filter berbeda (`status = pending`, `status = approved AND
+     * cancellation_requested = true`, `status IN (approved, rejected)`,
+     * lalu `count` user pending) plus subscription realtime di tiga
+     * tabel. Sekarang satu request, dan penyaringannya di server.
+     */
+    if (searchParams.get("view") === "approvals") {
+      const { countStaffByStatus } = await import("@/server/dal/staff");
+      const { listLeaveRequests } = await import("@/server/dal/leave");
+
+      const all = await listLeaveRequests();
+      const counts = await countStaffByStatus();
+
+      return {
+        pending: all
+          .filter((r) => r.status === "pending")
+          .sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1)),
+        cancellations: all.filter(
+          (r) => r.status === "approved" && r.cancellationRequested === true,
+        ),
+        history: all.filter(
+          (r) => r.status === "approved" || r.status === "rejected",
+        ),
+        pendingStaffCount: counts.pending,
+      };
+    }
+
     const status = searchParams.get("status") as LeaveRequestStatus | null;
     const departmentId = searchParams.get("departmentId");
 

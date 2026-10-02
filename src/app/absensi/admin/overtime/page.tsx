@@ -1,10 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import type { OvertimeRequest } from "@/types/absensi";
-import { rowToOvertimeRequest } from "@/types/absensi";
 import type { PayrollStaffSetting } from "@/types";
 import OvertimeFinalizeModal from "@/components/absensi/OvertimeFinalizeModal";
 import OvertimeDetailModal from "@/components/absensi/OvertimeDetailModal";
@@ -83,55 +81,61 @@ export default function AdminOvertimePage() {
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const supabase = createClient();
       const startDate = `${year}-${String(month).padStart(2, "0")}-01`;
       const lastDay = new Date(year, month, 0).getDate();
       const endDate = `${year}-${String(month).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
 
-      const [otRes, settingsRes] = await Promise.all([
-        supabase
-          .from("overtime_requests" as any)
-          .select("*, users!user_id(name, position, departments(name))")
-          .gte("overtime_date", startDate)
-          .lte("overtime_date", endDate)
-          .order("overtime_date", { ascending: false }),
-        supabase.from("payroll_staff_settings").select("*"),
-      ]);
+      /**
+       * formerly dua query dari browser. Selain menjadi bocor —
+       * `payroll_staff_settings` berisi gaji dasar setiap orang dan
+       * selama ini bisa dibaca siapa pun yang punya sesi, bukan cuma HR.
+       *
+       * sekarang satu endpoint yang sudah dijaga role-nya.
+       */
+      const res = await fetch(
+        `/api/overtime?from=${startDate}&to=${endDate}`,
+        { credentials: "include", cache: "no-store" },
+      );
+      const json = (await res.json()) as {
+        ok: boolean;
+        data?: {
+          requests?: any[];
+          settings?: {
+            userId: string;
+            defaultBaseSalary: string;
+            defaultMobilityAllowance: string;
+          }[];
+        };
+        error?: string;
+      };
 
-      if (otRes.error) {
-        console.error("Error fetching overtimes:", otRes.error);
-        toast.error("Gagal memuat data lembur.");
-      } else if (otRes.data) {
-        setOvertimes(otRes.data.map((row: any) => rowToOvertimeRequest(row)));
+      if (!res.ok) {
+        toast.error(json.error ?? "Gagal memuat data lembur.");
+        return;
       }
 
-      if (settingsRes.data) {
-        setStaffSettings(settingsRes.data as PayrollStaffSetting[]);
-      }
+      // Server sudah mengirim camelCase, jadi `rowToOvertimeRequest`
+      // tidak perlu lagi.
+      setOvertimes((json.data?.requests ?? []) as OvertimeRequest[]);
+      setStaffSettings(
+        (json.data?.settings ?? []) as unknown as PayrollStaffSetting[],
+      );
     } catch (err) {
       console.error("fetchData exception:", err);
+      toast.error("Gagal memuat data lembur.");
     } finally {
       setIsLoading(false);
     }
   }, [month, year]);
 
   useEffect(() => {
-    fetchData();
+    void fetchData();
   }, [fetchData]);
 
-  // Realtime subscription
+  // Polling 30 detik menggantikan subscription `postgres_changes`.
   useEffect(() => {
-    const supabase = createClient();
-    const ch = supabase
-      .channel("admin_overtime_changes")
-      .on("postgres_changes", { event: "*", schema: "public", table: "overtime_requests" }, () => {
-        fetchData();
-      })
-      .subscribe();
-
-    return () => {
-      ch.unsubscribe();
-    };
+    const timer = setInterval(() => void fetchData(), 30_000);
+    return () => clearInterval(timer);
   }, [fetchData]);
 
   // Group overtimes by user_id
@@ -279,20 +283,26 @@ export default function AdminOvertimePage() {
   const handleDeleteOvertime = async () => {
     if (!deletingReq) return;
     const tid = toast.loading("Menghapus sesi lembur...");
-    try {
-      const supabase = createClient();
-      const { error } = await supabase
-        .from("overtime_requests" as any)
-        .delete()
-        .eq("id", deletingReq.id);
 
-      if (error) throw error;
-      toast.success("Sesi lembur berhasil dihapus.", { id: tid });
-      setDeletingReq(null);
-      fetchData();
-    } catch (err: any) {
-      toast.error("Gagal menghapus: " + err.message, { id: tid });
+    // formerly `.delete().eq("id", id)` dari browser — tanpa cek apa pun.
+    // Pengajuan yang sudah `finalized` angkanya sudah dipakai untuk slip
+    // gaji, jadi server menolaknya.
+    const res = await fetch(
+      `/api/overtime?id=${encodeURIComponent(deletingReq.id)}`,
+      { method: "DELETE", credentials: "include" },
+    );
+    const json = (await res.json().catch(() => null)) as
+      | { ok?: boolean; error?: string }
+      | null;
+
+    if (!res.ok) {
+      toast.error(json?.error ?? "Gagal menghapus sesi lembur.", { id: tid });
+      return;
     }
+
+    toast.success("Sesi lembur berhasil dihapus.", { id: tid });
+    setDeletingReq(null);
+    void fetchData();
   };
 
   // Quick Approve Schedule
@@ -304,7 +314,7 @@ export default function AdminOvertimePage() {
   };
 
   const handleApproveSchedule = async () => {
-    if (!approvingScheduleReq || !user) return;
+    if (!approvingScheduleReq) return;
     const dur = calcDurationMinutes(approveStartTime, approveEndTime);
     if (dur <= 0) {
       toast.error("Jam selesai harus lebih besar dari jam mulai.");
@@ -312,28 +322,35 @@ export default function AdminOvertimePage() {
     }
 
     const tid = toast.loading("Menyetujui jadwal lembur...");
-    try {
-      const supabase = createClient();
-      const { error } = await supabase
-        .from("overtime_requests" as any)
-        .update({
-          status: "approved",
-          approved_start_time: approveStartTime + ":00",
-          approved_end_time: approveEndTime + ":00",
-          approved_duration_minutes: dur,
-          approved_by: user.id,
-          approval_date: new Date().toISOString(),
-          approval_notes: approveNotes.trim() || null,
-        })
-        .eq("id", approvingScheduleReq.id);
 
-      if (error) throw error;
-      toast.success("Jadwal lembur berhasil disetujui!", { id: tid });
-      setApprovingScheduleReq(null);
-      fetchData();
-    } catch (err: any) {
-      toast.error("Gagal menyetujui: " + err.message, { id: tid });
+    // formerly `update({ status: "approved", approved_by: user.id }).eq("id")`
+    // tanpa cek status lama — approve bisa dijalankan ulang pada
+    // pengajuan yang sudah `finalized`, menimpa gaji yang sudah dibayar.
+    const res = await fetch("/api/overtime", {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        id: approvingScheduleReq.id,
+        action: "approve",
+        approvedStartTime: approveStartTime,
+        approvedEndTime: approveEndTime,
+        approvalNotes: approveNotes.trim() || null,
+      }),
+    });
+
+    const json = (await res.json().catch(() => null)) as
+      | { ok?: boolean; error?: string }
+      | null;
+
+    if (!res.ok) {
+      toast.error(json?.error ?? "Gagal menyetujui jadwal.", { id: tid });
+      return;
     }
+
+    toast.success("Jadwal lembur berhasil disetujui!", { id: tid });
+    setApprovingScheduleReq(null);
+    void fetchData();
   };
 
   return (

@@ -51,6 +51,11 @@ function toLeaveRequest(row: Row): LeaveRequest {
     cancellationReason: row.cancellationReason,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
+    // `select` di atas sudah mengambil keduanya, tapi belum diteruskan —
+    // sehingga semua halaman cuti menampilkan "Unknown" untuk nama
+    // pemohon.
+    userName: row.userName,
+    departmentName: row.departmentName,
   };
 }
 
