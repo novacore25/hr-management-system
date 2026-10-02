@@ -450,6 +450,79 @@ Untuk cek karakter non-Latin, pakai Node dengan regex JS
 (`/[\u4e00-\u9fff]/u`), yang memang punya escape itu. Sama untuk regex
 kompleks lain: jangan mengandalkan `Select-String` untuknya.
 
+Dua alatnya sudah tersedia:
+
+```powershell
+node scripts\show-cjk.mjs AGENTS.md     # laporkan + tampilkan escaped codepoint
+npm run verify:docs                     # gagal kalau ada, di semua dokumen
+```
+
+`show-cjk.mjs` penting karena **PowerShell merender karakter CJK
+sebagai `?`** — jadi kalau karakter asing sudah masuk, `read` dan
+`grep` tidak bisa menunjukkannya, dan teks yang rusak terlihat benar.
+Skrip itu mencetak posisinya sebagai `U+4E00` sehingga kelihatan.
+Catatan: `verify:docs` hanya bilang ada/tidak -- tidak bisa menunjuk
+baris yang mana. Karena itu perbaiki per nomor baris, bukan dengan regex
+pencocok yang mengandungi karakter aslinya.
+
+### 3.19 Error SSH yang sama sekali tidak ada hubungannya dengan SSH
+
+Perintah yang mengandung `bash`, atau yang menjalankan sebuah file
+sebagai perintah remote, gagal dengan:
+
+```
+Warning: Identity file /root/.ssh/id_vps not accessible: No such file or directory.
+root@168.231.118.146: Permission denied (publickey).
+```
+
+Ini **bukan** masalah kunci. Kuncinya tidak pernah dibaca. Harness shell
+lokal mengenali pola `bash <file>` dan ikut memprosesnya secara lokal —
+di mesin ini `bash` = WSL, dan WSL tidak punya distro terpasang. Setelah
+itu pemanggilan ssh dijalankan dengan argumen yang sudah kacau.
+
+Dua jam terbuang karena errornya terlihat sangat meyakinkan: "publickey
+ditolak" selalu membuat orang mengira kuncinya salah.
+
+| Bentuk | Hasil |
+|---|---|
+| `ssh vps hostname` | OK |
+| `ssh vps "cat X \| sh"` | OK |
+| `ssh vps "cat X \| bash"` | GAGAL |
+| `ssh vps bash /path/x.sh` | GAGAL |
+| `ssh vps /path/x` | GAGAL |
+| `ssh vps "cat X \| sh -s"` | OK |
+
+Aturan: **`cat file | sh`, dan `sh` saja.** Skrip yang dikirim ke VPS
+harus POSIX `sh`: tanpa `set -o pipefail`, tanpa `<<<`, tanpa array.
+
+Dua konsekuensi lanjutan:
+
+1. **Skrip deploy harus POSIX, bukan bash** -- bukan karena bash lebih
+   jelek, tapi karena tidak ada cara lain memanggilnya.
+2. **Kutip PowerShell → bash → ssh tiga lapis hampir selalu rusak.**
+   Jangan menulis `psql -c "SELECT 'x'"` langsung di baris perintah.
+   Tulis skrip `.sql`/`.sh` di file, kirim pakai `scp`, jalankan di VPS.
+
+Tersedia di VPS untuk baca data (aman, read-only):
+
+```powershell
+ssh vps "cat /usr/local/bin/novacore-inspect | sh"   # kondisi DB
+ssh vps "cat /usr/local/bin/novacore-verify | sh"    # verifikasi pasca-migrasi
+ssh vps "cat /usr/local/bin/novacore-apply-migrations | sh"  # migrasi
+```
+
+Host `vps` sudah terdaftar di `~/.ssh/config` dengan path **absolut**
+(`C:/Users/Banzilla/.ssh/id_vps`), bukan `~/` — karena `HOME` kosong di
+mesin ini dan Windows OpenSSH jatuh ke `/root/.ssh/`. Gejalanya sama persis
+dengan di atas: "Permission denied (publickey)" padahal config-nya benar.
+`ssh -G vps` selalu menampilkan path yang benar walau koneksi gagal --
+jadi jangan percaya `-G` sebagai bukti koneksi berhasil.
+
+Bonus dari migrate: nama constraint KPI di `0010` adalah
+`kpis_title_period_unique`, bukan `kpis_title_year_month_unique` seperti
+yang tertulis di catatan lama. Verifikasi yang mencari nama salah akan
+melaporkan constraint hilang padahal ada.
+
 ---
 
 ## 4. Environment
@@ -519,16 +592,30 @@ bukan lewat migration runner.
 Urutan apply: `0000_init`, `0004_auth_constraints`, `0005_seed`,
 `0006_kpi_settings_weights`, `0007_users_religion`,
 `0008_letter_numbering`, `0009_users_employment`,
-`0010_unique_constraints`, `0011_kpis_brand`, `0012_feedbacks`.
+`0010_unique_constraints`, `0011_kpis_brand`, `0012_feedbacks`,
+`0013_payroll_columns`.
 
-⚠️ `0009` pernah terlewat karena tidak masuk daftar manual. Kalau ada
-kolom yang seharusnya tidak ada, cek dulu daftar migrasi yang dijalankan.
+**Semua sudah terpasang di VPS per 2026-10-02 dan diverifikasi.** Daftar
+lengkap + cara menjalankan ada di `docs/DEPLOY.md` §4.
+
+⚠️ Daftar ini **manual**, dan `0009` pernah terlewat karena tidak masuk
+sini — gejalanya "kolom itu seharusnya ada tapi tidak ada". Kalau menambah
+migrasi baru, perbarui tiga tempat sekaligus: daftar di sini, tabel status
+di `docs/DEPLOY.md` §4, dan bagian referensinya di `verify:docs` -- supaya
+referensi supaya tidak ada rujukan ke file yang tidak ada).
 
 `0010` punya dua bagian: bagian 1 hanya melaporkan duplikat, bagian 2
 membatalkan diri sendiri kalau duplikatnya ada. **Jalankan bagian 1
 terlebih dahulu dan periksa hasilnya** sebelum lanjut — jangan Andalkan
 `RAISE EXCEPTION` sebagai satu-satunya penjaga, karena di produksi itu
 berarti constraint tidak terpasang sama sekali.
+
+Hasil di produksi: **0 duplikat**, keempat constraint terpasang.
+
+Nama constraint KPI di `0010` adalah `kpis_title_period_unique` — bukan
+`kpis_title_year_month_unique` seperti yang pernah tertulis di catatan.
+Query verifikasi yang mencari nama salah melaporkan "constraint hilang"
+padahal ada.
 
 ---
 

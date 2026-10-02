@@ -73,7 +73,7 @@ mengisinya.
 | Guard `verify:stubguard` (guard-nya sendiri) | ✅ baru (10 assert) |
 | Health check `/api/health` | ✅ |
 | Migrations 0000–0009 | ✅ semua di VPS |
-| Migrations 0010–0013 | ⬜ baru, harus di VPS (lihat `docs/DEPLOY.md` §4) |
+| Migrations 0010–0013 | ✅ sudah di VPS (2026-10-02, diverifikasi) |
 | `withAuth` meneruskan Response apa adanya | ✅ baru (semua Route Handler) |
 
 ### Fase 1 — Pembersihan
@@ -141,21 +141,30 @@ restart dev server setelahnya.
 
 Server layer sudah lengkap untuk semua tabel yang dipakai aplikasi.
 Yang tersisa adalah memindahkan data nyata dari Supabase lewat
-`pg_dump`. **Sebelum itu:**
+`pg_dump`.
 
-1. Jalankan migrasi yang masih tertunda di VPS: `0010`, `0011`, `0012`,
-   `0013`. Runbook + perintahnya ada di `docs/DEPLOY.md` §4.
-   `0010` dan `0012` **harus dijalankan per bagian** — lihat
-   `docs/DEPLOY.md` §4.1.
-2. Saat memindahkan `payrolls`, perhatikan kolom `deduction_notes` dan
+**Migrasi 0010–0013 sudah terpasang di VPS** (2026-10-02) dan
+diverifikasi — termasuk uji bahwa constraint-nya benar-benar bekerja,
+bukan cuma tercatat di katalog. Detail di `docs/DEPLOY.md` §4.
+
+Yang perlu diingat saat memindahkan data:
+
+1. Saat memindahkan `payrolls`, perhatikan kolom `deduction_notes` dan
    `system_overtime_days` — keduanya baru ada di tabel kita lewat 0013.
-3. `users.managed_departments` harus ditulis sebagai **UUID**, bukan nama
+   Kalau Supabase ternyata sudah punya, nilainya ikut terbawa; kalau
+   tidak, kolomnya kosong (dan memang tidak pernah tersimpan
+   sebelumnya, jadi tidak ada yang hilang).
+2. `users.managed_departments` harus ditulis sebagai **UUID**, bukan nama
    divisi. Alasannya ada di bagian "Produksi" di bawah.
+3. `kpis` sekarang punya UNIQUE di `(title, year, month)`, sama seperti
+   `departments.name`, `office_locations.name`, dan `letter_types.code`.
+   Kalau Supabase punya duplikat di salah satu, `pg_dump` akan gagal
+   **setelah** tabel dibuat — jadi cek duplikat dulu, jangan setelahnya.
 
 ### Urutan yang disarankan
 
-1. Terapkan migrasi 0010–0013 di VPS (`docs/DEPLOY.md` §4).
-2. Deploy aplikasi versi sekarang.
+1. ~~Terapkan migrasi 0010–0013 di VPS~~ — ✅ selesai 2026-10-02
+2. **Deploy aplikasi versi sekarang.**
 3. Cek `/api/health` dan buka beberapa halaman — database produksi masih
    kosong, jadi halaman akan kosong, dan itu **normal**.
 4. Migrasi data Supabase (`pg_dump`).
@@ -630,70 +639,80 @@ pola yang sama di halaman lain — bukan hanya di file itu saja.
 | **`?? 0` untuk nilai yang bisa `undefined`** | Angka yang dilaporkan salah, aksi tetap sukses | "0 dari 1 KPI dipindahkan" |
 | **Kondisi hanya di form** | Bisa dilewati dengan satu request | bobot KPI, durasi lembur, tanggal laporan |
 
-Aturan yang lahir dari semuanya, sudah di `AGENTS.md` §3.1–§3.16.
-Jangan baca ulang 16 aturan itu sebagai daftar — baca **pasanya** kalau
+Aturan yang lahir dari semuanya, sudah di `AGENTS.md` §3.1–§3.19.
+Jangan baca ulang 19 aturan itu sebagai daftar — baca **pasanya** kalau
 lagi debugging, dan baca **AGENTS.md** kalau mau menambah aturan baru.
 
 ---
 
-## Migrasi 0013 — SUDAH ADA, belum di VPS
+## Status migrasi di VPS — OK 0000 s/d 0013 lengkap (2026-10-02)
 
-File: `drizzle/0013_payroll_columns.sql`. Idempotent, sudah diuji lokal
-(termasuk dijalankan dua kali).
+Semuanya sudah terpasang dan diverifikasi. Yang membedakan catatan ini
+dari sekadar "kolomnya ada": **constraint-nya benar-benar bekerja.**
+Mencoba insert divisi "TNT" kedua ditolak dengan `duplicate key value
+violates unique constraint "departments_name_unique"`, transaksi
+di-rollback, data tetap 3 divisi.
 
-Menambah dua kolom ke `payrolls` yang **dipakai aplikasi tapi tidak pernah
-ada**:
+Cara menjalankan + skrip verifikasi: `docs/DEPLOY.md` §4.
 
-| Kolom | Kenapa |
-|---|---|
-| `deduction_notes` | `publishRow()` mengirimnya. Kalau kolomnya tidak ada, slip gaji tidak bisa dipublikasikan sama sekali. |
-| `system_overtime_days` | Ada di `types/index.ts` dan dihitung di halaman, tapi tidak pernah dikirim dalam payload apa pun — nilainya hilang setiap kali halaman dimuat ulang. |
+| File | Isi | Status di VPS |
+|---|---|---|
+| `0010` | 4 constraint UNIQUE | terpasang, 0 duplikat |
+| `0011` | `kpis.brand` | ada |
+| `0012` | 4 kolom `feedbacks` + 2 CHECK + NOT NULL | terpasang |
+| `0013` | `payrolls.deduction_notes` + `system_overtime_days` | ada |
 
-Kalau ternyata Supabase sudah punya kedua kolom, `ADD COLUMN IF NOT
-EXISTS` tidak melakukan apa-apa dan data yang ada tetap utuh.
+### 0013 — dua kolom `payrolls` yang tidak pernah ada
 
-Cara menjalankan + yang harus diperiksa: `docs/DEPLOY.md` §4.2.
+File `drizzle/0013_payroll_columns.sql`. Idempotent, sudah diuji lokal
+(termasuk dijalankan dua kali) dan di produksi.
 
----
+Alasan kedua kolom ini ada ada di bagian Fase 5 di atas. Kalau ternyata
+Supabase sudah punya keduanya, `ADD COLUMN IF NOT EXISTS` tidak
+melakukan apa-apa dan data yang ada tetap utuh.
 
-## Migrasi 0010 — SUDAH ADA, belum di VPS
+### 0010 — 4 constraint UNIQUE
 
-File: `drizzle/0010_unique_constraints.sql`. Sudah diuji di database lokal:
-tidak ada duplikat, keempat constraint terpasang.
+File `drizzle/0010_unique_constraints.sql`.
 
 `departments.name` **tidak punya UNIQUE** (hanya PK `id`). Sama untuk
 `office_locations.name`, `letter_types.code`, dan kombinasi
 `kpis(title, year, month)`.
 
-Dampak: dua admin bisa membuat divisi "TNT" dua kali. Dropdown filter KPI
-jadi ambigu, `department_locations` bisa menunjuk divisi yang salah.
+Dampak: dua admin bisa membuat divisi "TNT" dua kali. Dropdown filter
+KPI jadi ambigu, `department_locations` bisa menunjuk divisi yang salah.
 
-`kpis.title` sengaja **tidak** di-unique-kan: judul KPI memang boleh sama
-antar bulan ("Kualitas Absensi" muncul tiap bulan). Yang unik adalah
-kombinasi dengan periode.
+`kpis.title` sengaja **tidak** di-unique-kan: judul KPI memang boleh
+sama antar bulan ("Kualitas Absensi" muncul tiap bulan). Yang unik
+adalah kombinasi dengan periode.
 
-⚠️ Di VPS: jalankan bagian 1 (hanya laporan duplikat) dulu dan **periksa
-hasilnya** sebelum bagian 2. Kalau bagian 1 melaporkan duplikat, jangan
-lanjut — lapor, jangan drop data.
+Hasil di produksi: **0 baris duplikat** di keempat query, jadi aman
+untuk bagian 2.
 
----
+WARN: nama constraint KPI adalah `kpis_title_period_unique`, **bukan**
+`kpis_title_year_month_unique` seperti yang pernah tertulis di catatan.
+Query verifikasi yang mencari nama salah melaporkan "constraint hilang"
+padahal ada -- itu benar-benar terjadi saat migrate.
 
-## Migrasi 0011 — SUDAH ADA, belum di VPS
+### 0011 — `kpis.brand`
 
 `ALTER TABLE kpis ADD COLUMN IF NOT EXISTS brand varchar(64);`
 
-Menambahkan kolom yang sudah lama dibaca halaman `executive/quality` tapi
-tidak pernah ada di schema Drizzle.
+Menambahkan kolom yang sudah lama dibaca halaman `executive/quality`
+tapi tidak pernah ada di schema Drizzle.
 
-## Migrasi 0012 — SUDAH ADA, belum di VPS
+### 0012 — `feedbacks`
 
-Memperbaiki tabel `feedbacks`. Baca file `drizzle/0012_feedbacks.sql` —
-bagian 1 hanya melaporkan apakah ada baris yang memakai `assignment_id`,
-bagian 2 menambahkan kolom dan memasang CHECK constraint.
+File `drizzle/0012_feedbacks.sql` -- bagian 1 hanya melaporkan apakah
+ada baris yang memakai `assignment_id`, bagian 2 menambahkan kolom dan
+memasang CHECK constraint.
 
-Intinya: kolom `user_name` / `department` / `role` / `type` ditambahkan,
-`assignment_id` dibuat nullable, dan baris lama (bila ada) diisi ulang
-dari tabel `users`.
+Intinya: kolom `user_name` / `department` / `role` / `type`
+ditambahkan, `assignment_id` dibuat nullable, dan baris lama (bila ada)
+diisi ulang dari tabel `users`.
+
+`feedbacks` kosong di produksi, jadi tidak ada baris lama yang perlu
+diisi ulang (`UPDATE 0`).
 
 ---
 

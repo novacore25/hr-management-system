@@ -104,94 +104,132 @@ jadi aman dijalankan berulang kali.
    tidak masuk daftar di bawah, dia tidak akan pernah dijalankan — dan
    gejalanya adalah "kolom itu seharusnya ada tapi tidak ada".
 
-### Sudah di VPS
+### Status migrasi di VPS (per 2026-10-02, sudah diverifikasi)
 
 ```
-0000_init
-0004_auth_constraints
-0005_seed
-0006_kpi_settings_weights
-0007_users_religion
-0008_letter_numbering
-0009_users_employment
+0000_init                  26 tabel                       ✅
+0004_auth_constraints      ✅
+0005_seed                  3 divisi, 3 letter_types     ✅
+0006_kpi_settings_weights  ✅
+0007_users_religion        users.religion ada           ✅
+0008_letter_numbering      letter_types.template_url
+                           + 2 index company_letters    ✅
+0009_users_employment      users.employment_status ada  ✅
+0010_unique_constraints    4 constraint UNIQUE terpasang ✅
+0011_kpis_brand            kpis.brand ada                ✅
+0012_feedbacks             4 kolom + 2 CHECK + NOT NULL  ✅
+0013_payroll_columns       2 kolom baru                 ✅
 ```
 
-### Belum di VPS (per 2026-10-02)
+**Tidak ada yang tertunda.** Kalau menambah migrasi baru, tambahkan
+juga ke daftar ini **dan** ke `AGENTS.md` §5 — registri di sini manual,
+dan `0009` pernah terlewat karena tidak masuk daftar.
+
+Bukti constraint 0010 benar-benar bekerja (bukan cuma ada di katalog):
+mencoba insert divisi "TNT" kedua ditolak dengan
+`duplicate key value violates unique constraint "departments_name_unique"`.
+Data tetap 3 divisi.
+
+---
+
+### 4.0 Cara memanggil perintah di VPS — jebakan yang sempat membuang waktu
+
+Pemanggilan lewat harness shell lokal merusak perintah yang
+mengandung `bash`. Gejalanya **salah total**:
 
 ```
-0010_unique_constraints   ← JALANKAN PER BAGIAN, LIHAT §4.1
-0011_kpis_brand
-0012_feedbacks            ← JALANKAN PER BAGIAN, LIHAT §4.1
-0013_payroll_columns
+Warning: Identity file /root/.ssh/id_vps not accessible
+root@168.231.118.146: Permission denied (publickey).
 ```
 
-### 4.1 Migrasi bercabang (0010 & 0012)
+Terlihat seperti kunci SSH ditolak, padahal kuncinya tidak pernah
+dibaca. Penyebabnya bukan SSH: perintah yang mengandung `bash`, atau
+yang menjalankan sebuah file sebagai perintah remote, diinterupsi
+harness — yang lalu memanggil ssh dengan argumen kacau. Di mesin ini
+`bash` = WSL, dan WSL tidak punya distro terpasang.
 
-Kedua file ini punya bagian yang harus diperiksa manual sebelum
-lanjutan. **Jangan `cat file | docker exec` sekaligus.**
+| Bentuk | Hasil |
+|---|---|
+| `ssh vps hostname` | ✅ |
+| `ssh vps "cat X \| sh"` | ✅ |
+| `ssh vps "cat X \| bash"` | ❌ |
+| `ssh vps bash /path/x.sh` | ❌ |
+| `ssh vps /path/x` | ❌ |
 
-0010:
+Aturan: **`cat file | sh`, dan `sh` saja.** Skrip yang dikirim ke VPS
+karena itu harus POSIX `sh`: tanpa `set -o pipefail`, tanpa `<<<`,
+tanpa array.
 
-```bash
-# BAGIAN 1 dulu — hanya laporan, tidak mengubah apa pun
-docker exec $DB psql -U postgres -d db_hr_system < drizzle/0010_unique_constraints.sql
+Host `vps` sudah terdaftar di `~/.ssh/config` dengan path absolut
+(`C:/Users/Banzilla/.ssh/id_vps`) — bukan `~/`, karena `HOME` kosong
+di mesin ini dan Windows OpenSSH jailedalu ke `/root/.ssh/`.
+
+### 4.1 Menjalankan migrasi
+
+```powershell
+# 1. salin file ke VPS
+scp "drizzle\0013_payroll_columns.sql" vps:/root/migrations/
+
+# 2. jalankan seluruh set (0010 per bagian, lalu 0011-0013)
+ssh vps "cat /usr/local/bin/novacore-apply-migrations | sh"
 ```
 
-Baca output bagian 1. Kalau ada baris duplikat (kolom `nilai` terisi),
-**STOP** — jangan jalankan bagian 2. Duplikat berarti data yang perlu
-dibersihkan lebih dulu oleh pemilik sistem. Menjalankan bagian 2 dengan
-duplikat akan gagal dan menghasilkan error yang membingungkan.
+Untuk satu file:
 
-Kalau bersih (0 baris di semua query), lanjutkan bagian 2.
+```powershell
+ssh vps "cat /root/migrations/0013_payroll_columns.sql | docker exec -i vlu8rdt1abda7g69vbiwsk4p psql -U postgres -d db_hr_system -v ON_ERROR_STOP=1"
+```
 
-0012: sama — bagian 1 melaporkan apakah ada baris `feedbacks` yang memakai
-`assignment_id`, bagian 2 menambahkan kolom dan constraint.
+`docker exec -i` wajib (stdin), `-v ON_ERROR_STOP=1` supaya berhenti di
+error pertama — bukan melanjutkan ke baris berikutnya dengan state
+setengah.
 
-### 4.2 `0013_payroll_columns` — JALANKAN SEBELUM MIGRASI DATA
+### 4.2 Migrasi bercabang (0010 & 0012) — SUDAH DIJALANKAN
+
+0010 bagian 1 = laporan duplikat, bagian 2 = pasang constraint.
+Hasil di produksi: **0 baris di semua query** → aman lanjut. Keempat
+constraint sekarang terpasang.
+
+0012 bagian 1 = laporan pemakaian `assignment_id`, bagian 2 = ubah
+kolom + constraint. `feedbacks` kosong di produksi, jadi tidak ada
+baris lama yang perlu diisi ulang.
+
+Skrip `novacore-apply-migrations` menjalankan 0010 **dua kali** untuk
+membuktikan idempotensinya — keduanya bersih.
+
+### 4.3 `0013_payroll_columns` — SUDAH DIJALANKAN
 
 Menambah dua kolom ke `payrolls`:
 
 | Kolom | Kenapa |
 |---|---|
-| `deduction_notes` | `publishRow()` mengirimnya, tapi kolomnya **tidak pernah ada** — jadi kalau tidak ditambah, slip gaji tidak bisa dipublikasikan sama sekali. |
+| `deduction_notes` | `publishRow()` mengirimnya, tapi kolomnya **tidak pernah ada** — jadi tanpa 0013, slip gaji tidak bisa dipublikasikan sama sekali. |
 | `system_overtime_days` | Ada di `src/types/index.ts` dan dihitung di halaman, tapi **tidak pernah dikirim** dalam payload apa pun — nilainya hilang setiap kali halaman dimuat ulang. |
 
-Idempotent (`ADD COLUMN IF NOT EXISTS`), jadi aman di produksi:
+Idempotent (`ADD COLUMN IF NOT EXISTS`). Kalau dijalankan ulang akan
+muncul `NOTICE: column ... already exists, skipping` — itu **bukan**
+error, itu buktinya migrasi sudah jalan.
 
-```bash
-docker exec -i $DB psql -U postgres -d db_hr_system -v ON_ERROR_STOP=1 < drizzle/0013_payroll_columns.sql
+### 4.4 Nama constraint KPI: `kpis_title_period_unique`
+
+Catatan lama menyebut `kpis_title_year_month_unique`. **Nama itu tidak
+pernah ada.** Verifikasi yang mencari nama salah akan melaporkan
+"constraint hilang" padahal terpasang — dan itu terjadi saat migrate.
+Selalu cek `pg_constraint` langsung.
+
+### 4.5 Verifikasi (READ-ONLY, aman)
+
+```powershell
+ssh vps "cat /usr/local/bin/novacore-inspect | sh"   # laporan kondisi DB
+ssh vps "cat /usr/local/bin/novacore-verify | sh"    # verifikasi pasca-migrasi
 ```
 
-Nanti di bagian paling bawah akan tercetak dua baris:
-
-```
- column_name      | data_type | is_nullable
-------------------+-----------+------------
- deduction_notes  | text      | YES
- system_overtime_days | integer | YES
-```
-
-Kalau yang muncul `NOTICE: column ... already exists, skipping` — itu
-berarti migrasi pernah jalan. Bukan error.
-
-**Penting untuk Fase 6:** kalau ternyata Supabase ternyata sudah punya
-kedua kolom ini, `ADD COLUMN IF NOT EXISTS` tidak melakukan apa-apa dan
-data yang ada tetap utuh. Kalau ternyata tidak punya, kolomnya dibuat
-kosong — dan nilai kosong itu memang tidak pernah tersimpan sebelumnya,
-jadi tidak ada data yang hilang.
-
-### Cara menjalankan file dari repo lokal
-
-```bash
-DB=vlu8rdt1abda7g69vbiwsk4p
-# dari folder repo
-docker exec -i $DB psql -U postgres -d db_hr_system -v ON_ERROR_STOP=1 < drizzle/0011_kpis_brand.sql
-```
-
-`-i` wajib (stdin), `-v ON_ERROR_STOP=1` supaya berhenti di error pertama
-bukan lanjut ke baris berikutnya.
+`novacore-verify` termasuk mencoba insert divisi duplikat di dalam
+transaksi yang di-rollback — satu-satunya cara membuktikan constraint
+benar-benar bekerja, bukan cuma tercatat di katalog.
 
 ---
+
 
 ## 5. Kalau ada masalah
 
