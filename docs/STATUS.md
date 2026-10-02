@@ -164,10 +164,11 @@ Yang perlu diingat saat memindahkan data:
 ### Urutan yang disarankan
 
 1. ~~Terapkan migrasi 0010–0013 di VPS~~ — ✅ selesai 2026-10-02
-2. **Deploy aplikasi versi sekarang.**
-3. Cek `/api/health` dan buka beberapa halaman — database produksi masih
-   kosong, jadi halaman akan kosong, dan itu **normal**.
-4. Migrasi data Supabase (`pg_dump`).
+2. ~~Deploy aplikasi versi sekarang~~ — ✅ **sudah otomatis**; Coolify
+   auto-deploy tiap push (`docs/DEPLOY.md` §1.0), dan health check
+   produksi sudah hijau
+3. ~~Cek `/api/health` dan buka beberapa halaman~~ — ✅ sudah dicek 2026-10-02
+4. **Migrasi data Supabase (`pg_dump`).** ← ini yang tersisa
 5. Perbaiki `managed_departments` ke format UUID kalau perlu.
 6. Naikkan role akun pemilik ke `hr`, lalu buat user lain.
 
@@ -333,7 +334,7 @@ halaman itu, tapi dari endpoint yang mereka panggil):
 
 ## Verifikasi
 
-Sebelas skrip, **609 assert**. Semuanya membaca isi respons, isi
+Sebelas skrip, **619 assert**. Semuanya membaca isi respons, isi
 database, atau isi file — bukan cuma status code.
 
 ```powershell
@@ -347,10 +348,10 @@ npm run verify:hrkpi        # 123 sampah, restore, cascade, bulk, copy, form
 npm run verify:overtime     # 76  tahap lembur, transisi, gaji di server
 npm run verify:payroll      # 84  otorisasi, angka negatif, slip terkunci
 npm run verify:stubguard    # 10  guard stub-nya benar-benar gagal
-npm run verify:docs        # 22  dokumentasi tidak berbohong
+npm run verify:docs        # 32  dokumentasi + skrip vps tidak berbohong
 ```
 
-Total **609 assert**, sebelas skrip.
+Total **619 assert**, sebelas skrip.
 
 Semuanya membersihkan data ujinya sendiri dan bisa dijalankan berulang
 kali.
@@ -488,14 +489,19 @@ Yang perlu diputuskan dulu:
 - Tabel `auth.users` tidak ikut; user harus login ulang dengan Google.
 - `session.strategy` sudah JWT, jadi tidak ada sesi lama yang perlu dibawa.
 
-#### Kondisi database produksi per 2026-10-02
+#### Kondisi database produksi per 2026-10-02 (setelah migrasi 0010–0013)
 
 Sudah diperiksa langsung di VPS:
 
 ```
+departments : 3      letter_types : 3      users : 1
+kpis : 0      payrolls : 0      feedbacks : 0
+
 users total : 1   (role: tim, tanpa managed_departments)
 role head   : 0
 role hr / executive / developer : 0
+constraint  : departments_name_unique, kpis_title_period_unique,
+              letter_types_code_unique, office_locations_name_unique
 ```
 
 Artinya **belum ada data asli sama sekali** — sesuai rencana, migrasi data
@@ -513,6 +519,27 @@ Dua konsekuensi yang perlu diketahui:
 2. **Halaman yang di-scope ke Head akan kosong di produksi** — bukan bug,
    konsekuensi belum adanya user ber-role `head`. Semua scoping sudah
    diuji dengan data uji lokal.
+
+#### Kondisi aplikasi produksi per 2026-10-02
+
+| Cek | Hasil |
+|---|---|
+| Container | `rredcbao7tqz34pkqeelf8xx-060636430958` Up, **healthy** |
+| Image tag | `55bda2e` — cocok dengan commit yang pushed |
+| `/api/health` (domain publik) | `status: ok`, `db: connected`, `hostMatchesAuthUrl: true` |
+| `/` dan `/login` | HTTP 200 |
+| `/absensi/home` tanpa sesi | HTTP 302 ke login — benar |
+| 7 endpoint terproteksi tanpa sesi | HTTP **401** dengan pesan Bahasa Indonesia |
+| `/_next/static/css/*.css` | `text/css` — bukan `text/plain` |
+| Error di log 30 menit | tidak ada |
+
+Semua ini berarti **versi aplikasi yang sudah dipindahkan penuh dari
+Supabase sedang berjalan di produksi** dengan kode server-side yang baru.
+Yang belum ada hanya datanya.
+
+Catatan: Coolify melakukan auto-deploy setiap `git push` ke `main`
+(`docs/DEPLOY.md` §1.0). Jadi "deploy aplikasi versi sekarang" di bawah
+sudah terjadi — tidak ada langkah manual yang tertinggal.
 
 ---
 

@@ -12,11 +12,56 @@ untuk status migrasi, `AGENTS.md` untuk jebakan teknis.
 
 | Fungsi | Cara cari |
 |---|---|
-| Container aplikasi | `docker ps --format 'table {{.Names}}\t{{.Image}}'` lalu cari image `novacore` |
-| Container database | **cari yang image `postgres:18-alpine`** — ⚠️ ada **DUA**, lihat §2 |
+| Container aplikasi | `docker ps --format '{{.Names}}' \| grep rredcbao7tqz34pkqeelf8xx` |
+| Container database | `vlu8rdt1abda7g69vbiwsk4p` — ⚠️ ada **DUA** postgres, lihat §1.1 |
 | Coolify | container `coolify` |
 
-### ⚠️ Dua container postgres
+### 1.0 Dua hal yang berubah sendiri tanpa memberi tahu
+
+#### Coolify auto-deploy setiap `git push`
+
+Tidak ada langkah deploy manual. setiap kali commit masuk ke `main`,
+Coolify membangun image dan mengganti container-nya sendiri.
+
+Konsekuensi:
+
+- **Tidak ada "deploy nanti"**. Push = produksi berubah beberapa menit
+  kemudian. Kalau tidak siap, jangan push.
+- **Nanti ingin deploy = sudah ter-deploy.** Langkah "deploy aplikasi"
+  di `docs/STATUS.md` sebenarnya sudah terjadi.
+- Image tag = SHA lengkap commit yang berjalan. Cara cek versi yang
+  aktif tanpa menebak:
+
+  ```bash
+  APP=$(docker ps --format '{{.Names}}' | grep rredcbao7tqz34pkqeelf8xx | head -1)
+  docker inspect "$APP" --format '{{.Config.Image}}'
+  ```
+
+  Bandingkan dengan `git log --oneline -1`. Kalau bedanya, build
+  masih jalan atau gagal.
+
+#### Nama container aplikasi berubah tiap deploy
+
+Prefix tetap, sufiks numerik tidak:
+
+```
+rredcbao7tqz34pkqeelf8xx-013850109242   ← lama
+rredcbao7tqz34pkqeelf8xx-060636430958   ← sekarang
+```
+
+Hardcode nama lengkap = `Error response from daemon: No such
+container`, padahal aplikasinya sehat dan sedang berjalan. Gejalanya
+mirip server mati, jadi wasting time yang tidak perlu.
+
+**Selalu cari by prefix, jangan hardcode:**
+
+```sh
+APP=$(docker ps --format '{{.Names}}' | grep "^rredcbao7tqz34pkqeelf8xx" | head -1)
+```
+
+Semua skrip di `/usr/local/bin/novacore-*` sudah begitu.
+
+### 1.1 Dua container postgres
 
 ```
 vlu8rdt1abda7g69vbiwsk4p   postgres:18-alpine   ← aplikasi HR
@@ -34,6 +79,8 @@ docker exec vlu8rdt1abda7g69vbiwsk4p psql -U postgres -d db_hr_system -c "SELECT
 ```
 
 Kalau hasilnya 0 (atau tidak ada tabel `users`), itu container yang salah.
+`db_hr_system` hanya ada di container yang benar, jadi nama database itu
+sudah jadi penanda yang cukup.
 
 ---
 
@@ -60,11 +107,16 @@ ke file mana pun, jangan di-commit, jangan dikirim di chat.
 
 ## 3. Urutan deploy
 
+Tidak ada perintah deploy manual — **push ke `main` memicu Coolify
+otomatis** (§1.0). Jadi urutan sebenarnya adalah: periksa dulu, baru
+push, lalu tunggu.
+
 ### 3.1 Sebelum push
 
 ```bash
 npm run verify          # typecheck + stub guard + test
 npm run verify:build    # build + pastikan middleware ter-build
+npm run verify:docs     # dokumentasi tidak berbohong tentang diri sendiri
 git status              # pastikan tidak ada .env / file sensitif
 ```
 
@@ -72,22 +124,51 @@ git status              # pastikan tidak ada .env / file sensitif
 middleware hilang — dia hanya menulis `middleware: {}`. Build hijau,
 proteksi route hilang tanpa jejak. Lihat `AGENTS.md` §3.1.
 
+**Sebelum push, remember:** ini menyentuh produksi. Kalau ragu, jangan
+push dulu — tidak ada yang bisa membatalkan deploy yang sudah terjadi.
+
 ### 3.2 Setelah deploy, cek health
 
+Sekali jalan:
+
+```powershell
+ssh vps "cat /usr/local/bin/novacore-public-check | sh"
+```
+
+Yang benar di produksi:
+
+| Cek | Harus |
+|---|---|
+| `/api/health` | `"status":"ok"`, `"db":"connected"`, `hostMatchesAuthUrl: true` |
+| `/` dan `/login` | HTTP 200 |
+| `/absensi/home` tanpa sesi | HTTP 302 (redirect ke login) — **bukan** 200 |
+| `/api/me`, `/api/kpis`, `/api/payroll`, dll tanpa sesi | HTTP **401** — bukan 500 |
+| `/_next/static/css/*.css` | `content-type: text/css` — **bukan** `text/plain` |
+
+Tiga jebakan di tabel itu:
+
+1. **`status: "warning"` dari dalam container itu normal.** Kalau dicek
+   lewat `127.0.0.1:3000`, host-nya berbeda dari `AUTH_URL`, jadi
+   `/api/health` melaporkan warning. Itu bukan masalah. Dicek lewat
+   domain publik, hasilnya `"status":"ok"`.
+2. **401 itu kabar baik.** Endpoint terproteksi mengembalikan 401 dengan
+   pesan Bahasa Indonesia = middleware + guard Auth.js hidup. Kalau 500,
+   baru ada masalah.
+3. **CSS `text/plain` = build menabrak dev server** (§3.12 di
+   `AGENTS.md`). Di produksi tidak mungkin terjadi, tapi kalau pernah
+   melihatnya, build-nya memang bentrok.
+
+### 3.3 Kalau deploy gagal
+
+Coolify tidak memberi tahu lewat chat. Cek:
+
 ```bash
-curl -s https://<APP_DOMAIN>/api/health | head -c 400
+docker ps --filter 'name=rredcbao7tqz34pkqeelf8xx' --format '{{.Names}} {{.Status}}'
+docker logs --since 15m <container> | tail -50
 ```
 
-Yang diharapkan:
-
-```json
-{"status":"warning","db":"connected", ...}
-```
-
-- `"db":"connected"` → database tersambung
-- `"status":"warning"` dengan `problems` soal `AUTH_URL memakai http://`
-  → **wajar di lokal**, tapi di produksi harus `https://`
-- `"db":"failed"` → cek `DATABASE_URL` di Coolify
+Kalau tidak ada container yang jalan, build-nya gagal. Build di VPS cuma
+2 vCPU, jadi build yang berat bisa kehabisan waktu.
 
 ---
 
@@ -163,6 +244,53 @@ tanpa array.
 Host `vps` sudah terdaftar di `~/.ssh/config` dengan path absolut
 (`C:/Users/Banzilla/.ssh/id_vps`) — bukan `~/`, karena `HOME` kosong
 di mesin ini dan Windows OpenSSH jailedalu ke `/root/.ssh/`.
+
+### 4.0.1 Skrip yang sudah tersimpan di VPS
+
+Sumbernya ada di repo sebagai `scripts/vps/`, dan sudah ter-copy ke
+`/usr/local/bin/` di VPS dengan nama `novacore-*`.
+
+```powershell
+# refresh salinan di VPS (ulangi setiap skrip diubah).
+# Nama file di kiri HARUS sama persis dengan yang ada di scripts/vps/.
+scp scripts/vps/vps-inspect.sh           vps:/usr/local/bin/novacore-inspect
+scp scripts/vps/vps-verify-migrations.sh vps:/usr/local/bin/novacore-verify
+scp scripts/vps/vps-health.sh            vps:/usr/local/bin/novacore-health
+scp scripts/vps/vps-public-check.sh      vps:/usr/local/bin/novacore-public-check
+scp scripts/vps/vps-apply-migrations.sh  vps:/usr/local/bin/novacore-apply-migrations
+```
+
+Menjalankannya:
+
+```powershell
+# read-only, aman kapan saja
+ssh vps "cat /usr/local/bin/novacore-inspect | sh"        # kondisi DB
+ssh vps "cat /usr/local/bin/novacore-verify | sh"         # verifikasi constraint
+ssh vps "cat /usr/local/bin/novacore-health | sh"         # health + versi aktif
+ssh vps "cat /usr/local/bin/novacore-public-check | sh"   # cek via domain publik
+
+# MENUBAH database -- hanya untuk migrasi
+ssh vps "cat /usr/local/bin/novacore-apply-migrations | sh"
+```
+
+| Skrip | Mengubah DB? |
+|---|---|
+| `novacore-inspect` | tidak |
+| `novacore-verify` | tidak (percobaan insert di dalam transaksi yang di-rollback) |
+| `novacore-health` | tidak |
+| `novacore-public-check` | tidak |
+| `novacore-apply-migrations` | **ya** -- hanya untuk migrasi |
+
+Dua hal yang mudah terlewat:
+
+1. **Setelah `scp`, selalu `chmod +x`** dan buang `\r`. File dari
+   Windows berakhiran CRLF; `sh` akan gagal membacanya dengan galat
+   yang arahnya keliru -- bukan ke masalah line ending.
+2. **`novacore-verify` menjalankan percobaan insert** (divisi duplikat)
+   di dalam transaksi yang sengaja di-rollback. Itu satu-satunya cara
+   membuktikan constraint benar-benar bekerja, bukan cuma tercatat di
+   katalog -- tapi kalau setelahnya jumlah baris berubah, jangan
+   mengira migrasi yang salah.
 
 ### 4.1 Menjalankan migrasi
 
@@ -277,11 +405,17 @@ cp .env.example .env.local   # isi DATABASE_URL + AUTH_SECRET
 npx next dev -p 3100
 
 # dengan dev server jalan, di terminal lain:
-npm run verify:endpoints      # 24 endpoint
+npm run verify:endpoints      # 24 assert
 npm run verify:quality        # 32 assert
 npm run verify:assignments    # 70 assert
 npm run verify:feedbacks      # 39 assert
-npm run verify:reports        # 35 assert
+npm run verify:reports        # 65 assert
+npm run verify:adminkpi       # 64 assert
+npm run verify:hrkpi          # 123 assert
+npm run verify:overtime       # 76 assert
+npm run verify:payroll        # 84 assert
+npm run verify:stubguard      # 10 assert
+npm run verify:docs           # 32 assert (butuh dev server hidup)
 ```
 
 Semuanya membaca **isi** database, bukan cuma status code. Detail cara

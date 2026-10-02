@@ -1,33 +1,35 @@
 /**
- * Guard dokumentasi: cek bahwa STATUS.md tidak berbohong tentang
+ * Guard dokumentasi: cek bahwa dokumentasi tidak berbohong tentang
  * dirinya sendiri.
  *
  * Kenapa perlu?
  *
- * Sejarah: STATUS.md sempat menulis "component pendukung yang juga masih
- * pakai stub: DailyInputForm, DailyReportsViewer, KpiFormPage,
- * FeedbackModal" — padahal semuanya sudah selesai. Pembaca (atau AI
- * berikutnya) yang percaya akan mengerjakan pekerjaan yang sudah beres,
- * atau_fraction menganggap fitur belum ada.
+ * Sejarah: STATUS.md sempat menulis daftar komponen "yang masih pakai
+ * stub" padahal semuanya sudah selesai. Pembaca (atau AI berikutnya) yang
+ * percaya akan mengerjakan pekerjaan yang sudah beres.
  *
- * Tiga kelas yang dicek:
+ * Yang dicek:
  *
- *  1. **Klaim basi.** Kalimat "masih pakai stub" / "belum selesai" yang
- *     ada di dokumen padahal sudah tidak benar.
- *  2. **Angka yang basi.** Jumlah assert yang tidak sama dengan
- *     `npm run verify:*`.
- *  3. **Judul yang tertimpa.** Dua bagian berbeda dengan nama yang
- *     sama atau salah, karena blok di tengah pernah diganti tanpa
- *     melihat baris di bawahnya.
+ *  1. Klaim basi, dan konsistensi dengan ALLOWLIST di verify-no-stub.ts.
+ *  2. Setiap jumlah assert yang tertulis di STATUS.md dibandingkan dengan
+ *     hasil skrip yang benar-benar jalan. "65 assert" tidak bisa lagi
+ *     jadi 35 tanpa ketahuan.
+ *  3. Judul bagian unik; setiap fase di tabel navigasi punya bagian.
+ *  4. Semua rujukan path benar-benar ada -- termasuk yang ber-backslash.
+ *  5. Tidak ada karakter non-Latin di dokumen ATAU di guard ini.
  *
- * Selain itu dicek juga karakter non-Latin yang nyasar — beberapa kali
- * karakter CJK masuk ke komentar Indonesia lewat tool edit, dan hasilnya
- * terlihat seperti "`该` ada di" — membingungkan, dan tidak pernah
- * dikompilasi sehingga tidak ketahuan.
+ * Dua jebakan yang sudah terjadi:
+ *
+ * - PENTING: skrip ini memanggil skrip `verify:*` yang lain, jadi skrip ini
+ *   sendiri harus dikecualikan. Kalau tidak, prosesnya bercabang tanpa
+ *   henti (lihat AGENTS.md 3.17).
+ * - Semua suite perilaku butuh dev server di 127.0.0.1:3100. Kalau mati,
+ *   mereka membalas 0 assert -- dan guard harus menyalahkan server,
+ *   bukan dokumen (lihat AGENTS.md 3.12).
  *
  * Jalankan: npm run verify:docs
  */
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 
 const ROOT = "docs";
@@ -103,6 +105,8 @@ console.log("\n=== 2. Angka verify harus sama dengan yang benar-benar jalan ==="
   );
 
   const pkg = JSON.parse(readFileSync("package.json", "utf8"));
+  const tidakJalan = [];
+  const nolPass = [];
   for (const [, nama, angka] of klaim) {
     // Skrip ini memanggil skrip verify yang lain untuk mengecek angka
     // yang tertulis di dokumen. Kalau dia memanggil dirinya sendiri,
@@ -129,10 +133,59 @@ console.log("\n=== 2. Angka verify harus sama dengan yang benar-benar jalan ==="
     }
 
     const hasil = output.match(/(\d+) pass/);
+
+    // PENTING: bedakan "angka di dokumen salah" dari "skripnya tidak
+    // jalan sama sekali".
+    //
+    // Semua suite perilaku memanggil dev server di 127.0.0.1:3100.
+    // Kalau server mati, mereka membalas 0 pass atau tidak menghasilkan
+    // output sama sekali. Tanpa pembedaan, guard melaporkan "dokumen
+    // bilang 24, dapat 0" -- yang mengarah ke dokumen. Padahal
+    // dokumennya benar; server-nya yang mati.
+    //
+    // Sabotase yang sama sudah pernah terjadi sekali: `.next` tercemar
+    // membuat semua endpoint membalas 500, jadi setiap suite dapat 0
+    // pass, dan 9 assert gagal sekaligus. Semuanya satu penyebab.
+    if (!hasil) {
+      tidakJalan.push(nama);
+      check(
+        `verify:${nama} menghasilkan output yang bisa dibaca`,
+        false,
+        "tidak ada pola 'N pass' sama sekali",
+      );
+      continue;
+    }
+
+    if (Number(hasil[1]) === 0) {
+      nolPass.push(nama);
+      check(
+        `verify:${nama} menjalankan assert (dokumen bilang ${angka} pass)`,
+        false,
+        "0 pass",
+      );
+      continue;
+    }
+
     check(
-      `verify:${nama} benar-benar ${hasil?.[1]} pass (dokumen bilang ${angka})`,
-      hasil?.[1] === angka,
-      hasil ? `dapat ${hasil[1]}` : "tidak bisa dijalankan",
+      `verify:${nama} benar-benar ${hasil[1]} pass (dokumen bilang ${angka})`,
+      hasil[1] === angka,
+      `dapat ${hasil[1]}, dokumen ${angka}`,
+    );
+  }
+
+  if (tidakJalan.length > 0 || nolPass.length > 0) {
+    const gabungan = [...tidakJalan, ...nolPass];
+    console.log(
+      `\n  CATATAN: ${gabungan.length} skrip tidak menghasilkan assert\n` +
+        `  sama sekali: ${gabungan.join(", ")}\n` +
+        `\n` +
+        `  Semua suite perilaku butuh dev server. Perbaiki dulu:\n` +
+        `    Stop-Process -Name node -Force\n` +
+        `    Remove-Item -Recurse -Force .next\n` +
+        `    npx next dev -p 3100\n` +
+        `\n` +
+        `  Angka di STATUS.md belum tentu salah. Guard ini tidak bisa\n` +
+        `  membandingkan kalau skripnya tidak jalan sama sekali.`,
     );
   }
 }
@@ -174,50 +227,133 @@ console.log("\n=== 4. Rujukan ke file lain harus benar ===");
     ...FILES,
     ...readdirSync("scripts").filter((f) => f.endsWith(".md")),
   ];
-  const ada = new Set(
-    semuaMd.flatMap((f) => {
-      const isi = readFileSync(f, "utf8");
-      return [...isi.matchAll(/`((?:docs|scripts|src|drizzle)\/[a-zA-Z0-9_\-./()]+)`/g)].map(
-        (m) => m[1],
-      );
-    }),
-  );
 
-  const hilangRef = [];
-  const cekRef = [...ada]
-    .sort()
-    // Wildcard bukan path yang bisa di-stat, dan path yang berakhiran
-    // "/" adalah folder (bukan file) -- keduanya bukan rujukan rusak.
-    .filter((r) => !r.includes("*") && !r.endsWith("/"));
-  for (const ref of cekRef) {
-    try {
-      readFileSync(ref);
-    } catch {
-      hilangRef.push(ref);
+  // PENTING: backslash ikut diterima.
+  //
+  // Dokumentasi ini ditulis di Windows, jadi penulisan path-nya bisa
+  // `scripts\vps\inspect.sh`. Versi pertama dari guard ini hanya
+  // mencari garis miring, sehingga SEMUA rujukan ber-backslash tidak
+  // terlihat sama sekali -- dan rujukan yang benar-benar rusak
+  // (nama filenya salah ketik) lolos begitu saja.
+  //
+  // Perbaikan ini ketemu bukan karena guard-nya, tapi karena `scp`
+  // gagal saat dicoba manual. Guard hanya menemukan bug kalau
+  // benar-benar ada -- bukan berarti guard sudah cukup.
+  // Dua bentuk penulisan yang harus sama-sama dipindai:
+  //
+  //   1. di dalam backtick   `scripts/vps/vps-health.sh`
+  //   2. polos di blok kode   scp scripts/vps/vps-health.sh ...
+  //
+  // Bentuk kedua dulu TIDAK terlihat sama sekali -- dan justru di
+  // situ nama file yang salah ketik berada. `scp` yang gagal tidak
+  // merusak apa pun, jadi tidak ada yang ingat sampai dibutuhkan.
+  const AKAR = "(?:docs|scripts|src|drizzle)";
+  const KAKS = "[a-zA-Z0-9_\\-./\\\\]+";
+  const pola = [
+    new RegExp("`(" + AKAR + "[\\\\/]" + KAKS + ")`", "g"),
+    new RegExp("(?<=^|[ \t(])(" + AKAR + "[\\\\/]" + KAKS + ")(?=$|[ \t)'\"])", "gm"),
+  ];
+
+  const semua = [];
+  for (const x of semuaMd) {
+    const isi = readFileSync(x, "utf8");
+    for (const re of pola) {
+      for (const s of isi.matchAll(re)) {
+        if (!s[1].includes("${")) semua.push([x, s[1]]);
+      }
     }
   }
+
+  const hilangRef = [];
+  const cek = new Set();
+  let folderDitemukan = 0;
+  let placeholder = 0;
+  for (const [dari, ref] of semua) {
+    // Normalisasi ke garis miring supaya bisa di-stat di semua OS.
+    const norm = ref.replace(/\\/g, "/");
+    // `...` dan `*` adalah placeholder, bukan path.
+    if (norm.includes("*")) continue;
+    if (norm.includes("...")) {
+      placeholder++;
+      continue;
+    }
+    cek.add(norm);
+    try {
+      // File: harus bisa dibaca.
+      readFileSync(norm);
+    } catch {
+      try {
+        // Folder: sahaja ada, tapi tidak bisa di-read.
+        if (statSync(norm).isDirectory()) {
+          folderDitemukan++;
+          continue;
+        }
+      } catch {
+        // bukan file dan bukan folder -> benar-benar hilang.
+      }
+      hilangRef.push(norm + "  (disebut di " + dari + ")");
+    }
+  }
+
+  const backslash = semua.filter(function (p) {
+    return p[1].indexOf("\\") >= 0;
+  }).length;
+  console.log(
+    "  (menemukan " + semua.length
+      + " rujukan path; " + backslash + " memakai backslash; "
+      + cek.size + " dicek, " + folderDitemukan + " folder, "
+      + placeholder + " placeholder)",
+  );
+
   check(
-    `${cekRef.length} rujukan file di dokumentasi semuanya ada`,
+    cek.size + " rujukan file di dokumentasi semuanya ada",
     hilangRef.length === 0,
-    JSON.stringify(hilangRef),
+    hilangRef.join(" | "),
   );
 }
 
+
+
 console.log("\n=== 5. Tidak boleh ada karakter non-Latin ===");
 {
-  for (const f of FILES) {
-    const isi = readFileSync(f, "utf8");
+  // Daftar file yang diperiksa.
+  //
+  // WAWARN: skrip ini sendiri ikut masuk daftar. Versi pertama hanya
+  // mengecek dokumen, dan header skrip ini sendiri sempat bringing
+  // karakter CJK tanpa ada yang melihat selama berminggu-minggu.
+  // Guard yang tidak memeriksa dirinya sendiri punya celah persis di
+  // tempat yang paling mungkin salah.
+  const PERIKSA = [
+    ...FILES,
+    // Skrip yang disebut DEPLOY.md untuk dijalankan orang.
+    ...readdirSync("scripts/vps")
+      .filter((x) => x.endsWith(".sh"))
+      .map((x) => "scripts/vps/" + x),
+    "scripts/verify-docs.mjs",
+    "scripts/show-cjk.mjs",
+  ].filter((x) => {
+    try {
+      readFileSync(x);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+
+  for (const x of PERIKSA) {
+    const isi = readFileSync(x, "utf8");
     const baris = isi.split("\n");
     const buruk = [];
     for (let i = 0; i < baris.length; i++) {
       // CJK, Hangul, Kana, fullwidth, Latin-Extended.
       if (/[\u2E80-\u9FFF\uAC00-\uD7AF\u3040-\u30FF\uFF00-\uFFEF\u0100-\u017F]/u.test(baris[i])) {
-        buruk.push(`${i + 1}: ${baris[i].trim().slice(0, 70)}`);
+        buruk.push(i + 1 + ": " + baris[i].trim().slice(0, 70));
       }
     }
-    check(`${f} bersih (${isi.split("\n").length} baris)`, buruk.length === 0, buruk.join(" | "));
+    check(x + " bersih (" + baris.length + " baris)", buruk.length === 0, buruk.join(" | "));
   }
 }
+
 
 console.log(`\n=== ${pass} pass, ${fail} fail ===`);
 process.exit(fail > 0 ? 1 : 0);

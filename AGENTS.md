@@ -90,6 +90,40 @@ menampilkan diff.
 Kalau memang harus pakai skrip, pakai Node dengan guard: cek anchor
 dulu, tulis `\n` eksplisit, dan abort kalau ada yang tidak cocok.
 
+#### Guard anchor saja TIDAK cukup — cek hasilnya juga
+
+Pengalaman kedua: `scripts/verify-docs.mjs` (file nyantis, sudah
+di-commit, 204 baris) berakhir **0 byte**. Penyebabnya skrip Node yang
+menulis ulang file itu sendiri. Anchor-nya cocok, semua guard lulus,
+skrip mencetak "berhasil" — lalu filenya kosong.
+
+Jadi dua hal tambahan untuk setiap skrip yang menulis file:
+
+```js
+// 1. Sebelum tulis: pastikan isi baru tidak kosong dan masuk akal
+if (!out || out.length < isiAsli.length * 0.5) {
+  console.error("ABORT: hasil terlalu pendek -- tidak menulis");
+  process.exit(1);
+}
+
+// 2. Setelah tulis: verifikasi ukuran di disk, bukan cuma di memori
+writeFileSync(p, out, "utf8");
+const diDisk = readFileSync(p, "utf8");
+if (diDisk.length !== out.length) {
+  console.error("GAGAL: yang tersimpan tidak sama dengan yang ditulis");
+  process.exit(1);
+}
+```
+
+Dan paling penting: **`git status` + `git diff --stat` setelah menulis
+file**. File yang berubah 0 byte atau menyusut drastis langsung terlihat
+di sana — dan itu satu-satunya tempat yang tidak bisa dilewati oleh bug
+di skrip-nya sendiri.
+
+Kalau sudah terlanjur rusak dan file-nya ter-commit, pulihkan dengan
+`git checkout HEAD -- <path>`, lalu terapkan ulang perubahannya dengan
+tool `edit` (yang menampilkan diff) — bukan dengan skrip rewrite lagi.
+
 ### 2.4 Jangan menebak
 Kalau tidak yakin sebuah kolom/tabel benar-benar ada, cek dulu:
 
@@ -359,6 +393,22 @@ terlihat normal. Terlihat seperti bug aplikasi yang serius.
 menyetelnya ke `.next-verify`. Kalau salah satu gagal diam-diam, ganti
 folder di **kedua** file itu.
 
+Bentuk gejalanya yang baru terlihat setelah `verify:docs` dibuat:
+`.next` tercemar membuat **sembilan suite perilaku sekaligus** membalas
+0 assert. Semuanya satu penyebab, tapi tampilannya seperti sembilan bug
+yang tidak berhubungan. Dan `verify:docs` yang dipakai untuk mencari
+penyebabnya ikut ikut salah — dia melaporkan "dokumen bilang 24, dapat
+0", yang mengarah ke dokumen.
+
+Jadi `verify:docs` sekarang membedakan dua hal yang tadinya tertukar:
+
+- skrip **tidak menghasilkan assert sama sekali** → dev server mati
+- skrip jalan tapi angkanya **berbeda** → dokumen yang salah
+
+Kalau yang pertama, dia mencetak perintah perbaikannya dan sengaja
+tidak menyalahkan dokumen. Guard yang salah diagnosis lebih berbahaya
+daripada tidak ada guard.
+
 ### 3.13 Kolom yang nilainya DITURUNKAN tidak boleh diedit dari form yang sama
 
 `kpis.monthlyTarget` = `SUM(kpi_assignments.monthlyTarget)`. Jadi kalau
@@ -557,7 +607,7 @@ npm run verify:hrkpi        # 123 assert: sampah, restore, cascade, bulk, copy, 
 npm run verify:overtime     # 76 assert: tahap lembur, transisi, gaji di server
 npm run verify:payroll      # 84 assert: otorisasi gaji, angka negatif, slip terkunci
 npm run verify:stubguard    # 10 assert: guard stub benar-benar gagal
-npm run verify:docs        # 22 assert: dokumentasi tidak berbohong tentang diri sendiri
+npm run verify:docs        # 32 assert: dokumentasi + skrip vps tidak berbohong
 ```
 
 Semuanya membersihkan data ujinya sendiri, jadi bisa dijalankan berulang
