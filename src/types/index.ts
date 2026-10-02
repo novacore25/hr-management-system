@@ -309,7 +309,7 @@ export interface KpiAssignInput {
   monthlyTarget: number;
 }
 
-// ─── Feedback ─────────────────────────────────────────────────────────────────
+// ─── Feedback (laporan bug / usulan fitur) ────────────────────────────────────
 
 export interface Feedback {
   id: string;
@@ -320,8 +320,17 @@ export interface Feedback {
   type: "bug" | "feature" | "other";
   message: string;
   status: "open" | "in_progress" | "resolved" | "rejected";
-  createdAt: { seconds: number; nanoseconds: number; toDate: () => Date };
-  updatedAt: { seconds: number; nanoseconds: number; toDate: () => Date };
+  /**
+   * ISO string, bukan objek Timestamp.
+   *
+   * formerly `createdAt` adalah `{ seconds, nanoseconds, toDate() }` —
+   * bentuk Supabase. Shape itu TIDAK bisa melewati JSON: fungsi `toDate`
+   * hilang saat serialisasi, jadi `f.createdAt?.toDate()` jadi
+   * `TypeError: not a function` di browser. Halaman ini sekarang
+   * memformat ISO string langsung.
+   */
+  createdAt: string;
+  updatedAt: string;
 }
 
 // ─── API Response Types ───────────────────────────────────────────────────────

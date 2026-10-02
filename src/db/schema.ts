@@ -531,16 +531,32 @@ export const kpiHistories = pgTable(
   }),
 );
 
+/**
+ * Laporan bug / usulan fitur dari menu "Lapor Bug / Fitur".
+ *
+ * CATATAN: `assignmentId` nullable dan TIDAK dipakai aplikasi mana pun.
+ * Schema lama memodelkan tabel ini sebagai "catatan untuk satu assignment
+ * KPI" dengan `assignment_id NOT NULL`, padahal pemanggil sebenarnya
+ * (FeedbackModal) tidak pernah mengisinya — jadi setiap insert gagal.
+ * Diperbaiki di migrasi 0012; kolomnya sengaja dibiarkan ada supaya tidak
+ * ada baris lama yang hilang.
+ */
 export const feedbacks = pgTable(
   "feedbacks",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    assignmentId: uuid("assignment_id")
-      .notNull()
-      .references(() => kpiAssignments.id, { onDelete: "cascade" }),
+    /** Tidak dipakai — lihat catatan di atas tabel ini. */
+    assignmentId: uuid("assignment_id").references(() => kpiAssignments.id, {
+      onDelete: "cascade",
+    }),
     userId: varchar("user_id", { length: 255 })
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    /** Nama & divisi & role saat laporan dibuat — sengaja didenormalisasi. */
+    userName: text("user_name").notNull().default(""),
+    department: text("department"),
+    role: varchar("role", { length: 32 }),
+    type: varchar("type", { length: 16 }).notNull().default("other"),
     message: text("message").notNull(),
     status: varchar("status", { length: 32 }).notNull().default("open"),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -552,6 +568,7 @@ export const feedbacks = pgTable(
   },
   (t) => ({
     assignmentIdx: index("feedbacks_assignment_idx").on(t.assignmentId),
+    createdIdx: index("feedbacks_created_at_idx").on(t.createdAt),
   }),
 );
 

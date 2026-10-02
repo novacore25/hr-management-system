@@ -18,47 +18,55 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { createClient } from "@/lib/supabase/client";
-import { useAuth } from "@/contexts/AuthContext";
+import { useApiMutation } from "@/hooks/useApi";
 import { Bug } from "lucide-react";
 
 export function FeedbackModal({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { user, kpiRole } = useAuth();
   const [type, setType] = useState<"bug" | "feature" | "other">("bug");
   const [message, setMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
 
+  const createFeedback = useApiMutation<
+    { type: string; message: string },
+    unknown
+  >("/api/feedbacks", "POST");
+
+  /**
+   * formerly: `supabase.from("feedbacks").insert({ user_id, user_name,
+   * department, role, type, message, status })` dari browser.
+   *
+   * `user_name`, `department`, `role`, dan `type` tidak pernah ada di
+   * schema — kolomnya baru dibuat di migrasi 0012. Insert selalu gagal.
+   * Tidak terlihat, karena stub `createClient()` membalas `error: null`,
+   * jadi modal menampilkan "Laporan berhasil dikirim!" lalu menutup.
+   * Tidak ada satu pun laporan yang pernah tersimpan sejak migrasi.
+   *
+   * sekarang: POST /api/feedbacks. Nama/divisi/role diambil server dari
+   * baris `users`, dan error benar-benar sampai ke user kalau gagal.
+   */
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!message.trim() || !user || !kpiRole) return;
+    if (!message.trim()) return;
 
     setSubmitting(true);
     setError("");
-    try {
-      const supabase = createClient();
-      const { error: err } = await supabase.from("feedbacks").insert({
-        user_id: user.id,
-        user_name: user.name,
-        department: user.department || "Unknown",
-        role: kpiRole,
-        type,
-        message: message.trim(),
-        status: "open",
-      });
-      if (err) throw err;
-      setSuccess(true);
-      setMessage("");
-      setTimeout(() => {
-        setSuccess(false);
-        onClose();
-      }, 2000);
-    } catch {
-      setError("Gagal mengirim laporan. Coba lagi.");
-    } finally {
-      setSubmitting(false);
+
+    const res = await createFeedback.mutate({ type, message: message.trim() });
+    setSubmitting(false);
+
+    if (!res.ok) {
+      setError(res.error ?? "Gagal mengirim laporan. Coba lagi.");
+      return;
     }
+
+    setSuccess(true);
+    setMessage("");
+    setTimeout(() => {
+      setSuccess(false);
+      onClose();
+    }, 2000);
   }
 
   return (

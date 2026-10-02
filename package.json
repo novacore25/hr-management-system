@@ -17,6 +17,8 @@
     "verify:endpoints": "node scripts/verify-endpoints.mjs",
     "verify:quality": "node scripts/verify-quality.mjs",
     "verify:assignments": "node scripts/verify-assignments.mjs",
+    "verify:feedbacks": "node scripts/verify-feedbacks.mjs",
+    "verify:reports": "node scripts/verify-daily-reports.mjs",
     "verify": "npm run typecheck && tsx scripts/verify-no-stub.ts && npm run test"
   },
   "dependencies": {

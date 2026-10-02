@@ -29,7 +29,7 @@ sebagian halaman `/dashboard/**`, modul overtime, payroll, storage, dan
 | Guard `verify:stub` (stub import) | ✅ |
 | Health check `/api/health` | ✅ |
 | Migrations 0000–0009 | ✅ semua di VPS |
-| Migrations 0010–0011 | ⬜ baru, harus di VPS |
+| Migrations 0010–0012 | ⬜ baru, harus di VPS |
 | `withAuth` meneruskan Response apa adanya | ✅ baru (semua Route Handler) |
 
 ### Fase 1 — Pembersihan
@@ -77,7 +77,7 @@ overtime & payroll yang sengaja ditunda.
 
 ## Yang BELUM selesai
 
-### `/dashboard/**` — 6 halaman masih kosong
+### `/dashboard/**` — 4 halaman masih kosong
 
 Ini Prioritas 1. Semuanya memanggil stub sehingga tampil kosong, padahal
 fitur intinya sudah ada servernya.
@@ -87,13 +87,10 @@ fitur intinya sudah ada servernya.
 | `/dashboard/hr/kpi` | 14 | 817 baris — terbesar |
 | `/dashboard/hr/employees` | 3 | 432 |
 | `/dashboard/head/kpi-setup` | 4 | 330 |
-| `/dashboard/tim/history` | 3 | 345 |
 | `/dashboard/developer/import` | 5 | 661 |
-| `/dashboard/developer/feedbacks` | 2 | 192 |
 
-Sudah jadi: 4 halaman kualitas (`hr`, `head`, `executive`,
-`hr/evaluasi-hr`) + 4 halaman penugasan (`head/penugasan`,
-`head/penugasan/new`, `hr/assignments`, `hr/assignments/new`).
+Sudah jadi: 4 halaman kualitas, 4 halaman penugasan,
+`developer/feedbacks`, `tim/history`.
 
 ### Halaman KPI kualitas — sudah selesai, dengan tiga perbaikan
 
@@ -196,6 +193,73 @@ Verifikasi: `npm run verify:assignments` (70 assert).
 
 ---
 
+### Laporan bug (`developer/feedbacks` + `FeedbackModal`) — sudah selesai
+
+Fitur ini **tidak pernah menyimpan satu laporan pun** sejak migrasi.
+Schema Drizzle memodelkan `feedbacks` sebagai "catatan untuk satu
+assignment KPI" dengan `assignment_id NOT NULL` — tapi tidak ada kode
+yang memakainya, dan `user_name` / `department` / `role` / `type` tidak
+pernah ada sebagai kolom.
+
+`FeedbackModal` mengirim kelima kolom itu, jadi insert selalu gagal.
+Tidak terlihat: stub `createClient()` membalas `error: null`, jadi modal
+menampilkan "Laporan berhasil dikirim!" lalu menutup.
+
+Endpoint baru: `GET/PATCH /api/feedbacks` (developer only),
+`POST /api/feedbacks` (semua user). Nama/divisi/role sekarang diambil
+server dari baris `users` — sebelumnya dikirim dari `AuthContext` dan
+bisa dipalsukan.
+
+Verifikasi: `npm run verify:feedbacks` (39 assert).
+
+---
+
+### Riwayat input harian (`tim/history`) — sudah selesai
+
+Tiga hal yang ditemukan:
+
+1. **`userId` dari client bisa membuka laporannya orang lain.**
+   formerly `targetUser ?? (privileged ? undefined : me.id)` — kalau
+   client mengirim `userId`, `targetUser` selalu terisi, jadi cek
+   `privileged` sama sekali tidak dipakai. Staf biasa cukup mengubah
+   query string.
+2. **Koreksi nilai tidak menyentuh `kpi_assignments`.** formerly
+   `daily_reports.update(...)` dari browser, dan `actual_total`
+   di-recalc hanya saat laporan dibuat — bukan saat dikoreksi. Angka di
+   riwayat dan angka yang dipakai rekap jadi berbeda.
+3. **Koreksi tanpa cek kepemilikan.** `.eq("id", id)` tanpa verifikasi
+   pemilik — cukup menebak id, staf biasa bisa mengubah laporannya
+   orang lain.
+
+Endpoint baru: `PATCH /api/daily-reports`.
+
+Verifikasi: `npm run verify:reports` (35 assert).
+
+---
+
+## `working_days_elapsed` tidak pernah diisi — bug yang paling senyap
+
+Kolom `kpi_assignments.working_days_elapsed` **tidak pernah ditulis di
+mana pun** — tidak ada trigger, tidak ada kode. Default-nya 0.
+
+Rantai akibatnya: `expectedTotal = monthlyTarget / workingDaysTotal *
+workingDaysElapsed` → `expectedTotal` selalu 0 → `pacePct` selalu 0 →
+**`achievementPercentage` untuk KPI bertipe `result` dan `activity`
+selalu 0**, berapa pun laporan harian yang sudah diisi.
+
+Tidak ada error, tidak ada warning. Tampilannya rapih, angkanya nol.
+
+Sekarang dihitung dari periode assignment + tanggal hari ini, dan ditulis
+balik ke kolom (termasuk `working_days_remaining`) karena halaman lain
+membacanya langsung dari database.
+
+Seed lokal diperluas: KPI bertipe `result` + `activity`, 6 laporan
+harian, dan `working_days_total` terisi — sebelumnya nol semua, jadi
+`/dashboard/tim/history` dan `/dashboard/hr/kpi` tidak punya apa pun
+untuk ditampilkan.
+
+---
+
 ## Migrasi 0010 — SUDAH ADA, belum di VPS
 
 File: `drizzle/0010_unique_constraints.sql`. Sudah diuji di database lokal:
@@ -224,6 +288,16 @@ lanjut — lapor, jangan drop data.
 
 Menambahkan kolom yang sudah lama dibaca halaman `executive/quality` tapi
 tidak pernah ada di schema Drizzle.
+
+## Migrasi 0012 — SUDAH ADA, belum di VPS
+
+Memperbaiki tabel `feedbacks`. Baca file `drizzle/0012_feedbacks.sql` —
+bagian 1 hanya melaporkan apakah ada baris yang memakai `assignment_id`,
+bagian 2 menambahkan kolom dan memasang CHECK constraint.
+
+Intinya: kolom `user_name` / `department` / `role` / `type` ditambahkan,
+`assignment_id` dibuat nullable, dan baris lama (bila ada) diisi ulang
+dari tabel `users`.
 
 ---
 

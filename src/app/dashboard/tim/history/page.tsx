@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { createClient } from "@/lib/supabase/client";
-import { useAuth } from "@/contexts/AuthContext";
+import { useCallback, useMemo, useState } from "react";
+import { useApiQuery, useApiMutation } from "@/hooks/useApi";
+import { withQuery } from "@/lib/api-client";
 import { formatDateDisplay, formatNumber, monthName } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,16 +26,17 @@ function getMonthRange(monthValue: string) {
 }
 
 export default function TimHistoryPage() {
-  const { user } = useAuth();
   const [selectedMonth, setSelectedMonth] = useState(() => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   });
-  const [reports, setReports] = useState<DailyReport[]>([]);
-  const [kpiMap, setKpiMap] = useState<Record<string, KPI>>({});
-  const [isLoading, setIsLoading] = useState(true);
 
-  const { year: selectedYear, month: selectedMonthNumber } = getMonthRange(selectedMonth);
+  const {
+    year: selectedYear,
+    month: selectedMonthNumber,
+    start: from,
+    end: to,
+  } = getMonthRange(selectedMonth);
   const selectedMonthLabel = `${monthName(selectedMonthNumber)} ${selectedYear}`;
 
   // Edit state
@@ -45,72 +46,44 @@ export default function TimHistoryPage() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
 
-  useEffect(() => {
-    if (!user) {
-      setReports([]);
-      setKpiMap({});
-      setIsLoading(false);
-      return;
-    }
-    setIsLoading(true);
+  /**
+   * formerly: dua query Supabase dari browser, `daily_reports` disaring
+   * `user_id` dari AuthContext (bisa dimanipulasi), plus mapping manual
+   * seluruh baris KPI ke objek `KPI`.
+   *
+   * sekarang: `/api/daily-reports?from&to` — server selalu memakai session
+   * untuk menentukan user, dan `user_id` dari client diabaikan kalau bukan
+   * miliknya sendiri.
+   */
+  const buildReports = useCallback(
+    () => withQuery("/api/daily-reports", { from, to }),
+    [from, to],
+  );
 
-    const { year, month, start, end } = getMonthRange(selectedMonth);
+  const { data, isLoading, refetch } = useApiQuery<{
+    reports: DailyReport[];
+  }>(buildReports, [from, to]);
 
-    const supabase = createClient();
-    Promise.all([
-      supabase.from("daily_reports")
-        .select("*")
-        .eq("user_id", user.id)
-        .gte("date", start)
-        .lte("date", end)
-        .order("date", { ascending: false }),
-      supabase.from("kpis")
-        .select("*")
-        .eq("year", year)
-        .eq("month", month),
-    ])
-      .then(([reportRes, kpiRes]) => {
-        setReports(
-          (reportRes.data ?? []).map((r: any) => ({
-            id: r.id,
-            kpiId: r.kpi_id,
-            userId: r.user_id,
-            assignmentId: r.assignment_id,
-            date: r.date,
-            actualValue: r.value,
-            notes: r.notes ?? "",
-            createdAt: r.created_at,
-            updatedAt: r.updated_at,
-          }))
-        );
-        const map: Record<string, KPI> = {};
-        (kpiRes.data ?? []).forEach((k: any) => {
-          map[k.id] = {
-            id: k.id,
-            title: k.title,
-            description: k.description ?? "",
-            type: k.type,
-            unit: k.unit,
-            period: k.period ?? "monthly",
-            status: k.status,
-            department: k.department,
-            createdBy: k.created_by ?? "",
-            monthlyTarget: k.monthly_target ?? 0,
-            year: k.year,
-            month: k.month,
-            createdAt: k.created_at,
-            updatedAt: k.updated_at,
-          };
-        });
-        setKpiMap(map);
-      })
-      .catch((err) => {
-        console.error("TimHistoryPage load failed:", err);
-        setReports([]);
-        setKpiMap({});
-      })
-      .finally(() => setIsLoading(false));
-  }, [user, selectedMonth]);
+  const { data: kpiData } = useApiQuery<{ kpis: KPI[] }>(
+    useCallback(
+      () => withQuery("/api/kpis", { year: selectedYear, month: selectedMonthNumber }),
+      [selectedYear, selectedMonthNumber],
+    ),
+    [selectedYear, selectedMonthNumber],
+  );
+
+  const patchReport = useApiMutation<
+    { id: string; value: number; notes: string | null },
+    unknown
+  >("/api/daily-reports", "PATCH");
+
+  const reports = useMemo(() => data?.reports ?? [], [data]);
+
+  const kpiMap = useMemo(() => {
+    const map: Record<string, KPI> = {};
+    for (const k of kpiData?.kpis ?? []) map[k.id] = k;
+    return map;
+  }, [kpiData]);
 
   function openEdit(r: DailyReport) {
     setEditing(r);
@@ -119,32 +92,36 @@ export default function TimHistoryPage() {
     setSaveError("");
   }
 
+  /**
+   * formerly: `daily_reports.update({ value, notes }).eq("id", id)` dari
+   * browser. Tidak ada cek kepemilikan — cukup menebak id, laporan orang
+   * lain bisa diubah. Dan `kpi_assignments.actual_total` tidak di-recalc,
+   * jadi skor di dashboard tetap memakai total lama.
+   */
   async function handleSave() {
     if (!editing) return;
     const newValue = parseFloat(editValue);
+
     if (isNaN(newValue) || newValue < 0) {
       setSaveError("Nilai harus angka positif.");
       return;
     }
+
     setSaving(true);
     setSaveError("");
-    try {
-      const supabase = createClient();
-      const { error } = await supabase.from("daily_reports")
-        .update({ value: newValue, notes: editNotes })
-        .eq("id", editing.id);
-      if (error) throw error;
 
-      setReports((prev) =>
-        prev.map((r) =>
-          r.id === editing.id ? { ...r, actualValue: newValue, notes: editNotes } : r
-        )
-      );
+    const res = await patchReport.mutate({
+      id: editing.id,
+      value: newValue,
+      notes: editNotes || null,
+    });
+    setSaving(false);
+
+    if (res.ok) {
       setEditing(null);
-    } catch {
-      setSaveError("Gagal menyimpan. Coba lagi.");
-    } finally {
-      setSaving(false);
+      void refetch();
+    } else {
+      setSaveError(res.error ?? "Gagal menyimpan. Coba lagi.");
     }
   }
 

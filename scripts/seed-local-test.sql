@@ -117,10 +117,22 @@ SELECT id, 50, 30, 20, 50, 50 FROM users
 WHERE absensi_status = 'active'
 ON CONFLICT (user_id) DO NOTHING;
 
-\echo '7. KPI + assignment quality untuk HR & Head (uji /dashboard/*/quality)'
+\echo '7. KPI + assignment untuk HR & Head (uji /dashboard/*/quality)'
+-- Tipe `result` dan `activity` ditambahkan supaya /dashboard/tim/history
+-- dan /dashboard/hr/kpi punya data yang bisa diuji — kedua halaman itu
+-- butuh KPI bertipe result untuk laporan harian, dan seed sebelumnya
+-- hanya punya quality/lead_tim/hr.
 INSERT INTO kpis (title, description, type, unit, period, status, department_id,
                   created_by, monthly_target, year, month, brand)
 VALUES
+  ('Penyelesaian Tugas', 'Jumlah tugas yang diselesaikan tepat waktu.',
+   'result','number','monthly','active', NULL,
+   'u-hr-001', 40, 2026, 10, 'Umum'),
+
+  ('Aktivitas Harian', 'Jumlah aktivitas tercatat setiap hari kerja.',
+   'activity','number','monthly','active', NULL,
+   'u-hr-001', 22, 2026, 10, NULL),
+
   ('Kualitas Absensi', 'Ketepatan kehadiran dan kepatuhan presensi.',
    'quality','percentage','monthly','active', NULL,
    'u-hr-001', 90, 2026, 10, 'Umum'),
@@ -151,14 +163,59 @@ ON CONFLICT DO NOTHING;
 INSERT INTO kpi_assignments (kpi_id, kpi_type, user_id, department_id,
                              monthly_target, actual_total, achievement_percentage,
                              performance_category, quality_notes,
+                             working_days_total, working_days_remaining,
                              status, assigned_by, year, month)
 SELECT k.id, k.type, u.id, u.department_id, k.monthly_target, 0, 0,
-       'critical', '', 'active', 'u-hr-001', 2026, 10
+       'critical', '', wd.hari, wd.hari,
+       'active', 'u-hr-001', 2026, 10
 FROM kpis k, users u
-WHERE k.type IN ('quality','lead_tim','hr')
+CROSS JOIN (SELECT 22 AS hari) wd
+WHERE k.type IN ('result','activity','quality','lead_tim','hr')
   AND u.absensi_status = 'active'
-  AND u.id IN ('u-hr-001','u-head-001','u-staff-001','u-staff-003')
+  AND u.id IN ('u-hr-001','u-head-001','u-staff-001','u-staff-002','u-staff-003')
 ON CONFLICT DO NOTHING;
+
+\echo '7b. Laporan harian + koreksi nilai (uji /dashboard/tim/history)'
+-- 3 hari kerja di Oktober 2026 untuk dua staf, supaya Riwayat Input dan
+-- dashboard KPI punya angka — bukan kosong.
+INSERT INTO daily_reports (assignment_id, kpi_id, user_id, date, value, notes)
+SELECT ka.id, ka.kpi_id, ka.user_id,
+       d.tanggal,
+       d.nilai,
+       d.catatan
+FROM kpi_assignments ka
+CROSS JOIN LATERAL (
+  VALUES
+    (DATE '2026-10-05', 3, 'Tiga tugas selesai'),
+    (DATE '2026-10-06', 2, NULL),
+    (DATE '2026-10-07', 4, 'Tugas klien selesai lebih awal')
+) AS d(tanggal, nilai, catatan)
+WHERE ka.kpi_type = 'result'
+  AND ka.status = 'active'
+  AND ka.year = 2026
+  AND ka.month = 10
+  AND ka.user_id IN ('u-staff-001', 'u-staff-002')
+  AND extract(isodow FROM d.tanggal) < 6
+ON CONFLICT (assignment_id, date) DO NOTHING;
+
+-- Total assignment harus sama dengan SUM laporan, dan `working_days_elapsed`
+-- harus terisi. Dulu keduanya nol: tidak ada kode yang pernah mengisi
+-- kolom itu, sehingga achievementPercentage untuk KPI result/activity
+-- selalu 0.
+UPDATE kpi_assignments ka
+SET actual_total = agg.total,
+    expected_total = round(
+      (ka.monthly_target / NULLIF(ka.working_days_total, 0)) * 22, 2),
+    achievement_percentage = round(
+      (agg.total / NULLIF(
+         (ka.monthly_target / NULLIF(ka.working_days_total, 0)) * 22, 0)) * 100, 2),
+    working_days_elapsed = 22,
+    working_days_remaining = 0
+FROM (
+  SELECT assignment_id, sum(value) AS total
+  FROM daily_reports GROUP BY assignment_id
+) AS agg
+WHERE ka.id = agg.assignment_id;
 
 \echo '8. Absensi 3 hari terakhir (uji dashboard admin + widget check-in)'
 INSERT INTO attendance (user_id, date, check_in, check_out, status, type,

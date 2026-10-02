@@ -1,9 +1,17 @@
-import { withAuth, requireUser, requireKpiRole } from "@/server/dal/guards";
+import {
+  withAuth,
+  requireUser,
+  requireProfile,
+  requireKpiRole,
+  ForbiddenError,
+  ValidationError,
+} from "@/server/dal/guards";
 import {
   listReportsForAssignment,
   listReportsInRange,
   upsertDailyReport,
   deleteDailyReport,
+  updateDailyReport,
 } from "@/server/dal/assignments";
 
 export const dynamic = "force-dynamic";
@@ -36,16 +44,34 @@ export async function GET(request: Request) {
     }
 
     if (from && to) {
-      const targetUser = userId ?? undefined;
-      // Kalau bukan privileged, paksa hanya data sendiri
+      const scope = searchParams.get("scope");
       const privileged = await isPrivileged();
-      return {
-        reports: await listReportsInRange(
-          from,
-          to,
-          targetUser ?? (privileged ? undefined : me.id),
-        ),
-      };
+
+      // formerly: `targetUser ?? (privileged ? undefined : me.id)`.
+      // Kalau client mengirim `userId`, `targetUser` selalu terisi — jadi
+      // cek `privileged` sama sekali tidak dipakai, dan staf biasa bisa
+      // membaca laporannya orang lain cukup dengan mengubah query string.
+      let targetUser: string | undefined;
+
+      if (userId && userId !== me.id) {
+        if (!privileged) throw new ForbiddenError(
+          "Anda tidak berhak melihat laporan orang lain.",
+        );
+        targetUser = userId;
+      } else {
+        targetUser = me.id;
+      }
+
+      // `scope=all` hanya berarti "tanpa filter user" — dan hanya untuk
+      // role yang memang boleh melihat semua (rekap HR, laporan divisi).
+      if (scope === "all") {
+        if (!privileged) {
+          throw new ForbiddenError("Scope 'all' hanya untuk role di atas Head.");
+        }
+        targetUser = undefined;
+      }
+
+      return { reports: await listReportsInRange(from, to, targetUser) };
     }
 
     return { reports: [] };
@@ -60,6 +86,7 @@ async function isPrivileged(): Promise<boolean> {
     ["head", "hr", "executive", "developer"].includes(p.kpiRole as string)
   );
 }
+
 
 /**
  * POST /api/daily-reports — input nilai harian.
@@ -110,6 +137,62 @@ export async function POST(request: Request) {
       notes: notes ?? null,
     });
 
+    return { ok: true };
+  });
+}
+
+/** DELETE /api/daily-reports — hapus satu laporan. */
+/**
+ * PATCH /api/daily-reports — koreksi nilai satu laporan yang sudah ada.
+ *
+ * formerly halaman /dashboard/tim/history menulis
+ * `daily_reports.update({ value, notes }).eq("id", id)` dari browser.
+ * Dua masalahnya:
+ *   - `.eq("id", ...)` tanpa cek kepemilikan: cukup menebak id, staf
+ *     biasa bisa mengubah laporannya orang lain.
+ *   - `kpi_assignments.actual_total` TIDAK di-recalc, jadi skor KPI di
+ *     dashboard tetap memakai angka lama. Total yang tampil dan yang
+ *     disimpan jadi berbeda.
+ *
+ * sekarang: server cek pemilik, dan total assignment dihitung ulang.
+ */
+export async function PATCH(request: Request) {
+  return withAuth(async () => {
+    const me = await requireUser();
+    const { id, value, notes } = await request.json();
+
+    if (!id || value === undefined) {
+      return Response.json(
+        { ok: false, error: "Parameter 'id' dan 'value' wajib diisi." },
+        { status: 400 },
+      );
+    }
+
+    const { findDailyReportById } = await import("@/server/dal/assignments");
+    const report = await findDailyReportById(String(id));
+    if (!report) {
+      return Response.json(
+        { ok: false, error: "Laporan tidak ditemukan." },
+        { status: 404 },
+      );
+    }
+
+    if (report.userId !== me.id) {
+      const profile = await requireProfile();
+      if (!["hr", "executive", "developer"].includes(profile.kpiRole)) {
+        return Response.json(
+          { ok: false, error: "Anda hanya bisa mengoreksi laporan sendiri." },
+          { status: 403 },
+        );
+      }
+    }
+
+    const num = Number(value);
+    if (!Number.isFinite(num) || num < 0) {
+      throw new ValidationError("Nilai harus angka dan tidak boleh negatif.");
+    }
+
+    await updateDailyReport(String(id), num, notes ?? null);
     return { ok: true };
   });
 }

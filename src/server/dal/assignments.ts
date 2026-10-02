@@ -11,7 +11,11 @@ import {
   kpiHistories,
   kpiSettings,
 } from "@/db/schema";
-import { getPerformanceCategory } from "@/lib/performance";
+import {
+  getPerformanceCategory,
+  getWorkingDaysInMonth,
+  getWorkingDaysElapsed,
+} from "@/lib/performance";
 import { ValidationError } from "./guards";
 import type {
   KpiAssignmentWithDetails,
@@ -590,6 +594,45 @@ export async function deleteAssignment(id: string): Promise<void> {
 // DAILY REPORTS
 // ─────────────────────────────────────────────────────────────
 
+/**
+ * Berapa hari kerja yang sudah lewat untuk satu periode.
+ *
+ * PENTING: kolom `working_days_elapsed` TIDAK PERNAH diisi di mana pun —
+ * tidak ada trigger, tidak ada kode yang menulisnya.默认值 0, jadi
+ * expectedTotal selalu 0, jadi pacePct selalu 0.
+ *
+ * Akibatnya achievementPercentage untuk KPI bertipe `result` / `activity`
+ * SELALU 0, berapa pun laporan yang sudah diisi. Tidak ada error, tidak
+ * ada warning — angkanya просто 0.
+ *
+ * Jadi dihitung di sini dari periode assignment dan tanggal hari ini.
+ * Nilai yang tersimpan di kolom dipakai sebagai batas atas kalau ada,
+ * supaya data yang sudah benar tidak tertimpa.
+ */
+function elapsedWorkingDays(
+  year: number,
+  month: number,
+  stored: number,
+): number {
+  const today = new Date();
+  const isCurrentMonth =
+    year === today.getFullYear() && month === today.getMonth() + 1;
+  const isPast =
+    year < today.getFullYear() ||
+    (year === today.getFullYear() && month < today.getMonth() + 1);
+
+  // Bulan lalu atau lebih lama: seluruh hari kerja sudah lewat.
+  if (isPast) return getWorkingDaysInMonth(year, month);
+
+  // Bulan depan: belum ada yang lewat.
+  if (!isCurrentMonth) return 0;
+
+  const computed = getWorkingDaysElapsed(year, month, today.getDate());
+
+  // Kalau kolomnya punya angka yang lebih besar (mis. diimpor), hormati.
+  return Math.max(computed, stored);
+}
+
 type DailyReportRow = typeof dailyReports.$inferSelect;
 
 function toReport(row: DailyReportRow) {
@@ -693,6 +736,54 @@ export async function upsertDailyReport(params: {
   await recalcAssignmentTotals(params.assignmentId);
 }
 
+export async function findDailyReportById(
+  id: string,
+): Promise<{ id: string; userId: string; assignmentId: string; value: string; notes: string | null } | null> {
+  const [row] = await db
+    .select({
+      id: dailyReports.id,
+      userId: dailyReports.userId,
+      assignmentId: dailyReports.assignmentId,
+      value: dailyReports.value,
+      notes: dailyReports.notes,
+    })
+    .from(dailyReports)
+    .where(eq(dailyReports.id, id))
+    .limit(1);
+
+  return row ?? null;
+}
+
+/**
+ * Koreksi nilai satu laporan yang sudah ada, lalu recalc total assignment.
+ *
+ * formerly halaman /dashboard/tim/history melakukan
+ * `daily_reports.update({ value, notes }).eq("id", id)` dari browser tanpa
+ * menyentuh `kpi_assignments` — sehingga skor KPI di dashboard tetap memakai
+ * total lama. Angka yang tampil di riwayat dan angka yang dipakai rekap
+ * jadi berbeda.
+ */
+export async function updateDailyReport(
+  id: string,
+  value: number,
+  notes: string | null,
+): Promise<void> {
+  const [before] = await db
+    .select({ assignmentId: dailyReports.assignmentId })
+    .from(dailyReports)
+    .where(eq(dailyReports.id, id))
+    .limit(1);
+
+  if (!before) throw new ValidationError("Laporan tidak ditemukan.");
+
+  await db
+    .update(dailyReports)
+    .set({ value: String(value), notes, updatedAt: new Date() })
+    .where(eq(dailyReports.id, id));
+
+  await recalcAssignmentTotals(before.assignmentId);
+}
+
 export async function deleteDailyReport(
   assignmentId: string,
   date: string,
@@ -729,17 +820,25 @@ export async function recalcAssignmentTotals(assignmentId: string): Promise<void
 
   const monthlyTarget = Number(a.monthlyTarget);
   const wdTotal = a.workingDaysTotal || 1;
-  const wdElapsed = a.workingDaysElapsed || 0;
+  const wdElapsed = elapsedWorkingDays(a.year, a.month, a.workingDaysElapsed);
 
   const expectedTotal =
     wdElapsed > 0 ? (monthlyTarget / wdTotal) * wdElapsed : 0;
   const pacePct = expectedTotal > 0 ? (total / expectedTotal) * 100 : 0;
+
+  // Tulis balik ke kolom, bukan cuma dipakai di perhitungan. Halaman lain
+  // membaca `workingDaysElapsed` / `workingDaysRemaining` langsung dari
+  // database, jadi kalau kolomnya dibiarkan 0 angka-angka itu salah di
+  // mana-mana — termasuk "sisa hari kerja" yang ditampilkan ke user.
+  const wdRemaining = Math.max(wdTotal - wdElapsed, 0);
 
   await db
     .update(kpiAssignments)
     .set({
       actualTotal: String(total),
       expectedTotal: String(expectedTotal),
+      workingDaysElapsed: wdElapsed,
+      workingDaysRemaining: wdRemaining,
       achievementPercentage: pacePct.toFixed(2),
       performanceCategory: getPerformanceCategory(pacePct) as never,
       updatedAt: new Date(),

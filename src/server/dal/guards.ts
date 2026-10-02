@@ -13,8 +13,8 @@
 import "server-only";
 import { getAuth } from "@/server/auth";
 import { db } from "@/db";
-import { eq } from "drizzle-orm";
-import { users } from "@/db/schema";
+import { eq, getTableColumns } from "drizzle-orm";
+import { users, departments } from "@/db/schema";
 
 export class UnauthorizedError extends Error {
   status = 401;
@@ -78,13 +78,19 @@ export async function requireUser(): Promise<SessionUser> {
   return u;
 }
 
-/** Profil lengkap dari tabel `users` (termasuk role). */
+/**
+ * Profil lengkap dari tabel `users` (termasuk role), plus nama divisi.
+ *
+ * `departmentName` ditambahkan supaya Route Handler tidak perlu join
+ * sendiri. Baris `users` hanya punya `department_id`.
+ */
 export async function getProfile() {
   const u = await getSessionUser();
   if (!u) return null;
   const [row] = await db
-    .select()
+    .select({ ...getTableColumns(users), departmentName: departments.name })
     .from(users)
+    .leftJoin(departments, eq(users.departmentId, departments.id))
     .where(eq(users.id, u.id))
     .limit(1);
   return row ?? null;

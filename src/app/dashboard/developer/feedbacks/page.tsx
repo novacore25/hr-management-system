@@ -1,11 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { createClient } from "@/lib/supabase/client";
+import { useCallback, useMemo, useState } from "react";
+import { useApiQuery, useApiMutation } from "@/hooks/useApi";
 import { useAuth } from "@/contexts/AuthContext";
 import { getKpiRole } from "@/types";
 import type { Feedback } from "@/types";
-import { Badge } from "@/components/ui/badge";
 import {
   Select,
   SelectContent,
@@ -13,7 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Bug, Sparkles, MessageSquare, Clock, CheckCircle, XCircle, Activity } from "lucide-react";
+import { Bug, Sparkles, MessageSquare, Clock } from "lucide-react";
 
 const typeIcon = {
   bug: <Bug className="h-4 w-4 text-rose-500" />,
@@ -28,65 +27,53 @@ const statusLabel: Record<Feedback["status"], string> = {
   rejected: "Ditolak",
 };
 
-function rowToFeedback(row: Record<string, unknown>): Feedback {
-  return {
-    id: row.id as string,
-    userId: row.user_id as string,
-    userName: row.user_name as string,
-    department: row.department as string,
-    role: row.role as Feedback["role"],
-    type: row.type as Feedback["type"],
-    message: row.message as string,
-    status: row.status as Feedback["status"],
-    createdAt: { seconds: new Date(row.created_at as string).getTime() / 1000, nanoseconds: 0, toDate: () => new Date(row.created_at as string) } as any,
-    updatedAt: { seconds: new Date(row.updated_at as string).getTime() / 1000, nanoseconds: 0, toDate: () => new Date(row.updated_at as string) } as any,
-  };
-}
-
 export default function FeedbacksPage() {
   const { user } = useAuth();
-  const [feedbacks, setFeedbacks] = useState<Feedback[]>([]);
-  const [loading, setLoading] = useState(true);
   const [filterType, setFilterType] = useState<"all" | Feedback["type"]>("all");
   const [filterStatus, setFilterStatus] = useState<"all" | Feedback["status"]>("all");
+  const [rowError, setRowError] = useState<string | null>(null);
 
   const role = user ? getKpiRole(user) : null;
-  if (role && role !== "developer") {
-    return (
-      <div className="flex h-40 items-center justify-center rounded-xl border border-dashed border-border">
-        <p className="text-sm text-muted-foreground">Akses tidak diizinkan.</p>
-      </div>
-    );
-  }
+  const allowed = role === null || role === "developer";
 
-  useEffect(() => {
-    const supabase = createClient();
+  /**
+   * formerly: `supabase.from("feedbacks").select("*")` dari browser plus
+   * channel `postgres_changes` untuk live update. Kanal itu butuh lisensi
+   * Supabase untuk volume tinggi dan boros di VPS 2 vCPU — digantikan
+   * polling 30 detik dari `useApiQuery`.
+   *
+   * `rowToFeedback` juga dihapus: DAL sudah membentuk `createdAt`/`updatedAt`
+   * sebagai ISO string. Bentuk lama `{ seconds, nanoseconds, toDate() }`
+   * tidak bisa melewati JSON — fungsi `toDate` hilang saat serialisasi,
+   * jadi `f.createdAt?.toDate()` akan meledak sebagai "not a function".
+   */
+  const build = useCallback(
+    () => (allowed ? "/api/feedbacks" : null),
+    [allowed],
+  );
 
-    async function fetch() {
-      const { data } = await supabase
-        .from("feedbacks")
-        .select("*")
-        .order("created_at", { ascending: false });
-      setFeedbacks((data ?? []).map(rowToFeedback as any));
-      setLoading(false);
-    }
+  const { data, isLoading, error, refetch } = useApiQuery<{
+    feedbacks: Feedback[];
+  }>(build, [allowed]);
 
-    fetch();
+  const patchStatus = useApiMutation<
+    { id: string; status: string },
+    unknown
+  >("/api/feedbacks", "PATCH");
 
-    const channel = supabase
-      .channel("feedbacks_all")
-      .on("postgres_changes", { event: "*", schema: "public", table: "feedbacks" }, fetch)
-      .subscribe();
-
-    return () => { channel.unsubscribe(); };
-  }, []);
+  const feedbacks = useMemo(() => data?.feedbacks ?? [], [data]);
 
   async function updateStatus(id: string, newStatus: Feedback["status"]) {
-    try {
-      const supabase = createClient();
-      await supabase.from("feedbacks").update({ status: newStatus }).eq("id", id);
-    } catch (e) {
-      console.error("Gagal mengupdate status feedback", e);
+    setRowError(null);
+    const res = await patchStatus.mutate({ id, status: newStatus });
+
+    if (res.ok) {
+      void refetch();
+    } else {
+      // formerly kegagalan hanya masuk console — Select sudah pindah ke
+      // nilai baru padahal tidak tersimpan, jadi user melihat status yang
+      // lalu hilang sendiri saat refetch berikutnya.
+      setRowError(res.error ?? "Gagal mengubah status laporan.");
     }
   }
 
@@ -96,7 +83,19 @@ export default function FeedbacksPage() {
     return true;
   });
 
-  if (loading) {
+  // Pengecekan role DI BAWAH semua hook. formerly `return` bersyarat ada
+  // sebelum useState, padahal `role` baru terisi setelah AuthContext selesai
+  // memuat — jumlah hook berubah antar render dan React melempar
+  // "Rendered fewer hooks than expected" (halaman putih).
+  if (!allowed) {
+    return (
+      <div className="flex h-40 items-center justify-center rounded-xl border border-dashed border-border">
+        <p className="text-sm text-muted-foreground">Akses tidak diizinkan.</p>
+      </div>
+    );
+  }
+
+  if (isLoading) {
     return (
       <div className="flex h-[50vh] items-center justify-center">
         <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
@@ -140,6 +139,24 @@ export default function FeedbacksPage() {
         </Select>
       </div>
 
+      {rowError && (
+        <div className="rounded-lg bg-destructive/10 border border-destructive/20 px-4 py-2 text-sm text-destructive flex items-center justify-between gap-2">
+          <span>{rowError}</span>
+          <button
+            onClick={() => setRowError(null)}
+            className="text-destructive/60 hover:text-destructive text-xs font-medium"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {error && !rowError && (
+        <div className="rounded-lg bg-destructive/10 border border-destructive/20 px-4 py-2 text-sm text-destructive">
+          {error}
+        </div>
+      )}
+
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {filtered.length === 0 ? (
           <div className="col-span-full py-12 text-center border rounded-xl border-dashed">
@@ -155,7 +172,7 @@ export default function FeedbacksPage() {
                 </span>
                 <span className="text-[10px] text-muted-foreground flex items-center gap-1">
                   <Clock className="h-3 w-3" />
-                  {f.createdAt?.toDate().toLocaleDateString("id-ID")}
+                  {new Date(f.createdAt).toLocaleDateString("id-ID")}
                 </span>
               </div>
 

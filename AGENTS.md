@@ -167,21 +167,25 @@ dipindahkan ke server:
 - `actor` audit trail (sebelumnya dari state client, bisa dipalsukan)
 - Geofence check-in (sebelumnya client bisa kirim koordinat palsu)
 
-#### 3.5 Scoping otorisasi harus dari SERVER, bukan dari `AuthContext`
+#### Scoping otorisasi harus dari SERVER, bukan dari `AuthContext`
 
-Halaman `/dashboard/head/quality` mengambil `user.managedDepartments` dari
-`AuthContext` di browser lalu memakai daftar itu untuk menentukan `user_id`
-mana yang boleh ditanyakan. Head tinggal mengubah nilai itu untuk membaca —
-dan menilai — divisi yang bukan miliknya.
+Filter "user bisa melihat siapa" selalu dibaca dari database, tidak pernah
+dari `AuthContext`. Contoh yang sudah kerjakan: `managedDepartments` untuk
+Head (halaman kualitas & penugasan), `department` untuk reported.
 
-Sekarang `scope=managed` membaca `users.managed_departments` langsung dari
-database, dan `assertCanScore` di DAL menolak assignment di luar divisi itu.
+Dua jebakan yang sudah muncul:
 
-Perhatikan juga: assignment milik Head sendiri sering **tidak punya**
-`department_id` (dia undivided). Filter `IN (divisi)` akan menyembunyikan KPI
-Head sendiri, jadi perlu `OR user_id = aktornya`.
+1. Halaman `head/quality`, `head/penugasan`, `head/penugasan/new`, dan
+   `hr/assignments/new` semuanya mengambil `managedDepartments` dari
+   `AuthContext`. Semuanya bocor — Head tinggal mengubah nilainya.
+   Sekarang lewat `scope=managed`.
+2. Assignment milik Head sendiri sering **tidak punya** `department_id`
+   (dia undivided). Filter `IN (divisi)` menyembunyikan KPI-nya sendiri,
+   jadi perlu `OR user_id = aktornya`.
 
-### 3.6 `withAuth` dulu menelan semua penolakan
+Rincian tiap halaman ada di `docs/STATUS.md`.
+
+### 3.5 `withAuth` dulu menelan semua penolakan
 
 Ini yang paling berbahaya dan sudah diterapkan ke seluruh Route Handler.
 
@@ -206,6 +210,20 @@ handler memang mengembalikan `Response`.
 Pelajaran generalize: **kalau sebuah pembungkus transforming mashed up
 nilai, cek dulu bentuk yang sebenarnya keluar** — jangan hanya cek status
 code.
+
+### 3.6 Kolom yang tidak pernah diisi — hasil akhirnya selalu 0
+
+`kpi_assignments.working_days_elapsed` **tidak pernah ditulis di mana
+pun**: tidak ada trigger, tidak ada kode. Default 0.
+
+Rantai akibatnya: `expectedTotal` selalu 0 → `pacePct` selalu 0 →
+`achievementPercentage` untuk KPI `result` dan `activity` **selalu 0**,
+berapa pun laporan yang sudah diisi. Tampilannya rapih, angkanya nol.
+
+Cek ini sebelum migrasi berikutnya: cari setiap kolom numerik di schema,
+lalu cari apakah ada yang menulisnya. Kalau tidak ada satu pun tempat,
+nilainya pasti 0 dan setiap perhitungan yang memakainya menghasilkan
+nol — diam-diam.
 
 ### 3.7 Filter yang benar-benar tidak menyaring apa pun
 
@@ -263,6 +281,8 @@ Dengan dev server jalan, dua pemeriksa tambahan — keduanya membaca
 npm run verify:endpoints    # 24 endpoint: amplop, status, isi data
 npm run verify:quality      # 32 assert: scoping, penolakan, nilai tersimpan
 npm run verify:assignments  # 70 assert: scoping, validasi, audit trail
+npm run verify:feedbacks    # 39 assert: laporan benar-benar tersimpan
+npm run verify:reports      # 35 assert: koreksi ikut mengubah total
 ```
 
 Semuanya membersihkan data ujinya sendiri, jadi bisa dijalankan berulang
@@ -297,7 +317,7 @@ bukan lewat migration runner.
 Urutan apply: `0000_init`, `0004_auth_constraints`, `0005_seed`,
 `0006_kpi_settings_weights`, `0007_users_religion`,
 `0008_letter_numbering`, `0009_users_employment`,
-`0010_unique_constraints`, `0011_kpis_brand`.
+`0010_unique_constraints`, `0011_kpis_brand`, `0012_feedbacks`.
 
 ⚠️ `0009` pernah terlewat karena tidak masuk daftar manual. Kalau ada
 kolom yang seharusnya tidak ada, cek dulu daftar migrasi yang dijalankan.
