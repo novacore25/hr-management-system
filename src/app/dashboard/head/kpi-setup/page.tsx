@@ -3,9 +3,9 @@
 import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { createClient } from "@/lib/supabase/client";
-import { useKpis } from "@/hooks/useKpis";
-import { useAuth } from "@/contexts/AuthContext";
+import { useManagedKpis } from "@/hooks/useKpis";
+import { useApiMutation } from "@/hooks/useApi";
+import { withQuery } from "@/lib/api-client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -62,74 +62,121 @@ const StatusBadge = ({ status }: { status: string }) => (
 
 export default function HeadKpiSetupPage() {
   const router = useRouter();
-  const { user } = useAuth();
   const now = new Date();
-
-  const managedDepartments: string[] =
-    user?.managedDepartments && user.managedDepartments.length > 0
-      ? user.managedDepartments
-      : user?.department ? [user.department] : [];
 
   const [selectedMonth, setSelectedMonth] = useState(
     () => `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`
   );
   const year = parseInt(selectedMonth.split("-")[0]);
   const month = parseInt(selectedMonth.split("-")[1]);
-  const { kpis, isLoading } = useKpis(year, month);
+
+  /**
+   * formerly: `useKpis(year, month)` + penyaringan di browser
+   * `managedDepartments.includes(k.department)`.
+   *
+   * Dua masalah sekaligus:
+   *   - `managedDepartments` berisi **id** divisi, sedangkan `k.department`
+   *     berisi **nama**. Perbandingan itu tidak pernah cocok, jadi halaman
+   *     selalu kosong.
+   *   - daftar divisi datang dari AuthContext, bisa dimanipulasi.
+   *
+   * sekarang: `scope=managed` — server yang menyaring dari
+   * `users.managed_departments`.
+   */
+  const { kpis, isLoading, refresh } = useManagedKpis(year, month);
+
+  const patchKpi = useApiMutation<Record<string, unknown>, unknown>(
+    "/api/kpis",
+    "PATCH",
+  );
 
   const [search, setSearch] = useState("");
   const [filterType, setFilterType] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
   const [statusLoading, setStatusLoading] = useState<string | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState<{ kpi: KPI; assignmentCount: number } | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<{
+    kpi: KPI;
+    assignmentCount: number;
+  } | null>(null);
+
+  const managedDepartmentNames = useMemo(
+    () => [...new Set(kpis.map((k) => k.department).filter(Boolean))].sort(),
+    [kpis],
+  );
 
   const myKpis = useMemo(() => {
-    let list = kpis.filter((k) => !k.deletedAt && managedDepartments.includes(k.department));
+    let list = kpis.filter((k) => !k.deletedAt);
     if (search.trim()) {
       const q = search.trim().toLowerCase();
-      list = list.filter((k) => k.title.toLowerCase().includes(q) || k.department.toLowerCase().includes(q));
+      list = list.filter(
+        (k) =>
+          k.title.toLowerCase().includes(q) ||
+          k.department.toLowerCase().includes(q),
+      );
     }
     if (filterType !== "all") list = list.filter((k) => k.type === filterType);
-    if (filterStatus !== "all") list = list.filter((k) => k.status === filterStatus);
+    if (filterStatus !== "all")
+      list = list.filter((k) => k.status === filterStatus);
     return list;
-  }, [kpis, managedDepartments, search, filterType, filterStatus]);
+  }, [kpis, search, filterType, filterStatus]);
 
+  /**
+   * formerly `supabase.from("kpis").update({ status }).eq("id", kpiId)` dari
+   * browser — tanpa cek siapa pemilik KPI. Head bisa mengubah status KPI
+   * divisi mana pun hanya dengan mengirim `id`.
+   */
   async function setStatus(kpiId: string, status: string) {
     setStatusLoading(kpiId);
-    try {
-      const supabase = createClient();
-      await supabase.from("kpis").update({ status }).eq("id", kpiId);
-    } finally {
-      setStatusLoading(null);
+    setActionError(null);
+    const res = await patchKpi.mutate({ id: kpiId, status });
+    setStatusLoading(null);
+
+    if (res.ok) {
+      void refresh();
+    } else {
+      setActionError(res.error ?? "Gagal mengubah status KPI.");
     }
   }
 
   async function handleSoftDelete(kpi: KPI) {
-    const supabase = createClient();
-    const { count } = await supabase
-      .from("kpi_assignments")
-      .select("id", { count: "exact", head: true })
-      .eq("kpi_id", kpi.id)
-      .in("status", ["active", "hold"]);
-    setConfirmDelete({ kpi, assignmentCount: count ?? 0 });
+    setActionError(null);
+    const res = await fetch(
+      withQuery("/api/assignments", { kpiId: kpi.id }),
+      { credentials: "include", cache: "no-store" },
+    );
+    const json = (await res.json()) as {
+      ok: boolean;
+      data?: { count?: number };
+      error?: string;
+    };
+    setConfirmDelete({ kpi, assignmentCount: json.data?.count ?? 0 });
   }
 
+  /**
+   * formerly dua update dari browser tanpa memeriksa hasilnya: cancel
+   * assignment dulu, baru set `deleted_at`. Kalau yang pertama gagal, KPI
+   * terhapus tapi penugasannya tetap aktif — dan karena KPI-nya tidak
+   * tampil lagi, orang tidak pernah tahu penugasan yatim itu ada.
+   *
+   * sekarang: satu request; DAL membatalkan assignment lalu soft-delete
+   * KPI dalam satu jalur.
+   */
   async function executeSoftDelete() {
     if (!confirmDelete) return;
     const { kpi } = confirmDelete;
     setStatusLoading("deleting");
-    try {
-      const supabase = createClient();
-      const now = new Date().toISOString();
-      await supabase.from("kpi_assignments")
-        .update({ status: "cancelled", cancelled_at: now })
-        .eq("kpi_id", kpi.id)
-        .in("status", ["active", "hold"]);
-      await supabase.from("kpis").update({ deleted_at: now }).eq("id", kpi.id);
+    setActionError(null);
+
+    const res = await patchKpi.mutate({ id: kpi.id, action: "soft-delete" });
+    setStatusLoading(null);
+
+    if (res.ok) {
       toast.success("KPI berhasil dihapus");
       setConfirmDelete(null);
-    } finally {
-      setStatusLoading(null);
+      void refresh();
+    } else {
+      setActionError(res.error ?? "Gagal menghapus KPI.");
     }
   }
 
@@ -155,7 +202,7 @@ export default function HeadKpiSetupPage() {
         <div>
           <h2 className="text-base font-semibold">Kelola KPI Tim</h2>
           <p className="text-sm text-muted-foreground">
-            {myKpis.length} KPI · {managedDepartments.join(", ")} · {year}/{String(month).padStart(2, "0")}
+            {myKpis.length} KPI · {managedDepartmentNames.join(", ") || "semua divisi"} · {year}/{String(month).padStart(2, "0")}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -205,10 +252,22 @@ export default function HeadKpiSetupPage() {
         </Select>
       </div>
 
+      {actionError && (
+        <div className="rounded-lg bg-destructive/10 border border-destructive/20 px-4 py-2 text-sm text-destructive flex items-center justify-between gap-2">
+          <span>{actionError}</span>
+          <button
+            onClick={() => setActionError(null)}
+            className="text-destructive/60 hover:text-destructive text-xs font-medium"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       {myKpis.length === 0 ? (
         <div className="flex h-40 flex-col items-center justify-center rounded-xl border border-dashed border-border">
           <p className="text-sm text-muted-foreground">
-            {kpis.filter((k) => !k.deletedAt && managedDepartments.includes(k.department)).length === 0
+            {kpis.length === 0
               ? "Belum ada KPI untuk departemen ini bulan ini"
               : "Tidak ada hasil yang cocok"}
           </p>

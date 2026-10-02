@@ -28,6 +28,33 @@ export function useKpis(year: number, month: number) {
   };
 }
 
+/**
+ * KPI milik divisi yang dikelola Head.
+ *
+ * formerly halaman head/kpi-setup menyaring sendiri di browser dengan
+ * `managedDepartments.includes(k.department)` — `managedDepartments` berisi
+ * id divisi tapi `k.department` berisi NAMA, jadi tidak pernah cocok dan
+ * halaman selalu kosong. Sekarang server yang menyaring.
+ */
+export function useManagedKpis(year: number, month: number) {
+  const build = useCallback(
+    () => withQuery("/api/kpis", { scope: "managed", year, month }),
+    [year, month],
+  );
+
+  const { data, isLoading, error, refetch } = useApiQuery<{ kpis: KPI[] }>(
+    build,
+    [year, month],
+  );
+
+  return {
+    kpis: data?.kpis ?? [],
+    isLoading,
+    error,
+    refresh: refetch,
+  };
+}
+
 /** KPI milik satu divisi (menggunakan departmentId). */
 export function useDepartmentKpis(
   departmentId: string | undefined,

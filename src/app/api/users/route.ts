@@ -1,5 +1,9 @@
-import { withAuth, requireUser } from "@/server/dal/guards";
+import { withAuth, requireUser, requireKpiRole, isUuid } from "@/server/dal/guards";
 import { listActiveUsers, listUsersByDepartment } from "@/server/dal/users";
+import { db } from "@/db";
+import { eq, inArray } from "drizzle-orm";
+import { users, departments } from "@/db/schema";
+import type { KpiRole } from "@/types";
 
 export const dynamic = "force-dynamic";
 
@@ -23,8 +27,18 @@ export async function GET(request: Request) {
 
     if (id) {
       await requireUser();
+      // CATATAN: `users.id` bertipe TEXT, bukan uuid. Jangan pakai
+      // `isUuid` di sini — data uji lokal memakai `u-hr-001`, dan kolom
+      // text tidak pernah melempar cast error.
       const { findUserById } = await import("@/server/dal/users");
-      return { user: await findUserById(id) };
+      const user = await findUserById(id);
+      if (!user) {
+        return Response.json(
+          { ok: false, error: "User tidak ditemukan." },
+          { status: 404 },
+        );
+      }
+      return { user };
     }
 
     if (department) {
@@ -96,5 +110,161 @@ export async function GET(request: Request) {
 
     await requireUser();
     return { users: await listActiveUsers() };
+  });
+}
+
+/**
+ * PATCH /api/users — ubah role KPI + divisi yang dikelola.
+ *
+ * formerly halaman /dashboard/hr/employees menulis `users` langsung dari
+ * browser dengan `.eq("id", editUser.id)`. Dua masalahnya:
+ *
+ *   1. Tidak ada cek role di server. Halaman itu hanya menampilkan tombol
+ *      untuk HR, jadi siapa pun yang berhasil membuka URL-nya bisa
+ *      mengubah role siapa saja — termasuk mengubah dirinya sendiri
+ *      menjadi `developer`, yang punya akses ke semua data.
+ *
+ *   2. `managed_departments` diisi dari daftar **NAMA** divisi
+ *      (`useDepartments()` mengembalikan `names: string[]`), sedangkan
+ *      semua kode server membandingkannya dengan **ID**. Setelah
+ *      disimpan, scoping Head jadi kosong total — tidak ada error, hanya
+ *      halaman yang tidak menampilkan apa pun.
+ *
+ * sekarang: divisi dikirim sebagai ID, divalidasi terhadap tabel
+ * `departments`, dan hanya HR/Executive yang boleh.
+ */
+export async function PATCH(request: Request) {
+  return withAuth(async () => {
+    const actor = await requireKpiRole("hr", "executive");
+    const b = await request.json();
+
+    const userId = b.id ? String(b.id) : null;
+    if (!userId) {
+      return Response.json(
+        { ok: false, error: "Parameter 'id' wajib diisi." },
+        { status: 400 },
+      );
+    }
+
+    const VALID_ROLES = ["tim", "head", "hr", "executive", "developer"];
+
+    if (b.kpiRole !== undefined && !VALID_ROLES.includes(String(b.kpiRole))) {
+      return Response.json(
+        { ok: false, error: `Role tidak valid: ${b.kpiRole}` },
+        { status: 400 },
+      );
+    }
+
+    // `developer` punya akses ke semua data, jadi pemberiannya harus
+    // eksplisit oleh developer — bukan HR/executive.
+    if (
+      b.kpiRole === "developer" &&
+      actor.kpiRole !== "developer"
+    ) {
+      return Response.json(
+        {
+          ok: false,
+          error: "Role developer hanya bisa diberikan oleh developer.",
+        },
+        { status: 403 },
+      );
+    }
+
+    let managedDepartments: string[] | undefined;
+
+    if (b.managedDepartments !== undefined) {
+      const raw = Array.isArray(b.managedDepartments)
+        ? b.managedDepartments.map(String)
+        : [];
+
+      if (raw.length > 0) {
+        // Format dicek sebelum query. `inArray(departments.id, ["TNT"])`
+        // akan membuat Postgres melempar `invalid input syntax for type uuid`
+        // — dan itu jadi 500 "Terjadi kesalahan di server", bukan pesan
+        // yang bisa dibaca.
+        const malformed = raw.filter((id: string) => !isUuid(id));
+        if (malformed.length > 0) {
+          return Response.json(
+            {
+              ok: false,
+              error: `Divisi harus diisi dengan id, bukan nama. Nilai ini tidak valid: ${malformed.join(", ")}`,
+            },
+            { status: 400 },
+          );
+        }
+
+        const rows = await db
+          .select({ id: departments.id })
+          .from(departments)
+          .where(inArray(departments.id, raw));
+
+        if (rows.length !== raw.length) {
+          const known = new Set(rows.map((r) => r.id));
+          const unknown = raw.filter((id: string) => !known.has(id));
+          return Response.json(
+            {
+              ok: false,
+              error: `Divisi tidak dikenal: ${unknown.join(", ")}`,
+            },
+            { status: 400 },
+          );
+        }
+      }
+
+      managedDepartments = raw;
+    }
+
+    const [current] = await db
+      .select({
+        kpiRole: users.kpiRole,
+        managedDepartments: users.managedDepartments,
+      })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+
+    if (!current) {
+      return Response.json(
+        { ok: false, error: "User tidak ditemukan." },
+        { status: 404 },
+      );
+    }
+
+    const finalRole = b.kpiRole !== undefined ? String(b.kpiRole) : current.kpiRole;
+    const finalDepts =
+      managedDepartments ??
+      (Array.isArray(current.managedDepartments)
+        ? current.managedDepartments
+        : []);
+
+    // Head tanpa divisi = tidak punya area pengawasan, semua halamannya
+    // kosong. Tolak di server, bukan hanya di form.
+    if (finalRole === "head" && finalDepts.length === 0) {
+      return Response.json(
+        { ok: false, error: "Pilih minimal satu divisi untuk role Head." },
+        { status: 400 },
+      );
+    }
+
+    if (b.kpiRole === undefined && managedDepartments === undefined) {
+      return Response.json(
+        { ok: false, error: "Tidak ada perubahan yang dikirim." },
+        { status: 400 },
+      );
+    }
+
+    await db
+      .update(users)
+      .set({
+        ...(b.kpiRole !== undefined ? { kpiRole: finalRole as KpiRole } : {}),
+        ...(managedDepartments !== undefined
+          ? { managedDepartments }
+          : {}),
+        updatedAt: new Date(),
+      })
+      .where(eq(users.id, userId));
+
+    const { findUserById } = await import("@/server/dal/users");
+    return { user: await findUserById(userId) };
   });
 }

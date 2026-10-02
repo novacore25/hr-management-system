@@ -514,6 +514,61 @@ async function recalcKpiTargetSafe(kpiId: string) {
     .where(eq(kpis.id, kpiId));
 }
 
+/** Berapa assignment aktif (active/hold) milik sebuah KPI. */
+export async function countActiveAssignments(kpiId: string): Promise<number> {
+  const [row] = await db
+    .select({ n: sql<number>`count(*)` })
+    .from(kpiAssignments)
+    .where(
+      and(
+        eq(kpiAssignments.kpiId, kpiId),
+        inArray(kpiAssignments.status, ["active", "hold"]),
+      ),
+    );
+  return Number(row?.n ?? 0);
+}
+
+/**
+ * Batalkan seluruh assignment aktif milik sebuah KPI.
+ *
+ * Dipakai bersama soft-delete KPI. formerly halaman
+ * /dashboard/head/kpi-setup melakukan dua update dari browser — cancel
+ * assignment dulu, baru set `deleted_at` — tanpa memeriksa hasilnya.
+ * Kalau langkah pertama gagal, KPI terhapus tapi penugasannya tetap aktif
+ * dan tidak terlihat di mana pun.
+ */
+export async function cancelAssignmentsForKpi(
+  kpiId: string,
+  actorId: string,
+): Promise<number> {
+  const now = new Date();
+
+  const cancelled = await db
+    .update(kpiAssignments)
+    .set({ status: "cancelled", cancelledAt: now, updatedAt: now })
+    .where(
+      and(
+        eq(kpiAssignments.kpiId, kpiId),
+        inArray(kpiAssignments.status, ["active", "hold"]),
+      ),
+    )
+    .returning({ id: kpiAssignments.id, userId: kpiAssignments.userId });
+
+  for (const a of cancelled) {
+    await db.insert(kpiHistories).values({
+      assignmentId: a.id,
+      userId: a.userId,
+      action: "status_cancelled",
+      oldValue: { status: "active_or_hold" },
+      newValue: { status: "cancelled", reason: "kpi_deleted" },
+      triggeredBy: actorId,
+      createdAt: now,
+    });
+  }
+
+  return cancelled.length;
+}
+
 /** Ubah status assignment + tulis audit log. */
 export async function setAssignmentStatus(
   id: string,

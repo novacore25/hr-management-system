@@ -1,7 +1,7 @@
 # STATUS MIGRASI — dibaca sebelum mengerjakan apa pun
 
-Terakhir diperbarui: setelah commit `65e4dca`
-(`feat(kpi): 4b selesai - admin/dashboard + perbaiki widget check-in`)
+Terakhir diperbarui: setelah `hr/employees` + `head/kpi-setup` selesai
+(Phase 4c — 12 file tersisa di allowlist stub)
 
 ---
 
@@ -77,19 +77,65 @@ overtime & payroll yang sengaja ditunda.
 
 ## Yang BELUM selesai
 
-### `/dashboard/**` — 4 halaman masih kosong
+### `/dashboard/**` — 1 halaman tersisa
 
-Ini Prioritas 1. Semuanya memanggil stub sehingga tampil kosong, padahal
-fitur intinya sudah ada servernya.
+Ini Prioritas 1. Panggilannya masih ke stub sehingga tampil kosong,
+padahal fitur intinya sudah ada servernya.
 
 | Halaman | Query | Ukuran |
 |---|---|---|
 | `/dashboard/hr/kpi` | 14 | 817 baris — terbesar |
-| `/dashboard/hr/employees` | 3 | 432 |
-| `/dashboard/head/kpi-setup` | 4 | 330 |
 
 Sudah jadi: 4 halaman kualitas, 4 halaman penugasan,
-`developer/feedbacks`, `tim/history`.
+`developer/feedbacks`, `tim/history`, `hr/employees`,
+`head/kpi-setup`.
+
+Sisa allowlist di `scripts/verify-no-stub.ts`: **12 file** (overtime,
+payroll, `hr/kpi`, `components/hr/KpiFormPage.tsx`, 3 komponen KPI
+harian).
+
+### `hr/employees` + `head/kpi-setup` — ✅ selesai, empat bug ditemukan
+
+Keduanya menulis langsung ke `users` dan `kpis` dari browser. Yang
+ketahuan:
+
+1. **`managed_departments` diisi NAMA divisi, bukan ID.** Form memakai
+   `useDepartments()` yang mengembalikan `names: string[]`. Semua kode
+   server membandingkannya dengan **ID**. Setelah HR menyimpan role
+   Head, semua halaman Head kosong — **tanpa error, tanpa toast**, hanya
+   hasil yang tidak tampil. Sekarang form memakai `useDepartmentsWithId()`
+   dan server memvalidasi tiap id terhadap tabel `departments`.
+   Bukti: dialog role menampilkan "TNT" tercentang sementara isinya UUID.
+2. **Role bisa diubah siapa saja.** `supabase.from("users").update(...)`
+   tidak punya cek role server. URL `/dashboard/hr/employees` bisa
+   dibuka siapa pun yang punya sesi — termasuk mengubah dirinya sendiri
+   jadi `developer`. Sekarang `PATCH /api/users` mewajibkan
+   hr/executive, dan pemberian role `developer` hanya boleh dari
+   `developer`.
+3. **Head bisa mengubah KPI divisi orang lain.** `kpis.update({status})`
+   tanpa cek pemilik; cukup mengirim `id`. Sekarang
+   `assertCanManageKpi` membandingkan `kpis.department_id` dengan
+   `users.managed_departments` **di server** — sebelumnya daftar divisi
+   datang dari `AuthContext`.
+4. **Soft delete = dua operasi tanpa cek hasil.** Cancel assignment dulu,
+   baru set `deleted_at`. Kalau yang pertama gagal, KPI terhapus tapi
+   penugasannya tetap aktif — dan karena KPI-nya tidak tampil lagi,
+   penugasan yatim itu tidak pernah terlihat siapa pun. Sekarang satu
+   jalur server (`softDeleteKpi` → `cancelAssignmentsForKpi`) yang
+   melaporkan jumlahnya.
+
+**Bug bonus yang ditemukan saat memverifikasi** (bukan dari kedua
+halaman itu, tapi dari endpoint yang mereka panggil):
+
+- `PUT /api/kpi-settings` menerima **bobot negatif**: `-10 + 60 + 50`
+  lolos karena totalnya 100. Validasi sekarang: lima field wajib ada,
+  bilangan bulat, 0-100.
+- `GET /api/kpi-settings?userId=<tidak ada>` mengembalikan bobot **default**
+  seolah-olah itu bobot aslinya. Sekarang 404.
+- `GET /api/users?id=<tidak ada>` → `200 {user: null}`. Sekarang 404.
+- `?id=` / `?kpiId=` dengan nilai sampah → **500** "Terjadi kesalahan di
+  server", karena kolomnya uuid dan formatnya dicek terlalu lambat.
+  Sekarang 400 dengan pesan yang bisa dibaca.
 
 ### `/dashboard/developer/import` — SUDAH DIHAPUS
 
@@ -178,6 +224,32 @@ Yang perlu diputuskan dulu:
   Perlu transformasi id.
 - Tabel `auth.users` tidak ikut; user harus login ulang dengan Google.
 - `session.strategy` sudah JWT, jadi tidak ada sesi lama yang perlu dibawa.
+
+#### Kondisi database produksi per 2026-10-02
+
+Sudah diperiksa langsung di VPS:
+
+```
+users total : 1   (role: tim, tanpa managed_departments)
+role head   : 0
+role hr / executive / developer : 0
+```
+
+Artinya **belum ada data asli sama sekali** — sesuai rencana, migrasi data
+adalah Fase 6 dan belum jalan. User yang ada adalah akun pemilik sistem
+yang lahir saat login Google pertama kali, dengan role default `tim`
+(sesuai desain: HR tinggal menaikkan role-nya nanti).
+
+Dua konsekuensi yang perlu diketahui:
+
+1. **Format `managed_departments` belum teruji di produksi.** Kalau Supabase
+   menyimpan NAMA divisi (kemungkinan besar — `hr/employees` lama menulis
+   dari `useDepartments()` yang mengembalikan nama), kode lama akan
+   membandingkannya dengan ID dan hasilnya nol tanpa error. **Saat migrasi,
+   nilainya harus ditulis sebagai UUID**, bukan apa adanya.
+2. **Halaman yang di-scope ke Head akan kosong di produksi** — bukan bug,
+   konsekuensi belum adanya user ber-role `head`. Semua scoping sudah
+   diuji dengan data uji lokal.
 
 ---
 

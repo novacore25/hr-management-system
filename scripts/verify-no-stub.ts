@@ -44,8 +44,6 @@ const ALLOWLIST = [
   "app/absensi/(staff)/payroll/page.tsx",
   "components/absensi/OvertimeFinalizeModal.tsx",
   "components/absensi/OvertimeStaffSection.tsx",
-  "app/dashboard/head/kpi-setup/page.tsx",
-  "app/dashboard/hr/employees/page.tsx",
   "app/dashboard/hr/kpi/page.tsx",
 
   "components/hr/KpiFormPage.tsx",

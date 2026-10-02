@@ -87,6 +87,22 @@ export async function findUserById(id: string): Promise<User | null> {
 }
 
 /**
+ * Apakah user ini ada.
+ *
+ * Dipakai Route Handler yang harus membedakan "user tidak ada" dari
+ * "user ini belum punya setelan" — yang kedua diam-diam mengembalikan
+ * nilai default dan terlihat seperti jawaban yang benar.
+ */
+export async function exists(id: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.id, id))
+    .limit(1);
+  return !!row;
+}
+
+/**
  * Semua user yang aktif (untuk dropdown assignable).
  * Sama seperti versi lama: hanya active + pending, exclude rejected/resigned.
  */

@@ -56,6 +56,25 @@ export type SessionUser = {
 };
 
 /**
+ * Apakah string ini berbentuk UUID.
+ *
+ * WAJIB dipakai sebelum query ke kolom uuid. Tanpa itu,
+ * `eq(kpis.id, "apa saja")` membuat Postgres melempar
+ * `invalid input syntax for type uuid`, yang dibaca `withAuth` sebagai
+ * error umum dan sampai ke browser sebagai **500 "Terjadi kesalahan di
+ * server"** — bukan "id yang Anda masukkan tidak valid".
+ *
+ * Gejalanyaoze: user melihat "Terjadi kesalahan di server" untuk input
+ * yang salah ketik, lalu menyimpulkan aplikasinya rusak.
+ */
+export function isUuid(v: unknown): v is string {
+  return (
+    typeof v === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v)
+  );
+}
+
+/**
  * Pastikan ada user yang login. Return profil minimal.
  * TIDAK melempar — dipakai halaman yang hanya butuh tahu "sudah login".
  */

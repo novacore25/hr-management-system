@@ -258,6 +258,41 @@ Schema yang **tidak punya UNIQUE padahal seharusnya**: `departments.name`,
 `office_locations.name`, `kpis.title`, `letter_types.code`.
 Lihat `docs/STATUS.md` → migrasi 0010.
 
+### 3.9 Tidak semua kolom id bertipe UUID
+
+Hanya `users.id` yang bertipe **text**. Semua tabel lain pakai
+`uuid("id").defaultRandom()`. akibatnya `isUuid()` yang sama tidak bisa
+dipakai di mana saja.
+
+Dua arah kesalahan, keduanya sudah terjadi:
+
+- **Terlalu longsar.** `GET /api/users?id=bukan-uuid` → `200 {user: null}`.
+  Tidak ada error; klien yang tidak memeriksa isi menganggapnya berhasil.
+  Sekarang 404.
+- **Terlalu ketat.** `isUuid(userId)` di `GET /api/kpi-settings` menolak
+  semua user uji lokal (`u-hr-001`), karena id-nya bukan UUID.
+  `verify:assignments` langsung menangkapnya — 2 assert gagal.
+
+Aturan: cek dulu ke `src/db/schema.ts` apakah kolomnya `uuid` atau
+`text` sebelum menambahkan validasi format. Kolom uuid perlu dicek
+(format salah → `invalid input syntax for type uuid` → 500). Kolom text
+tidak perlu dicek format, tapi **harus dicek keberadaannya** — kalau
+tidak, `getUserWeights()` mengembalikan default untuk user yang tidak
+ada dan terlihat seperti jawaban yang benar.
+
+### 3.10 Validasi "total harus 100" saja tidak cukup
+
+`PUT /api/kpi-settings` dulu hanya memeriksa `result + activity + quality
+=== 100`. Itu loloskan `-10 + 60 + 50 = 100`.
+
+Bobot negatif membuat skor KPI orang itu tidak bermakna, dan tidak ada
+yang melihat kesalahannya karena totalnya memang 100. Sekarang lima
+field wajib ada, bulat, dan 0-100.
+
+Pelajaran generalize: **cek rentang dan bentuk, bukan cuma invariant
+yang kebetulan sudah ada.** Kalau sebuah angka harus berada dalam batas
+tertentu, itu batasnya adalah validasinya — bukan turunannya.
+
 ---
 
 ## 4. Environment
@@ -287,6 +322,7 @@ npm run verify:quality      # 32 assert: scoping, penolakan, nilai tersimpan
 npm run verify:assignments  # 70 assert: scoping, validasi, audit trail
 npm run verify:feedbacks    # 39 assert: laporan benar-benar tersimpan
 npm run verify:reports      # 35 assert: koreksi ikut mengubah total
+npm run verify:adminkpi     # 64 assert: role, divisi, bobot, hapus KPI
 ```
 
 Semuanya membersihkan data ujinya sendiri, jadi bisa dijalankan berulang

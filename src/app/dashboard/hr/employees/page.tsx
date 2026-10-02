@@ -1,10 +1,10 @@
 "use client";
 
-import { useState } from "react";
-import { createClient } from "@/lib/supabase/client";
+import { useCallback, useEffect, useState } from "react";
 import { useAllUsers } from "@/hooks/useUsers";
-import { useDepartments } from "@/hooks/useDivisions";
-import { useAuth } from "@/contexts/AuthContext";
+import { useDepartmentsWithId } from "@/hooks/useDivisions";
+import { useApiMutation, useApiQuery } from "@/hooks/useApi";
+import { withQuery } from "@/lib/api-client";
 import { getKpiRole, DEFAULT_KPI_WEIGHTS } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -42,11 +42,25 @@ const kpiRoleVariant: Record<KpiRole, "default" | "secondary" | "outline"> = {
 };
 
 export default function HrEmployeesPage() {
-  const { user: currentUser } = useAuth();
-  const { users, isLoading } = useAllUsers();
+  const { users, isLoading, refetch: refetchUsers } = useAllUsers();
+
+  /**
+   * `useDepartments()` mengembalikan NAMA divisi — itu yang jadi bug:
+   * `managed_departments` di server dibandingkan dengan ID. Sekarang form
+   * memakai id + name, dan yang dikirim ke server adalah ID.
+   */
+  const { departments, isLoading: departmentsLoading } = useDepartmentsWithId();
+
+  const patchUser = useApiMutation<Record<string, unknown>, unknown>(
+    "/api/users",
+    "PATCH",
+  );
+  const putWeights = useApiMutation<Record<string, unknown>, unknown>(
+    "/api/kpi-settings",
+    "PUT",
+  );
 
   // Role edit state
-  const { departments, isLoading: departmentsLoading } = useDepartments();
   const [editUser, setEditUser] = useState<User | null>(null);
   const [selectedRole, setSelectedRole] = useState<KpiRole | "">("");
   const [selectedDepartments, setSelectedDepartments] = useState<string[]>([]);
@@ -64,35 +78,43 @@ export default function HrEmployeesPage() {
   const [qualityW, setQualityW] = useState("");
   const [leadTimW, setLeadTimW] = useState("");
   const [hrW, setHrW] = useState("");
-  const [weightLoading, setWeightLoading] = useState(false);
   const [weightSaving, setWeightSaving] = useState(false);
   const [weightError, setWeightError] = useState("");
+
+
 
   function openEditRole(u: User) {
     setEditUser(u);
     setSelectedRole(getKpiRole(u));
     setSelectedDepartments(
-      getKpiRole(u) === "head"
-        ? u.managedDepartments?.length
-          ? u.managedDepartments
-          : u.department
-            ? [u.department]
-            : []
-        : []
+      getKpiRole(u) === "head" ? (u.managedDepartments ?? []) : [],
     );
     setRoleError("");
     setDepartmentError("");
   }
 
-  function toggleDepartment(department: string) {
+  function toggleDepartment(departmentId: string) {
     setSelectedDepartments((prev) =>
-      prev.includes(department)
-        ? prev.filter((d) => d !== department)
-        : [...prev, department]
+      prev.includes(departmentId)
+        ? prev.filter((d) => d !== departmentId)
+        : [...prev, departmentId],
     );
     setDepartmentError("");
   }
 
+  /**
+   * formerly: `supabase.from("users").update({ kpi_role, managed_departments })`
+   * dari browser dengan `.eq("id", editUser.id)`.
+   *
+   * Dua masalah:
+   *   - Tidak ada cek role di server. Halaman ini hanya menampilkan tombol
+   *     untuk HR, tapi URL-nya bisa dibuka siapa saja yang punya sesi.
+   *   - `managed_departments` diisi NAMA divisi, sedangkan server
+   *     membandingkannya dengan ID. Setelah disimpan, semua halaman Head
+   *     kosong tanpa error.
+   *
+   * sekarang: PATCH /api/users, divisi sebagai ID, divalidasi server.
+   */
   async function handleSaveRole() {
     if (!editUser || !selectedRole) return;
     if (selectedRole === "head" && selectedDepartments.length === 0) {
@@ -102,18 +124,20 @@ export default function HrEmployeesPage() {
     }
 
     setSaving(true);
-    try {
-      const supabase = createClient();
-      const { error } = await supabase.from("users").update({
-        kpi_role: selectedRole,
-        managed_departments: selectedRole === "head" ? selectedDepartments : [],
-      }).eq("id", editUser.id);
-      if (error) throw error;
+    setRoleError("");
+
+    const res = await patchUser.mutate({
+      id: editUser.id,
+      kpiRole: selectedRole,
+      managedDepartments: selectedRole === "head" ? selectedDepartments : [],
+    });
+    setSaving(false);
+
+    if (res.ok) {
       setEditUser(null);
-    } catch {
-      setRoleError("Gagal menyimpan. Coba lagi.");
-    } finally {
-      setSaving(false);
+      void refetchUsers();
+    } else {
+      setRoleError(res.error ?? "Gagal menyimpan. Coba lagi.");
     }
   }
 
@@ -121,36 +145,71 @@ export default function HrEmployeesPage() {
     setNotesUser(u);
   }
 
-  async function openWeights(u: User) {
+  /**
+   * formerly: `kpi_settings.select("*").eq("user_id", u.id)` dari browser.
+   * sekarang `GET /api/kpi-settings?userId=` yang sudah mengecek
+   * kepemilikan di server.
+   */
+  const { data: weightData, isLoading: weightLoading } = useApiQuery<{
+    weights: {
+      result: number;
+      activity: number;
+      quality: number;
+      leadTim: number;
+      hr: number;
+    };
+  }>(
+    useCallback(
+      () =>
+        weightUser
+          ? withQuery("/api/kpi-settings", { userId: weightUser.id })
+          : null,
+      [weightUser?.id],
+    ),
+    [weightUser?.id],
+  );
+
+  function openWeights(u: User) {
     setWeightUser(u);
     setWeightError("");
-    setWeightLoading(true);
-    const supabase = createClient();
-    const { data } = await supabase.from("kpi_settings").select("*").eq("user_id", u.id).maybeSingle();
-    if (data) {
-      setResultW(String(data.result_weight));
-      setActivityW(String(data.activity_weight));
-      setQualityW(String(data.quality_weight));
-      setLeadTimW(String(data.lead_tim_weight ?? DEFAULT_KPI_WEIGHTS.leadTim));
-      setHrW(String(data.hr_weight ?? DEFAULT_KPI_WEIGHTS.hr));
-    } else {
-      setResultW(String(DEFAULT_KPI_WEIGHTS.result));
-      setActivityW(String(DEFAULT_KPI_WEIGHTS.activity));
-      setQualityW(String(DEFAULT_KPI_WEIGHTS.quality));
-      setLeadTimW(String(DEFAULT_KPI_WEIGHTS.leadTim));
-      setHrW(String(DEFAULT_KPI_WEIGHTS.hr));
-    }
-    setWeightLoading(false);
+    setResultW("");
+    setActivityW("");
+    setQualityW("");
+    setLeadTimW("");
+    setHrW("");
   }
 
+  // Isi form begitu bobot dari server datang. Nilai default dipakai kalau
+  // user belum punya setelan — `getUserWeights` sudah mengembalikan itu.
+  useEffect(() => {
+    if (!weightUser) return;
+    const w = weightData?.weights ?? DEFAULT_KPI_WEIGHTS;
+    setResultW(String(w.result));
+    setActivityW(String(w.activity));
+    setQualityW(String(w.quality));
+    setLeadTimW(String(w.leadTim));
+    setHrW(String(w.hr));
+  }, [weightData, weightUser]);
+
+  /**
+   * formerly `kpi_settings.upsert(...)` dari browser dengan validasi hanya
+   * di form — bisa dilewati dengan request langsung, jadi bobot bisa
+   * tersimpan tidak seimbang dan skor KPI jadi sia-sia.
+   *
+   * sekarang: PUT /api/kpi-settings, validasi total 100 di server.
+   */
   async function handleSaveWeights() {
-    if (!weightUser || !currentUser) return;
+    if (!weightUser) return;
     const r = parseInt(resultW) || 0;
     const a = parseInt(activityW) || 0;
     const q = parseInt(qualityW) || 0;
     const lh = parseInt(leadTimW) || 0;
     const h = parseInt(hrW) || 0;
-    
+
+    if (r < 0 || a < 0 || q < 0 || lh < 0 || h < 0) {
+      setWeightError("Bobot tidak boleh negatif.");
+      return;
+    }
     if (r + a + q !== 100) {
       setWeightError("Total bobot Performance harus 100%.");
       return;
@@ -159,28 +218,24 @@ export default function HrEmployeesPage() {
       setWeightError("Total bobot Personality harus 100%.");
       return;
     }
-    if (r < 0 || a < 0 || q < 0 || lh < 0 || h < 0) {
-      setWeightError("Bobot tidak boleh negatif.");
-      return;
-    }
+
     setWeightSaving(true);
-    try {
-      const supabase = createClient();
-      const { error } = await supabase.from("kpi_settings").upsert({
-        user_id: weightUser.id,
-        result_weight: r,
-        activity_weight: a,
-        quality_weight: q,
-        lead_tim_weight: lh,
-        hr_weight: h,
-        updated_by: currentUser.id,
-      }, { onConflict: "user_id" });
-      if (error) throw error;
+    setWeightError("");
+
+    const res = await putWeights.mutate({
+      userId: weightUser.id,
+      resultWeight: r,
+      activityWeight: a,
+      qualityWeight: q,
+      leadTimWeight: lh,
+      hrWeight: h,
+    });
+    setWeightSaving(false);
+
+    if (res.ok) {
       setWeightUser(null);
-    } catch {
-      setWeightError("Gagal menyimpan. Coba lagi.");
-    } finally {
-      setWeightSaving(false);
+    } else {
+      setWeightError(res.error ?? "Gagal menyimpan. Coba lagi.");
     }
   }
 
@@ -266,8 +321,14 @@ export default function HrEmployeesPage() {
                     if (v !== "head") {
                       setSelectedDepartments([]);
                       setDepartmentError("");
-                    } else if (selectedDepartments.length === 0 && editUser?.department) {
-                      setSelectedDepartments([editUser.department]);
+                    } else if (
+                      selectedDepartments.length === 0 &&
+                      editUser?.departmentId
+                    ) {
+                      // Prefill dengan divisi user itu sendiri — pakai
+                      // **id**, bukan nama. Dulu memakai nama, yang tidak
+                      // pernah cocok dengan pembanding di server.
+                      setSelectedDepartments([editUser.departmentId]);
                     }
                   }}
                 >
@@ -295,14 +356,17 @@ export default function HrEmployeesPage() {
                       <p className="text-sm text-muted-foreground">Belum ada data divisi.</p>
                     ) : (
                       departments.map((dept) => (
-                        <label key={dept} className="flex cursor-pointer items-center gap-2 text-sm">
+                        <label
+                          key={dept.id}
+                          className="flex cursor-pointer items-center gap-2 text-sm"
+                        >
                           <input
                             type="checkbox"
-                            checked={selectedDepartments.includes(dept)}
-                            onChange={() => toggleDepartment(dept)}
+                            checked={selectedDepartments.includes(dept.id)}
+                            onChange={() => toggleDepartment(dept.id)}
                             className="h-4 w-4 rounded border-input text-primary focus:ring-primary"
                           />
-                          <span>{dept}</span>
+                          <span>{dept.name}</span>
                         </label>
                       ))
                     )}

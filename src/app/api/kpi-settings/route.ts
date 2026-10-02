@@ -1,4 +1,9 @@
-import { withAuth, requireUser, requireKpiRole } from "@/server/dal/guards";
+import {
+  withAuth,
+  requireUser,
+  requireKpiRole,
+  isUuid,
+} from "@/server/dal/guards";
 import {
   getUserWeights,
   getAllWeights,
@@ -63,6 +68,9 @@ export async function GET(request: Request) {
       return { weights, defaults: DEFAULT_WEIGHTS };
     }
 
+    // CATATAN: `users.id` bertipe TEXT, bukan uuid. Jadi id user tidak boleh
+    // diperiksa dengan `isUuid` — data uji lokal memakai `u-hr-001`, dan
+    // kolom text tidak pernah melempar cast error seperti kolom uuid.
     const userId = searchParams.get("userId") ?? me.id;
     if (userId !== me.id) {
       const profile = await requireKpiRole("head", "hr", "executive");
@@ -98,6 +106,18 @@ export async function GET(request: Request) {
       }
     }
 
+    // formerly `getUserWeights()` mengembalikan DEFAULT_WEIGHTS untuk user
+    // yang tidak ada. Klien yang tidak memeriksa hasilnya akan menyimpan
+    // 50/30/20 sebagai "bobot asli" padahal tidak ada barisnya sama
+    // sekali. Lebih baik 404 daripada jawaban yang terlihat benar.
+    const { exists } = await import("@/server/dal/users");
+    if (!(await exists(userId))) {
+      return Response.json(
+        { ok: false, error: "User tidak ditemukan." },
+        { status: 404 },
+      );
+    }
+
     return {
       weights: await getUserWeights(userId),
       defaults: DEFAULT_WEIGHTS,
@@ -116,7 +136,7 @@ export async function PUT(request: Request) {
     const actor = await requireKpiRole("hr", "executive");
     const body = await request.json();
 
-    const weights = {
+    const raw = {
       result: body.resultWeight ?? body.result,
       activity: body.activityWeight ?? body.activity,
       quality: body.qualityWeight ?? body.quality,
@@ -124,11 +144,63 @@ export async function PUT(request: Request) {
       hr: body.hrWeight ?? body.hr,
     };
 
-    // Validasi total bobot. Dulu dicek di form; kalau dicewatkan lewat
-    // API, bobot bisa tersimpan tidak seimbang dan skor KPI jadi sia-sia.
-    const resolved = { ...DEFAULT_WEIGHTS, ...weights };
-    const perf = resolved.result + resolved.activity + resolved.quality;
-    const pers = resolved.leadTim + resolved.hr;
+    // formerly halaman /dashboard/hr/employees menulis `kpi_settings`
+    // langsung dari browser dengan `upsert()`. Satu-satunya penjaga ada di
+    // form, yang bisa dilewati dengan request biasa. Akibatnya bobot bisa
+    // tersimpan tidak seimbang — atau Worse, BERBEDA DARI DEFAULT tanpa
+    // sengaja — dan seluruh skor KPI orang itu jadi tidak bermakna.
+    //
+    // Jadi di sini: lima field wajib ada, harus bilangan bulat 0-100.
+    const LABEL: Record<keyof typeof raw, string> = {
+      result: "Result",
+      activity: "Activity",
+      quality: "Quality",
+      leadTim: "Lead Tim",
+      hr: "HR",
+    };
+
+    const weights: Record<keyof typeof raw, number> = {
+      result: 0, activity: 0, quality: 0, leadTim: 0, hr: 0,
+    };
+
+    for (const key of Object.keys(raw) as (keyof typeof raw)[]) {
+      const v = raw[key];
+
+      if (v === undefined || v === null || v === "") {
+        return Response.json(
+          {
+            ok: false,
+            error: `Bobot ${LABEL[key]} wajib diisi. Lima bobot harus dikirim lengkap agar tidak ada yang diam-diam memakai nilai default.`,
+          },
+          { status: 400 },
+        );
+      }
+
+      const n = Number(v);
+      if (!Number.isInteger(n)) {
+        return Response.json(
+          {
+            ok: false,
+            error: `Bobot ${LABEL[key]} harus bilangan bulat, bukan "${v}".`,
+          },
+          { status: 400 },
+        );
+      }
+      if (n < 0 || n > 100) {
+        return Response.json(
+          {
+            ok: false,
+            error: `Bobot ${LABEL[key]} harus antara 0 dan 100 (sekarang ${n}).`,
+          },
+          { status: 400 },
+        );
+      }
+
+      weights[key] = n;
+    }
+
+    const perf = weights.result + weights.activity + weights.quality;
+    const pers = weights.leadTim + weights.hr;
 
     if (perf !== 100) {
       return Response.json(
@@ -150,11 +222,20 @@ export async function PUT(request: Request) {
     }
 
     if (body.scope === "all") {
-      const affected = await applyWeightsToActiveStaff(resolved, actor.id);
-      return { affected, weights: resolved };
+      const affected = await applyWeightsToActiveStaff(weights, actor.id);
+      return { affected, weights };
     }
 
     const userId = body.userId ?? actor.id;
+    const { exists } = await import("@/server/dal/users");
+    if (!(await exists(userId))) {
+      // Tanpa cek ini, `insert` menabrak foreign key ke `users` dan
+      // menjadi 500 "Terjadi kesalahan di server".
+      return Response.json(
+        { ok: false, error: "User tidak ditemukan." },
+        { status: 404 },
+      );
+    }
     return { weights: await setUserWeights(userId, weights, actor.id) };
   });
 }

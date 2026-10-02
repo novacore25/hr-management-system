@@ -1,6 +1,6 @@
 import "server-only";
 import { db } from "@/db";
-import { and, eq, isNull, desc, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, desc, sql } from "drizzle-orm";
 import { kpis, departments, kpiAssignments } from "@/db/schema";
 import type { KPI, KpiStatus, KpiType, KpiUnit, KpiPeriod } from "@/types";
 
@@ -81,6 +81,44 @@ export async function listKpisIncludingTrash(
     .from(kpis)
     .leftJoin(departments, eq(kpis.departmentId, departments.id))
     .where(and(eq(kpis.year, year), eq(kpis.month, month)))
+    .orderBy(desc(kpis.createdAt));
+
+  return rows.map(toKpi);
+}
+
+/**
+ * KPI milik divisi yang dikelola Head.
+ *
+ * `managedDepartmentIds` SELALU dari `users.managed_departments` di server.
+ * formerly halaman /dashboard/head/kpi-setup menyaring sendiri di browser
+ * dengan `managedDepartments.includes(k.department)` — managedDepartments
+ * berisi id divisi sedangkan `k.department` berisi NAMA, jadi perbandingan
+ * itu tidak pernah cocok dan halaman selalu kosong.
+ *
+ * `null` berarti semua divisi (untuk HR/Executive/Developer).
+ */
+export async function listManagedKpis(
+  managedDepartmentIds: string[] | null,
+  year: number,
+  month: number,
+): Promise<KpiInternal[]> {
+  if (managedDepartmentIds && managedDepartmentIds.length === 0) return [];
+
+  const conds = [
+    eq(kpis.year, year),
+    eq(kpis.month, month),
+    isNull(kpis.deletedAt),
+  ];
+
+  if (managedDepartmentIds) {
+    conds.push(inArray(kpis.departmentId, managedDepartmentIds));
+  }
+
+  const rows = await db
+    .select(baseSelect)
+    .from(kpis)
+    .leftJoin(departments, eq(kpis.departmentId, departments.id))
+    .where(and(...conds))
     .orderBy(desc(kpis.createdAt));
 
   return rows.map(toKpi);
@@ -185,14 +223,82 @@ export async function updateKpi(
 }
 
 /**
+ * Siapa boleh mengubah KPI ini.
+ *
+ * Divisi dibaca dari baris `kpis` + `users.managed_departments` di server.
+ * formerly halaman /dashboard/head/kpi-setup menulis `kpis` langsung dari
+ * browser — cukup mengubah `id`, Head bisa mengubah status atau menghapus
+ * KPI divisi orang lain tanpa cek apa pun.
+ *
+ * KPI tanpa divisi (department_id NULL) sengaja ditolak untuk Head: tidak
+ * ada cara memastikan itu miliknya.
+ */
+export async function assertCanManageKpi(
+  kpiId: string,
+  actor: { id: string; kpiRole: string; managedDepartments: string[] },
+): Promise<
+  { ok: true; departmentId: string | null } | { ok: false; error: string }
+> {
+  const [row] = await db
+    .select({ departmentId: kpis.departmentId, createdBy: kpis.createdBy })
+    .from(kpis)
+    .where(eq(kpis.id, kpiId))
+    .limit(1);
+
+  if (!row) {
+    return { ok: false, error: "KPI tidak ditemukan." };
+  }
+
+  // Pembuat KPI boleh mengelola KPI-nya sendiri.
+  if (row.createdBy === actor.id) {
+    return { ok: true, departmentId: row.departmentId };
+  }
+
+  if (!row.departmentId) {
+    return {
+      ok: false,
+      error:
+        "KPI ini tidak punya divisi, jadi tidak bisa dikelola dari halaman tim.",
+    };
+  }
+
+  if (!actor.managedDepartments.includes(row.departmentId)) {
+    return {
+      ok: false,
+      error: "KPI ini di luar divisi yang Anda kelola.",
+    };
+  }
+
+  return { ok: true, departmentId: row.departmentId };
+}
+
+/**
  * Soft delete. Mengisi deletedAt, tidak menghapus baris —
  * supaya assignment & laporan lama tetap punya rujukan.
+ *
+ * Assignment aktif ikut dibatalkan dalam operasi yang sama.
+ *
+ * formerly halaman /dashboard/head/kpi-setup melakukan dua update dari
+ * browser tanpa memeriksa hasilnya: cancel assignment dulu, baru set
+ * `deleted_at`. Kalau langkah pertama gagal, KPI terhapus tapi
+ * penugasannya tetap aktif — dan karena KPI-nya tidak tampil lagi, orang
+ * tidak pernah tahu penugasan yatim itu ada.
  */
-export async function softDeleteKpi(id: string): Promise<void> {
+export async function softDeleteKpi(
+  id: string,
+  actorId?: string,
+): Promise<{ cancelledAssignments: number }> {
+  const now = new Date();
+
+  const { cancelAssignmentsForKpi } = await import("./assignments");
+  const cancelledAssignments = await cancelAssignmentsForKpi(id, actorId ?? "");
+
   await db
     .update(kpis)
-    .set({ deletedAt: new Date(), updatedAt: new Date() })
+    .set({ deletedAt: now, updatedAt: now })
     .where(eq(kpis.id, id));
+
+  return { cancelledAssignments };
 }
 
 export async function restoreKpi(id: string): Promise<void> {

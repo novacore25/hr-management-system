@@ -3,6 +3,7 @@ import {
   requireUser,
   requireProfile,
   requireKpiRole,
+  isUuid,
 } from "@/server/dal/guards";
 import {
   listUserAssignments,
@@ -83,7 +84,35 @@ export async function GET(request: Request) {
     }
 
     const id = searchParams.get("id");
-    if (id) return { assignment: await findAssignmentById(id) };
+    if (id) {
+      if (!isUuid(id)) {
+        return Response.json(
+          { ok: false, error: "Parameter 'id' bukan id yang valid." },
+          { status: 400 },
+        );
+      }
+      return { assignment: await findAssignmentById(id) };
+    }
+
+    // Berapa penugasan aktif sebuah KPI — dipakai dialog konfirmasi hapus
+    // KPI di /dashboard/head/kpi-setup.
+    const kpiId = searchParams.get("kpiId");
+    if (kpiId) {
+      // Format dicek sebelum query: `eq(kpis.id, "apa saja")` membuat
+      // Postgres melempar `invalid input syntax for type uuid`, yang
+      // menjadi 500 "Terjadi kesalahan di server" — bukan pesan yang bisa
+      // dibaca pengguna.
+      if (!isUuid(kpiId)) {
+        return Response.json(
+          { ok: false, error: "Parameter 'kpiId' bukan id yang valid." },
+          { status: 400 },
+        );
+      }
+      const { countActiveAssignments } = await import(
+        "@/server/dal/assignments"
+      );
+      return { count: await countActiveAssignments(kpiId) };
+    }
 
     if (scope === "all") {
       await requireKpiRole("hr", "executive");

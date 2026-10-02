@@ -150,7 +150,23 @@ VALUES
   -- Tipe hr: hanya muncul di halaman Evaluasi HR.
   ('Inisiatif & Kolaborasi', 'Perilaku kerja yang melampaui target.',
    'hr','percentage','monthly','active', NULL,
-   'u-hr-001', 75, 2026, 10, NULL)
+   'u-hr-001', 75, 2026, 10, NULL),
+
+  -- KPI BERDIVISI.
+  --
+  -- Semua KPI di atas sengaja TANPA divisi, jadi tidak ada yang bisa
+  -- menguji `scope=managed` — halaman Head/divisi akan selalu kosong.
+  -- Dua di bawah sengaja dipasang ke TNT (dikelola u-head-001) dan HYPE
+  -- (TIDAK dikelola), supaya scoping bisa dibedakan.
+  ('Output Tim TNT', 'Deliverable yang diselesaikan tim TNT dalam sebulan.',
+   'result','number','monthly','draft',
+   (SELECT id FROM departments WHERE name='TNT'),
+   'u-hr-001', 30, 2026, 10, 'TNT'),
+
+  ('Output Tim HYPE', 'Deliverable yang diselesaikan tim HYPE dalam sebulan.',
+   'result','number','monthly','draft',
+   (SELECT id FROM departments WHERE name='HYPE'),
+   'u-hr-001', 25, 2026, 10, 'HYPE')
 ON CONFLICT DO NOTHING;
 
 -- Assignment untuk beberapa staf supaya form input punya >1 baris.

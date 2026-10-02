@@ -30,8 +30,38 @@ export async function GET(request: Request) {
     const month = num(searchParams.get("month"), new Date().getMonth() + 1);
     const dept = searchParams.get("department");
     const id = searchParams.get("id");
+    const scope = searchParams.get("scope");
 
     if (id) return { kpi: await findKpiById(id) };
+
+    // `scope=managed` — KPI milik divisi yang dikelola aktornya.
+    //
+    // formerly /dashboard/head/kpi-setup menyaring sendiri di browser:
+    //   kpis.filter(k => managedDepartments.includes(k.department))
+    // `managedDepartments` berisi id divisi, sedangkan `k.department` berisi
+    // NAMA divisi — jadi perbandingan itu tidak pernah cocok dan halaman
+    // selalu kosong. Divisi yang dikelola datang dari AuthContext, jadi
+    // bisa dimanipulasi juga.
+    if (scope === "managed") {
+      const { requireProfile } = await import("@/server/dal/guards");
+      const profile = await requireProfile();
+
+      const isSuperRole = ["hr", "executive", "developer"].includes(
+        profile.kpiRole,
+      );
+      const managedDepartments = Array.isArray(profile.managedDepartments)
+        ? profile.managedDepartments
+        : [];
+
+      const { listManagedKpis } = await import("@/server/dal/kpi");
+      return {
+        kpis: await listManagedKpis(
+          isSuperRole ? null : managedDepartments,
+          year,
+          month,
+        ),
+      };
+    }
 
     if (dept) return { kpis: await listDepartmentKpis(dept, year, month) };
 
@@ -78,10 +108,18 @@ export async function POST(request: Request) {
   });
 }
 
-/** PATCH /api/kpis — ubah KPI / soft delete / restore. */
+/**
+ * PATCH /api/kpis — ubah KPI / soft delete / restore.
+ *
+ * formerly halaman /dashboard/head/kpi-setup menulis `kpis` dan
+ * `kpi_assignments` langsung dari browser. Dua masalahnya:
+ *   - `kpis.update({ status })` tanpa cek siapa pemiliknya. Head bisa
+ *     mengubah status KPI divisi mana pun hanya dengan.send `id`.
+ *   - soft delete = dua operasi terpisah tanpa pemeriksaan hasil.
+ */
 export async function PATCH(request: Request) {
   return withAuth(async () => {
-    await requireKpiRole("hr", "executive");
+    const actor = await requireKpiRole("head", "hr", "executive");
     const b = await request.json();
     const { id, action } = b;
 
@@ -92,9 +130,32 @@ export async function PATCH(request: Request) {
       );
     }
 
+    const isSuperRole = ["hr", "executive", "developer"].includes(
+      actor.kpiRole,
+    );
+
+    // Head hanya boleh menyentuh KPI di divisi yang dia kelola.
+    // formerly tidak ada cek sama sekali.
+    if (!isSuperRole) {
+      const { assertCanManageKpi } = await import("@/server/dal/kpi");
+      const allowed = await assertCanManageKpi(String(id), {
+        id: actor.id,
+        kpiRole: actor.kpiRole,
+        managedDepartments: Array.isArray(actor.managedDepartments)
+          ? actor.managedDepartments
+          : [],
+      });
+      if (!allowed.ok) {
+        return Response.json(
+          { ok: false, error: allowed.error },
+          { status: 403 },
+        );
+      }
+    }
+
     if (action === "soft-delete") {
-      await softDeleteKpi(id);
-      return { ok: true, id };
+      const result = await softDeleteKpi(String(id), actor.id);
+      return { ok: true, id, ...result };
     }
 
     if (action === "restore") {
