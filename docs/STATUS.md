@@ -80,13 +80,39 @@ overtime & payroll yang sengaja ditunda.
 
 ### `/dashboard/**` — semua halaman sudah pindah
 
-Halaman terakhir, `/dashboard/hr/kpi` (817 baris, 14 query), selesai
-pada batch ini. Allowlist stub: 14 → **11 file**.
+Allowlist stub: 14 → **10 file**.
 
-Sisa 11 file: overtime (4), payroll (3),
-`components/hr/KpiFormPage.tsx` (form buat/edit KPI), dan 3 komponen
-input harian (`DailyInputForm`, `DailyActivityFeed`,
-`DailyReportsViewer`).
+Sisa 10 file: overtime (4), payroll (3), dan 3 komponen input harian
+(`DailyInputForm`, `DailyActivityFeed`, `DailyReportsViewer`).
+
+### `KpiFormPage` — ✅ selesai, empat bug ditemukan
+
+Form buat/edit KPI, dipakai `/dashboard/hr/kpi/{new,edit}` dan
+`/dashboard/head/kpi-setup/{new,edit}`.
+
+1. **Setiap KPI tercipta tanpa divisi.** Form mencari id dari NAMA
+   (`departments.select("id").eq("name", name)`) lalu memakai
+   `deptData?.id ?? null`. Dengan stub hasilnya selalu `null` — jadi
+   `department_id` kosong, **tanpa error dan tanpa toast**. KPI-nya ada,
+   tapi tidak pernah muncul di halaman Head. Sekarang id dikirim
+   langsung dan divalidasi terhadap tabel `departments`.
+2. **Edit KPI menimpa target per orang.** Form melakukan
+   `kpi_assignments.update({ monthly_target: target }).eq("kpi_id", id)` —
+   menulis **total KPI** ke setiap penugasan. Karena
+   `kpis.monthlyTarget = SUM(assignment.monthlyTarget)`, totalnya jadi
+   n kali terlalu besar dan target tiap orang hilang. Sekarang
+   **server menolak** perubahan target kalau KPI sudah punya penugasan
+   (409, dengan arah ke Penugasan KPI), dan field-nya dikunci di form.
+3. **Daftar divisi Head bocor.** `/dashboard/head/kpi-setup/{new,edit}`
+   mengirim `allowedDepartments` dari `AuthContext.user.managedDepartments`
+   — Head tinggal mengubahnya di DevTools lalu membuat KPI untuk divisi
+   mana pun. Sekarang `GET /api/departments?scope=managed`.
+4. **Dropdown Head selalu kosong.** `managedDepartments` berisi **id**
+   sedangkan `SelectItem` berisi **nama** — dua format berbeda, tidak
+   pernah cocok. Sekarang keduanya id, nama hanya untuk ditampilkan.
+
+Bonus: validasi tipe/unit/periode/target dipindahkan ke server. Dulu
+semuanya hanya di form yang bisa dilewati dengan satu request biasa.
 
 ### `/dashboard/hr/kpi` — ✅ selesai, enam bug ditemukan
 
@@ -186,7 +212,7 @@ halaman itu, tapi dari endpoint yang mereka panggil):
 
 ## Verifikasi
 
-Tujuh skrip, **354 assert**, semuanya membaca isi respons dan isi
+Tujuh skrip, **387 assert**, semuanya membaca isi respons dan isi
 database — bukan cuma status code.
 
 ```powershell
@@ -196,8 +222,10 @@ npm run verify:assignments  # 70  scoping, validasi, audit trail
 npm run verify:feedbacks    # 39  laporan benar-benar tersimpan
 npm run verify:reports      # 35  koreksi ikut mengubah total
 npm run verify:adminkpi     # 64  role, divisi, bobot, hapus KPI
-npm run verify:hrkpi        # 90  sampah, restore, cascade, bulk, copy
+npm run verify:hrkpi        # 123 sampah, restore, cascade, bulk, copy, form
 ```
+
+Total **387 assert**.
 
 Semuanya membersihkan data ujinya sendiri dan bisa dijalankan berulang
 kali.

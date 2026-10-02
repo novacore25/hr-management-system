@@ -12,8 +12,31 @@ export const dynamic = "force-dynamic";
 /** GET /api/departments */
 export async function GET(request: Request) {
   return withAuth(async () => {
-    await requireUser();
     const { searchParams } = new URL(request.url);
+    const scope = searchParams.get("scope");
+
+    // `scope=managed` — hanya divisi yang dikelola aktornya.
+    //
+    // formerly /dashboard/head/kpi-setup/{new,edit} mengambil daftar ini
+    // dari `AuthContext.user.managedDepartments` dan mengirimkannya
+    // sebagai `allowedDepartments`. Head tinggal mengubah nilainya di
+    // browser lalu membuat KPI untuk divisi mana pun. Divisi yang
+    // dikelola sekarang dibaca dari `users.managed_departments` di
+    // database.
+    if (scope === "managed") {
+      const profile = await requireKpiRole("head", "hr", "executive");
+
+      const isSuperRole = ["hr", "executive", "developer"].includes(
+        profile.kpiRole,
+      );
+      const managed = Array.isArray(profile.managedDepartments)
+        ? profile.managedDepartments
+        : [];
+
+      return { departments: await listDepartments(isSuperRole ? null : managed) };
+    }
+
+    await requireUser();
     const namesOnly = searchParams.get("names") === "1";
     return {
       departments: namesOnly ? undefined : await listDepartments(),

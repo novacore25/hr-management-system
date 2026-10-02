@@ -333,6 +333,24 @@ terlihat normal. Terlihat seperti bug aplikasi yang serius.
 menyetelnya ke `.next-verify`. Kalau salah satu gagal diam-diam, ganti
 folder di **kedua** file itu.
 
+### 3.13 Kolom yang nilainya DITURUNKAN tidak boleh diedit dari form yang sama
+
+`kpis.monthlyTarget` = `SUM(kpi_assignments.monthlyTarget)`. Jadi kalau
+sudah ada penugasan, angka itu adalah jumlah target per orang — bukan
+nilai yang dimiliki form KPI.
+
+Yang pernah terjadi: form edit menulis angka itu ke KPI **dan** menimpanya
+ke setiap penugasan (supaya terlihat "menyinkronkan"). Akibatnya target
+per orang hilang dan total KPI jadi n kali terlalu besar.
+
+Kalau calannya diturunkan dari tabel lain, form yang owning kolom itu
+**menolak** perubahan dan mengarahkan ke halaman yang manage tabel
+anaknya. Jangan menerima lalu diam-diam menimpa.
+
+Dan jangan memanggil `recalc` tepat setelah menyimpan nilai dari form —
+recalc akan menimpa angka yang baru saja diketik user. `recalc` hanya
+boleh jalan setelah perubahan pada tabel anak.
+
 ---
 
 ## 4. Environment
@@ -363,7 +381,7 @@ npm run verify:assignments  # 70 assert: scoping, validasi, audit trail
 npm run verify:feedbacks    # 39 assert: laporan benar-benar tersimpan
 npm run verify:reports      # 35 assert: koreksi ikut mengubah total
 npm run verify:adminkpi     # 64 assert: role, divisi, bobot, hapus KPI
-npm run verify:hrkpi        # 90 assert: sampah, restore, cascade, bulk, copy
+npm run verify:hrkpi        # 123 assert: sampah, restore, cascade, bulk, copy, form
 ```
 
 Semuanya membersihkan data ujinya sendiri, jadi bisa dijalankan berulang

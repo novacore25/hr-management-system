@@ -453,6 +453,22 @@ export async function kpiIdsForDepartment(deptId: string): Promise<string[]> {
 }
 
 /**
+ * Berapa penugasan **seluruhnya** milik sebuah KPI, apa pun statusnya.
+ *
+ * Dipakai untuk menolak perubahan `kpis.monthlyTarget` dari form KPI:
+ * kalau penugasan sudah ada, angka itu adalah jumlah target per orang,
+ * bukan milik form tersebut.
+ */
+export async function countAssignmentsOfKpi(kpiId: string): Promise<number> {
+  const [row] = await db
+    .select({ n: sql<number>`count(*)` })
+    .from(kpiAssignments)
+    .where(eq(kpiAssignments.kpiId, kpiId));
+
+  return Number(row?.n ?? 0);
+}
+
+/**
  * Berapa penugasan aktif dari sekumpulan KPI.
  *
  * formerly dialog konfirmasi hapus di /dashboard/hr/kpi menghitung satu

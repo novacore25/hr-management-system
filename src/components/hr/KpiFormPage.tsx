@@ -1,10 +1,9 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useCallback, useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
-import { useAuth } from "@/contexts/AuthContext";
-import { useDepartments } from "@/hooks/useDivisions";
+import { useApiMutation, useApiQuery } from "@/hooks/useApi";
+import { withQuery } from "@/lib/api-client";
 import { useKpis } from "@/hooks/useKpis";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,34 +17,57 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ChevronLeft, AlertTriangle } from "lucide-react";
+import type { KPI } from "@/types";
+
+type Department = { id: string; name: string };
 
 interface KpiFormPageProps {
   kpiId?: string;
+  /**
+   * @deprecated tidak lagi dipakai. Dulu Head Restrictions-nya datang dari
+   * `AuthContext.user.managedDepartments` — bisa dimanipulasi di browser.
+   * Sekarang server yang menyaring lewat `scope=managed`.
+   */
   allowedDepartments?: string[];
   backHref?: string;
 }
 
-export function KpiFormPage({ kpiId, allowedDepartments, backHref }: KpiFormPageProps) {
+/** Halaman ini dipakai /dashboard/hr/kpi/* dan /dashboard/head/kpi-setup/*. */
+export function KpiFormPage({ kpiId, backHref }: KpiFormPageProps) {
   const router = useRouter();
-  const { user } = useAuth();
-  const { departments: allDepartments } = useDepartments();
-  const departments = allowedDepartments && allowedDepartments.length > 0 ? allowedDepartments : allDepartments;
   const isEdit = !!kpiId;
   const resolvedBackHref = backHref ?? "/dashboard/hr/kpi";
+
+  /**
+   * `scope=managed` untuk Head, semua divisi untuk HR.
+   *
+   * Server yang memutuskan: `/dashboard/head/kpi-setup/{new,edit}`
+   * formerly mengirim `allowedDepartments` dari `AuthContext`, jadi Head
+   * tinggal mengubah nilainya lalu membuat KPI untuk divisi mana pun.
+   */
+  const { data: deptData, isLoading: departmentsLoading } = useApiQuery<{
+    departments: Department[];
+  }>(useCallback(() => withQuery("/api/departments", { scope: "managed" }), []), []);
+
+  const departments = deptData?.departments ?? [];
+  const departmentNameById = useMemo(
+    () => new Map(departments.map((d) => [d.id, d.name])),
+    [departments],
+  );
 
   const now = new Date();
   const [selectedMonth, setSelectedMonth] = useState(
     () => `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`
   );
 
-  const [loadingKpi, setLoadingKpi] = useState(isEdit);
   const [title, setTitle] = useState("");
   const [brand, setBrand] = useState("");
   const [description, setDescription] = useState("");
   const [type, setType] = useState<string>("");
   const [unit, setUnit] = useState<string>("");
   const [period, setPeriod] = useState<string>("");
-  const [department, setDepartment] = useState<string>("");
+  /** Sekarang **id** divisi, bukan nama. */
+  const [departmentId, setDepartmentId] = useState("");
   const [monthlyTarget, setMonthlyTarget] = useState("");
   const [hideActual, setHideActual] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -68,42 +90,71 @@ export function KpiFormPage({ kpiId, allowedDepartments, backHref }: KpiFormPage
     });
   }, [title, brand, existingKpis, isEdit, kpiId]);
 
+  const postKpi = useApiMutation<Record<string, unknown>, unknown>("/api/kpis", "POST");
+  const patchKpi = useApiMutation<Record<string, unknown>, unknown>("/api/kpis", "PATCH");
+
+  const [kpi, setKpi] = useState<KPI | null>(null);
+  const [loadingKpi, setLoadingKpi] = useState(isEdit);
+  const [assignmentCount, setAssignmentCount] = useState(0);
+
+  /**
+   * formerly `supabase.from("departments").select("id").eq("name", name)`
+   * lalu `deptData?.id ?? null`. Dengan stub, hasilnya selalu `null` —
+   * jadi setiap KPI yang dibuat **tidak punya divisi**, tanpa error apa
+   * pun. Sekarang id diambil langsung dari API KPI.
+   */
   useEffect(() => {
     if (!kpiId) return;
 
-    // formerly: query langsung ke Supabase dari browser
-    // sekarang: Route Handler dengan guard role di server
     let cancelled = false;
 
     async function loadKpi() {
       try {
-        const res = await fetch(`/api/kpis?id=${encodeURIComponent(kpiId!)}`, {
-          credentials: "include",
-          cache: "no-store",
-        });
+        const [res, assignRes] = await Promise.all([
+          fetch(withQuery("/api/kpis", { id: kpiId }), {
+            credentials: "include",
+            cache: "no-store",
+          }),
+          fetch(withQuery("/api/assignments", { kpiId }), {
+            credentials: "include",
+            cache: "no-store",
+          }),
+        ]);
+
         const json = (await res.json()) as {
           ok: boolean;
-          data?: { kpi?: Record<string, any> | null };
+          data?: { kpi?: KPI | null };
         };
 
-        const kpi = json.data?.kpi;
         if (cancelled) return;
 
-        if (kpi) {
-          setTitle(kpi.title);
-          setBrand(kpi.brand || "");
-          setDescription(kpi.description || "");
-          setType(kpi.type);
-          setUnit(kpi.unit);
-          setPeriod(kpi.period);
-          setDepartment(kpi.department || "");
-          setMonthlyTarget(String(kpi.monthlyTarget ?? 0));
-          setHideActual(Boolean(kpi.hideActual));
-          setSelectedMonth(`${kpi.year}-${String(kpi.month).padStart(2, "0")}`);
-        } else {
+        const found = json.data?.kpi ?? null;
+        if (!found) {
           // Gagal memuat -> jangan biarkan form tersimpan kosong lalu
           // di-submit (sebelumnya ini bisa menimpa data dengan blank).
           setError("KPI tidak ditemukan atau Anda tidak punya akses.");
+          return;
+        }
+
+        setKpi(found);
+        setTitle(found.title);
+        setBrand(found.brand ?? "");
+        setDescription(found.description ?? "");
+        setType(found.type);
+        setUnit(found.unit);
+        setPeriod(found.period);
+        setDepartmentId(
+          (found as { departmentId?: string | null }).departmentId ?? "",
+        );
+        setMonthlyTarget(String(found.monthlyTarget ?? 0));
+        setHideActual(Boolean(found.hideActual));
+        setSelectedMonth(
+          `${found.year}-${String(found.month).padStart(2, "0")}`,
+        );
+
+        if (assignRes.ok) {
+          const aj = (await assignRes.json()) as { data?: { count?: number } };
+          setAssignmentCount(aj.data?.count ?? 0);
         }
       } catch {
         if (!cancelled) setError("Gagal memuat data KPI.");
@@ -118,62 +169,65 @@ export function KpiFormPage({ kpiId, allowedDepartments, backHref }: KpiFormPage
     };
   }, [kpiId]);
 
+  /**
+   * formerly menulis `kpis` DAN `kpi_assignments` langsung dari browser.
+   * Dua masalah:
+   *
+   * 1. `kpi_assignments.update({ monthly_target: target })` menimpa target
+   *    **per orang** dengan total KPI. Karena `kpis.monthlyTarget` =
+   *    SUM(assignment), totalnya jadi n kali terlalu besar dan target
+   *    tiap orang hilang. Sekarang server menolak perubahan target kalau
+   *    KPI sudah punya penugasan, dengan pesan yang memberi arah.
+   * 2. Divisi dikirim sebagai NAMA, dan kalau tidak ketemu `departmentId`
+   *    jadi null tanpa pesan apa pun - KPI tercipta tanpa divisi.
+   */
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
-    if (!title.trim()) { setError("Judul KPI tidak boleh kosong."); return; }
-    if (!type || !unit || !period || !department) { setError("Semua field wajib diisi."); return; }
-    const target = parseFloat(monthlyTarget);
-    if (isNaN(target) || target <= 0) { setError("Target bulanan harus angka positif."); return; }
+
+    if (!title.trim()) {
+      setError("Judul KPI tidak boleh kosong.");
+      return;
+    }
+    if (!type || !unit || !period || !departmentId) {
+      setError("Semua field wajib diisi.");
+      return;
+    }
+
+    const payload: Record<string, unknown> = {
+      title: title.trim(),
+      brand: brand.trim(),
+      description: description.trim(),
+      type,
+      unit,
+      period,
+      departmentId,
+      hideActual,
+    };
+
+    if (assignmentCount === 0) {
+      const target = parseFloat(monthlyTarget);
+      if (isNaN(target) || target <= 0) {
+        setError("Target bulanan harus angka positif.");
+        return;
+      }
+      payload.monthlyTarget = target;
+    }
 
     setSubmitting(true);
-    try {
-      const supabase = createClient();
-      const { data: deptData } = await supabase.from("departments").select("id").eq("name", department).single();
-      const departmentId = deptData?.id ?? null;
-      const kpiType = type as "result" | "activity" | "quality";
 
-      if (isEdit && kpiId) {
-        const { error: updateErr } = await supabase.from("kpis").update({
-          title: title.trim(),
-          brand: brand.trim(),
-          description: description.trim(),
-          type: kpiType,
-          unit,
-          period,
-          department_id: departmentId,
-          monthly_target: target,
-          hide_actual: hideActual,
-        }).eq("id", kpiId);
-        if (updateErr) throw updateErr;
+    const res = isEdit && kpiId
+      ? await patchKpi.mutate({ id: kpiId, ...payload })
+      : await postKpi.mutate({ ...payload, year, month, status: "draft" });
 
-        await supabase.from("kpi_assignments").update({ monthly_target: target }).eq("kpi_id", kpiId);
-      } else {
-        const { error: insertErr } = await supabase.from("kpis").insert({
-          title: title.trim(),
-          brand: brand.trim(),
-          description: description.trim(),
-          type: kpiType,
-          unit,
-          period,
-          department_id: departmentId,
-          monthly_target: target,
-          year,
-          month,
-          hide_actual: hideActual,
-          status: "draft",
-          created_by: user?.id ?? "",
-          deleted_at: null,
-        });
-        if (insertErr) throw insertErr;
-      }
+    setSubmitting(false);
+
+    if (res.ok) {
       router.push(resolvedBackHref);
-    } catch (err) {
-      console.error("[KpiFormPage]", err);
-      setError(isEdit ? "Gagal menyimpan perubahan. Coba lagi." : "Gagal membuat KPI. Coba lagi.");
-    } finally {
-      setSubmitting(false);
+      return;
     }
+
+    setError(res.error ?? "Gagal menyimpan. Coba lagi.");
   }
 
   if (loadingKpi) {
@@ -321,23 +375,49 @@ export function KpiFormPage({ kpiId, allowedDepartments, backHref }: KpiFormPage
 
           <div className="space-y-1.5">
             <Label>Departemen</Label>
-            <Select onValueChange={setDepartment} value={department}>
+            {/*
+              `value` sekarang berisi **id** divisi, bukan nama.
+              formerly `value={department}` (nama) dicocokkan dengan
+              `SelectItem value={d}` — dan `d` itu daftar id dari
+              `allowedDepartments`. Dua format berbeda, jadi tidak pernah
+              cocok: dropdown Head tidak pernah menampilkan apa pun yang
+              terpilih.
+            */}
+            <Select onValueChange={setDepartmentId} value={departmentId}>
               <SelectTrigger>
                 <SelectValue placeholder="Pilih departemen" />
               </SelectTrigger>
               <SelectContent>
-                {departments.map((d) => (
-                  <SelectItem key={d} value={d}>
-                    {d}
+                {departmentsLoading ? (
+                  <SelectItem value="__loading" disabled>
+                    Memuat divisi...
                   </SelectItem>
-                ))}
+                ) : departments.length === 0 ? (
+                  <SelectItem value="__kosong" disabled>
+                    Tidak ada divisi yang bisa dipilih
+                  </SelectItem>
+                ) : (
+                  departments.map((d) => (
+                    <SelectItem key={d.id} value={d.id}>
+                      {d.name}
+                    </SelectItem>
+                  ))
+                )}
               </SelectContent>
             </Select>
           </div>
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor="monthly-target">Target Bulanan</Label>
+          <Label htmlFor="monthly-target">
+            Target Bulanan
+            {assignmentCount > 0 && (
+              <span className="text-muted-foreground font-normal">
+                {" "}
+                (total {assignmentCount} penugasan)
+              </span>
+            )}
+          </Label>
           <Input
             id="monthly-target"
             type="number"
@@ -348,7 +428,19 @@ export function KpiFormPage({ kpiId, allowedDepartments, backHref }: KpiFormPage
             value={monthlyTarget}
             onChange={(e) => setMonthlyTarget(e.target.value)}
             required
+            // Kalau KPI sudah punya penugasan, angka ini adalah JUMLAH
+            // target per orang — bukan milik form ini. Server menolak
+            // perubahan, jadi field-nya dikunci. Dulu field ini bebas
+            // diisi dan nilainya diam-diam ditimpa total per orang,
+            // sehingga target tiap orang hilang.
+            disabled={assignmentCount > 0}
           />
+          {assignmentCount > 0 && (
+            <p className="text-xs text-muted-foreground">
+              Target di sini adalah jumlah target seluruh penugasan. Ubah
+              target tiap orang di halaman Penugasan KPI.
+            </p>
+          )}
         </div>
 
         <div className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4 shadow-sm bg-background">

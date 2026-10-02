@@ -45,7 +45,6 @@ const ALLOWLIST = [
   "components/absensi/OvertimeFinalizeModal.tsx",
   "components/absensi/OvertimeStaffSection.tsx",
 
-  "components/hr/KpiFormPage.tsx",
   "components/kpi/DailyActivityFeed.tsx",
   "components/kpi/DailyInputForm.tsx",
   "components/kpi/DailyReportsViewer.tsx",

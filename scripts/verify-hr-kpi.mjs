@@ -581,6 +581,158 @@ console.log("\n=== 13. hide_actual bisa diubah lewat patch yang sama ===");
     psql(`SELECT hide_actual FROM kpis WHERE id='${kpiId}';`) === "f");
 }
 
+console.log("\n=== 14. Form KPI: validasi server, bukan hanya di form ===");
+{
+  // formerly semua validasi hanya ada di `KpiFormPage`, yang bisa
+  // dilewati dengan satu request biasa.
+  const tnt = psql("SELECT id FROM departments WHERE name='TNT';");
+
+  for (const [label, body] of [
+    ["tanpa divisi", { title: "ZZ Uji Form", type: "result", unit: "number", period: "monthly", monthlyTarget: 10 }],
+    ["divisi sebagai NAMA", { title: "ZZ Uji Form", type: "result", unit: "number", period: "monthly", monthlyTarget: 10, departmentId: "TNT" }],
+    ["divisi tidak dikenal", { title: "ZZ Uji Form", type: "result", unit: "number", period: "monthly", monthlyTarget: 10, departmentId: "00000000-0000-4000-8000-000000000000" }],
+    ["tipe ngawur", { title: "ZZ Uji Form", type: "ngawur", unit: "number", period: "monthly", monthlyTarget: 10, departmentId: tnt }],
+    ["unit ngawur", { title: "ZZ Uji Form", type: "result", unit: "kg", period: "monthly", monthlyTarget: 10, departmentId: tnt }],
+    ["periode ngawur", { title: "ZZ Uji Form", type: "result", unit: "number", period: "tahunan", monthlyTarget: 10, departmentId: tnt }],
+    ["target 0", { title: "ZZ Uji Form", type: "result", unit: "number", period: "monthly", monthlyTarget: 0, departmentId: tnt }],
+    ["target negatif", { title: "ZZ Uji Form", type: "result", unit: "number", period: "monthly", monthlyTarget: -5, departmentId: tnt }],
+    ["tanpa target", { title: "ZZ Uji Form", type: "result", unit: "number", period: "monthly", departmentId: tnt }],
+    ["tanpa tipe", { title: "ZZ Uji Form", unit: "number", period: "monthly", monthlyTarget: 10, departmentId: tnt }],
+    ["bulan 13", { title: "ZZ Uji Form", type: "result", unit: "number", period: "monthly", monthlyTarget: 10, departmentId: tnt, year: 2026, month: 13 }],
+  ]) {
+    const r = await api("u-hr-001", "/api/kpis", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    check(`${label} → 400 (dapat ${r.status})`, r.status === 400, JSON.stringify(r.envelope).slice(0, 110));
+  }
+
+  check("tidak ada KPI uji yang dibuat dari form",
+    psql("SELECT count(*) FROM kpis WHERE title='ZZ Uji Form';") === "0");
+}
+
+console.log("\n=== 15. KPI yang dibuat benar-benar punya divisi ===");
+{
+  // formerly form mencari id dari NAMA:
+  //   supabase.from("departments").select("id").eq("name", name).single()
+  // lalu `deptData?.id ?? null`. Dengan stub hasilnya selalu null, jadi
+  // SETIAP KPI tercipta tanpa divisi — tanpa error, tanpa toast.
+  const r = await api("u-hr-001", "/api/kpis", {
+    method: "POST",
+    body: JSON.stringify({
+      title: "ZZ Uji Form Sah",
+      description: "dari form",
+      brand: "Merek Uji",
+      type: "lead_tim",
+      unit: "percentage",
+      period: "monthly",
+      monthlyTarget: 25,
+      departmentId: psql("SELECT id FROM departments WHERE name='HYPE';"),
+      year: 2026,
+      month: 10,
+    }),
+  });
+  check("status 200", r.status === 200, JSON.stringify(r.envelope).slice(0, 180));
+
+  const tersimpan = psql(`
+    SELECT COALESCE(d.name, '(TANPA DIVISI)') || '|' || k.type || '|' || k.brand || '|' || k.status
+    FROM kpis k LEFT JOIN departments d ON d.id = k.department_id
+    WHERE k.title='ZZ Uji Form Sah';`);
+  check(`divisi benar-benar tersimpan (${tersimpan})`,
+    tersimpan === "HYPE|lead_tim|Merek Uji|draft", `dapat ${tersimpan}`);
+
+  // Tipe `lead_tim` pernah hilang karena form mengetik-assert-nya jadi
+  // "result" | "activity" | "quality".
+  check("tipe lead_tim tidak berubah jadi result",
+    psql("SELECT type FROM kpis WHERE title='ZZ Uji Form Sah';") === "lead_tim");
+}
+
+console.log("\n=== 16. Edit KPI tidak boleh menimpa target per orang ===");
+{
+  // formerly form edit menulis total KPI ke SETIAP penugasan:
+//   supabase.from("kpi_assignments").update({ monthly_target: target })
+//     .eq("kpi_id", kpiId)
+// Karena kpis.monthlyTarget = SUM(assignment), totalnya jadi n kali
+// besar dan target per orang hilang.
+  const kpiId = makeKpi("ZZ Uji Target", "TNT");
+  const a1 = addAssignment(kpiId, "u-staff-001", "TNT", "active");
+  addAssignment(kpiId, "u-staff-002", "TNT", "active");
+  psql(`UPDATE kpi_assignments SET monthly_target=5 WHERE kpi_id='${kpiId}';`);
+  psql(`UPDATE kpis SET monthly_target=10 WHERE id='${kpiId}';`);
+
+  const tolak = await api("u-hr-001", "/api/kpis", {
+    method: "PATCH",
+    body: JSON.stringify({ id: kpiId, monthlyTarget: 999 }),
+  });
+  check(`ditolak (${tolak.status})`, tolak.status === 409, `status ${tolak.status}`);
+  check(`pesan mengarahkan ke Penugasan KPI (${JSON.stringify(tolak.envelope?.error)})`,
+    typeof tolak.envelope?.error === "string" && tolak.envelope.error.includes("Penugasan KPI"));
+
+  check("target KPI tidak berubah",
+    psql(`SELECT monthly_target::int FROM kpis WHERE id='${kpiId}';`) === "10");
+  check("target per orang tidak berubah",
+    psql(`SELECT monthly_target::int FROM kpi_assignments WHERE id='${a1}';`) === "5");
+  check("total target per orang masih utuh",
+    psql(`SELECT sum(monthly_target)::int FROM kpi_assignments WHERE kpi_id='${kpiId}';`) === "10");
+
+  // Field lain tetap boleh diubah.
+  const judul = await api("u-hr-001", "/api/kpis", {
+    method: "PATCH",
+    body: JSON.stringify({ id: kpiId, title: "ZZ Uji Target Baru" }),
+  });
+  check("ubah judul tetap boleh", judul.status === 200, `status ${judul.status}`);
+  check("judul benar-benar berubah",
+    psql(`SELECT title FROM kpis WHERE id='${kpiId}';`) === "ZZ Uji Target Baru");
+}
+
+console.log("\n=== 17. KPI tanpa penugasan boleh diubah targetnya ===");
+{
+  const kpiId = makeKpi("ZZ Uji Bebas", "TNT");
+  const r = await api("u-hr-001", "/api/kpis", {
+    method: "PATCH",
+    body: JSON.stringify({ id: kpiId, monthlyTarget: 42 }),
+  });
+  check("status 200", r.status === 200, JSON.stringify(r.envelope).slice(0, 150));
+  check("target tersimpan",
+    psql(`SELECT monthly_target::int FROM kpis WHERE id='${kpiId}';`) === "42");
+
+  // Dan tidak boleh nol / negatif lewat PATCH.
+  for (const [label, value] of [["nol", 0], ["negatif", -1]]) {
+    const bad = await api("u-hr-001", "/api/kpis", {
+      method: "PATCH",
+      body: JSON.stringify({ id: kpiId, monthlyTarget: value }),
+    });
+    check(`target ${label} ditolak (${bad.status})`, bad.status === 400, `status ${bad.status}`);
+  }
+  check("target tetap 42",
+    psql(`SELECT monthly_target::int FROM kpis WHERE id='${kpiId}';`) === "42");
+}
+
+console.log("\n=== 18. scope=managed pada divisi ===");
+{
+  // formerly Head Restrictions-nya datang dari AuthContext, jadi bisa
+  // dimanipulasi di browser.
+  const head = await api("u-head-001", "/api/departments?scope=managed");
+  check("status 200", head.status === 200, JSON.stringify(head.envelope).slice(0, 150));
+
+  const namaHead = (head.body?.departments ?? []).map((d) => d.name);
+  check(`Head hanya melihat divisinya (${namaHead.join(", ")})`,
+    namaHead.length === 1 && namaHead[0] === "TNT", JSON.stringify(namaHead));
+  check("id divisi ikut dikirim (bukan cuma nama)",
+    (head.body?.departments ?? []).every((d) => /^[0-9a-f-]{36}$/i.test(d.id)));
+
+  const hr = await api("u-hr-001", "/api/departments?scope=managed");
+  check(`HR melihat semua divisi (${(hr.body?.departments ?? []).length})`,
+    (hr.body?.departments ?? []).length > 1);
+
+  const staf = await api("u-staff-001", "/api/departments?scope=managed");
+  check(`staf biasa tidak boleh (${staf.status})`, staf.status === 403, `status ${staf.status}`);
+
+  // Tanpa scope, daftar lengkap tetap boleh untuk semua user login.
+  const semua = await api("u-staff-001", "/api/departments");
+  check("tanpa scope tetap terbuka untuk staf (200)", semua.status === 200, `status ${semua.status}`);
+}
+
 cleanup();
 const sisa = psql("SELECT count(*) FROM kpis WHERE title LIKE 'ZZ Uji%';");
 check(`sisa uji dibersihkan (${sisa})`, sisa === "0");

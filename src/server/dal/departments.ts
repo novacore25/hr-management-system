@@ -1,6 +1,6 @@
 import "server-only";
 import { db } from "@/db";
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, inArray } from "drizzle-orm";
 import { departments } from "@/db/schema";
 
 /**
@@ -8,10 +8,20 @@ import { departments } from "@/db/schema";
  * Read: semua user login boleh (dipakai filter di mana-mana).
  * Write: hanya HR/Executive (dicek di Route Handler).
  */
-export async function listDepartments(): Promise<{ id: string; name: string }[]> {
+/**
+ * Divisi yang ada.
+ *
+ * `ids` menyaring ke daftar tertentu — dipakai untuk `scope=managed`,
+ * di mana daftarnya berasal dari `users.managed_departments` milik
+ * aktornya. `null` berarti semua divisi.
+ */
+export async function listDepartments(
+  ids: string[] | null = null,
+): Promise<{ id: string; name: string }[]> {
   return await db
     .select({ id: departments.id, name: departments.name })
     .from(departments)
+    .where(ids ? inArray(departments.id, ids) : undefined)
     .orderBy(asc(departments.name));
 }
 
