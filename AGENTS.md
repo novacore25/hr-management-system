@@ -379,7 +379,7 @@ npm run verify:endpoints    # 24 endpoint: amplop, status, isi data
 npm run verify:quality      # 32 assert: scoping, penolakan, nilai tersimpan
 npm run verify:assignments  # 70 assert: scoping, validasi, audit trail
 npm run verify:feedbacks    # 39 assert: laporan benar-benar tersimpan
-npm run verify:reports      # 35 assert: koreksi ikut mengubah total
+npm run verify:reports      # 65 assert: koreksi, kepemilikan, tanggal
 npm run verify:adminkpi     # 64 assert: role, divisi, bobot, hapus KPI
 npm run verify:hrkpi        # 123 assert: sampah, restore, cascade, bulk, copy, form
 ```

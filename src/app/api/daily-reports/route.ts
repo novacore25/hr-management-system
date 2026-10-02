@@ -35,12 +35,88 @@ export async function GET(request: Request) {
     const to = searchParams.get("to");
 
     if (assignmentId) {
-      // User biasa hanya boleh lihat laporannya sendiri
-      const targetUser = userId ?? me.id;
-      if (targetUser !== me.id) {
-        await requireKpiRole("head", "hr", "executive");
+      /**
+       * Pemilik laporan ditentukan dari **assignment-nya**, bukan dari
+       * `userId` di query string.
+       *
+       * formerly halaman /dashboard/tim/history mengirim `userId` dari
+       * state browser. Server hanya membandingkan dengan `me.id`, jadi
+       * Head yang sah bisa membaca laporan staff-nya — tapi begitu juga
+       * staf yang mengubah `userId` jadi id orang lain, karena `requireKpiRole`
+       * sudah lolos untuk "targetUser !== me.id" yang salah.
+       *
+       * Sekarang: cari assignment-nya dulu, lalu tanya server apakah
+       * aktornya berhak melihat laporan pemilik assignment itu.
+       */
+      const { getAssignmentOwner } = await import("@/server/dal/assignments");
+      const owner = await getAssignmentOwner(assignmentId);
+
+      if (!owner) {
+        return Response.json(
+          { ok: false, error: "Assignment tidak ditemukan." },
+          { status: 404 },
+        );
       }
-      return { reports: await listReportsForAssignment(assignmentId, targetUser) };
+
+      // Kalau client mengirim `userId`, harus cocok dengan pemiliknya —
+      // kalau tidak, jangan diam-diam pakai yang dari server.
+      if (userId && userId !== owner.userId) {
+        return Response.json(
+          {
+            ok: false,
+            error: "Laporan itu bukan milik user yang diminta.",
+          },
+          { status: 403 },
+        );
+      }
+
+      if (owner.userId !== me.id) {
+        const profile = await requireProfile();
+
+        if (!["hr", "executive", "developer"].includes(profile.kpiRole)) {
+          // Head hanya boleh melihat laporan divisinya sendiri.
+          if (profile.kpiRole !== "head") {
+            throw new ForbiddenError(
+              "Anda hanya bisa melihat laporan sendiri.",
+            );
+          }
+
+          const managed = Array.isArray(profile.managedDepartments)
+            ? profile.managedDepartments
+            : [];
+
+          const boleh =
+            managed.includes(owner.departmentId ?? "") ||
+            owner.userId === profile.id;
+
+          if (!boleh) {
+            throw new ForbiddenError(
+              "Laporan itu di luar divisi yang Anda kelola.",
+            );
+          }
+        }
+      }
+
+      const reports = await listReportsForAssignment(
+        assignmentId,
+        owner.userId,
+      );
+
+      // Rentang tanggal opsional — `DailyReportsViewer` memakainya untuk
+      // menampilkan hanya periode yang sedang dipilih.
+      const fromParam = searchParams.get("from");
+      const toParam = searchParams.get("to");
+
+      const filtered =
+        fromParam || toParam
+          ? reports.filter(
+              (r) =>
+                (!fromParam || r.date >= fromParam) &&
+                (!toParam || r.date <= toParam),
+            )
+          : reports;
+
+      return { reports: filtered };
     }
 
     if (from && to) {
@@ -128,12 +204,54 @@ export async function POST(request: Request) {
       }
     }
 
+    /**
+     * formerly semua batas ini hanya ada di `<input type="date"
+     * min max>` — yang bisa dilewati dengan satu request biasa.
+     *
+     * Taruh laporan di masa depan berarti `actual_total` sudah mengandung
+     * angka yang belum terjadi, dan KPI-nya langsung terlihat "terlampaui".
+     * Taruh laporan di luar bulan assignment-nya berarti angkanya masuk ke
+     * `actual_total` tanpa pernah tampil di kalender bulan itu.
+     */
+    const num = Number(value);
+    if (!Number.isFinite(num)) {
+      throw new ValidationError("Nilai harus berupa angka.");
+    }
+    if (num < 0) {
+      throw new ValidationError("Nilai tidak boleh negatif.");
+    }
+
+    const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+    if (!DATE_RE.test(String(date))) {
+      throw new ValidationError(
+        "Tanggal harus format YYYY-MM-DD.",
+      );
+    }
+
+    const today = new Date();
+    const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+
+    if (String(date) > todayStr) {
+      throw new ValidationError(
+        `Tanggal ${date} masih di masa depan. Laporan hanya bisa diisi sampai hari ini.`,
+      );
+    }
+
+    // `assignment.year` / `month` sudah jadi kolom di `kpi_assignments`,
+    // jadi tidak perlu menebak dari `kpis`.
+    const monthPrefix = `${assignment.year}-${String(assignment.month).padStart(2, "0")}`;
+    if (!String(date).startsWith(monthPrefix)) {
+      throw new ValidationError(
+        `Laporan ini untuk bulan ${monthPrefix}, bukan ${String(date).slice(0, 7)}.`,
+      );
+    }
+
     await upsertDailyReport({
       assignmentId,
       kpiId: kpiId ?? assignment.kpiId,
       userId: isOwner ? me.id : assignment.userId,
       date,
-      value: Number(value),
+      value: num,
       notes: notes ?? null,
     });
 

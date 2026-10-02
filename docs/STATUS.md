@@ -1,8 +1,9 @@
 # STATUS MIGRASI — dibaca sebelum mengerjakan apa pun
 
-Terakhir diperbarui: setelah `/dashboard/hr/kpi` selesai — seluruh
-halaman `/dashboard/**` sudah pindah. Sisa 11 file di allowlist stub
-(overtime, payroll, `KpiFormPage`, 3 komponen input harian).
+Terakhir diperbarui: setelah komponen KPI harian selesai — seluruh
+halaman `/dashboard/**` dan `/absensi/**` (kecuali overtime & payroll)
+sudah pindah dari stub Supabase ke Route Handler + DAL. Sisa **7 file**
+di allowlist stub: 4 overtime, 3 payroll.
 
 ---
 
@@ -80,10 +81,47 @@ overtime & payroll yang sengaja ditunda.
 
 ### `/dashboard/**` — semua halaman sudah pindah
 
-Allowlist stub: 14 → **10 file**.
+Allowlist stub: 14 → **7 file**.
 
-Sisa 10 file: overtime (4), payroll (3), dan 3 komponen input harian
-(`DailyInputForm`, `DailyActivityFeed`, `DailyReportsViewer`).
+Sisa 7 file: overtime (4: `absensi/admin/approvals`,
+`absensi/admin/overtime`, `OvertimeFinalizeModal`, `OvertimeStaffSection`)
+dan payroll (3: `absensi/admin/payroll`,
+`absensi/admin/payroll/settings`, `absensi/(staff)/payroll`).
+
+Tidak ada lagi halaman KPI atau dashboard yang menyentuh stub.
+
+### Komponen KPI harian — ✅ selesai, enam bug ditemukan
+
+Tiga komponen yang dipakai di 7 halaman sekaligus (`tim`, `tim/kpi`,
+`tim/input`, `head`, `hr/activity`, `executive/activity`,
+`ExpandableStaffGrid`). Salah satu bug di sini dampaknya ke semua
+halaman itu.
+
+1. **Filter divisi mati.** `departmentFilter` ada di state dan ada
+   dropdownnya, tapi tidak pernah dipakai di `filteredReports`. User
+   memilih divisi, tidak ada yang berubah, tidak ada yang memberitahu.
+2. **Judul KPI selalu UUID.** `kpiMap` diisi dari query stub, jadi
+   selalu kosong — setiap baris menampilkan `r.kpiId` mentah di tempat
+   judulnya.
+3. **HR hanya melihat laporannya sendiri** di feed aktivitas admin.
+   Hook dipanggil tanpa `scope`, jadi server membatasi ke `me.id` —
+   di halaman yang justru dirancang untuk melihat semua orang.
+4. **Tidak ada validasi tanggal di server.** Satu-satunya penjaga
+   `<input type="date" min max>`. Tanggal masa depan membuat
+   `actual_total` sudah mengandung angka yang belum terjadi; tanggal
+   salah bulan masuk ke total tanpa pernah tampil di kalender bulan itu.
+   Dan check-then-insert adalah race — ada unique index
+   `(assignment_id, date)`, jadi dua tab bisa sama-sama lolos lalu
+   salah satunya gagal diam-diam.
+5. **Pemilik laporan ditentukan client.** `DailyReportsViewer` tidak
+   tahu siapa pemiliknya, jadi dulu `userId` dikirim dari state
+   browser dan server hanya membandingkannya dengan `me.id`. Sekarang
+   server membaca pemiliknya dari `kpi_assignments`, lalu memutuskan:
+   pemilik boleh, HR/Executive/Developer boleh semua, Head hanya
+   divisinya.
+6. **Hapus laporan tanpa cek kepemilikan.** `.eq("id", ...)` dari
+   browser — cukup menebak id. Sekarang `DELETE` menerima
+   `assignmentId` + `date` dan server memverifikasi lewat assignment.
 
 ### `KpiFormPage` — ✅ selesai, empat bug ditemukan
 
@@ -212,7 +250,7 @@ halaman itu, tapi dari endpoint yang mereka panggil):
 
 ## Verifikasi
 
-Tujuh skrip, **387 assert**, semuanya membaca isi respons dan isi
+Tujuh skrip, **417 assert**, semuanya membaca isi respons dan isi
 database — bukan cuma status code.
 
 ```powershell
@@ -220,12 +258,12 @@ npm run verify:endpoints    # 24  amplop, status, isi data
 npm run verify:quality      # 32  scoping, penolakan, nilai tersimpan
 npm run verify:assignments  # 70  scoping, validasi, audit trail
 npm run verify:feedbacks    # 39  laporan benar-benar tersimpan
-npm run verify:reports      # 35  koreksi ikut mengubah total
+npm run verify:reports      # 65  koreksi, kepemilikan, tanggal
 npm run verify:adminkpi     # 64  role, divisi, bobot, hapus KPI
 npm run verify:hrkpi        # 123 sampah, restore, cascade, bulk, copy, form
 ```
 
-Total **387 assert**.
+Total **417 assert**.
 
 Semuanya membersihkan data ujinya sendiri dan bisa dijalankan berulang
 kali.

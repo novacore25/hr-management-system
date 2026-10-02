@@ -13,7 +13,8 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { createClient } from "@/lib/supabase/client";
+import { useApiMutation } from "@/hooks/useApi";
+import { withQuery } from "@/lib/api-client";
 import { todayISODate, formatNumber, formatCurrency, formatPercentage, getLiveWorkingDaysRemaining } from "@/lib/utils";
 import type { KpiAssignmentWithDetails } from "@/types";
 import { CalendarDays } from "lucide-react";
@@ -28,14 +29,22 @@ interface DailyInputFormProps {
   assignment: KpiAssignmentWithDetails;
   open: boolean;
   onClose: () => void;
-  userId: string;
+  /**
+   * @deprecated tidak lagi dipakai. Dulu form ini memakai `userId` dari
+   * prop halaman untuk menulis `daily_reports.user_id` — artinya parent
+   * yang menentukan laporan ini milik siapa, bukan sesi yang sedang
+   * login. Sekarang server memakai `me.id`.
+   *
+   * Tetap diterima supaya pemanggil lama tidak rusak, tapi form ini
+   * mengabaikannya.
+   */
+  userId?: string;
 }
 
 export function DailyInputForm({
   assignment,
   open,
   onClose,
-  userId,
 }: DailyInputFormProps) {
   const today = todayISODate();
   const minDate = today.slice(0, 7) + "-01";
@@ -58,37 +67,100 @@ export function DailyInputForm({
 
   const isBelowTarget = value !== "" && !isNaN(parseFloat(value)) && parseFloat(value) < finalDailyTarget;
 
-  useEffect(() => {
-    if (open && assignment.id) {
-      async function checkExisting() {
-        setIsChecking(true);
-        try {
-          const supabase = createClient();
-          const { data } = await supabase
-            .from("daily_reports")
-            .select("id, value, notes")
-            .eq("assignment_id", assignment.id)
-            .eq("user_id", userId)
-            .eq("date", selectedDate)
-            .maybeSingle();
-          if (data) {
-            setExistingReportId(data.id);
-            setValue(String(data.value));
-            setNotes((data.notes as string) ?? "");
-          } else {
-            setExistingReportId(null);
-            setValue("");
-            setNotes("");
-          }
-        } catch (e) {
-          console.error("Error checking existing report", e);
-        } finally {
-          setIsChecking(false);
-        }
-      }
-      checkExisting();
+  const postReport = useApiMutation<Record<string, unknown>, unknown>(
+    "/api/daily-reports",
+    "POST",
+  );
+  const patchReport = useApiMutation<Record<string, unknown>, unknown>(
+    "/api/daily-reports",
+    "PATCH",
+  );
+
+  /**
+   * formerly `daily_reports.delete().eq("id", existingReportId)` dari
+   * browser. `.eq("id", ...)` tanpa cek kepemilikan: cukup menebak id,
+   * laporan orang lain bisa dihapus. Endpoint ini menerima
+   * `assignmentId` + `date` supaya server bisa memastikan ownership-nya.
+   */
+  const deleteReport = async () => {
+    const res = await fetch(
+      withQuery("/api/daily-reports", {
+        assignmentId: assignment.id,
+        date: selectedDate,
+      }),
+      { method: "DELETE", credentials: "include" },
+    );
+    const envelope = (await res.json().catch(() => null)) as
+      | { ok?: boolean; error?: string }
+      | null;
+
+    if (!res.ok) {
+      return { ok: false as const, error: envelope?.error ?? "Gagal menghapus laporan." };
     }
-  }, [open, assignment.id, userId, selectedDate]);
+    return { ok: true as const, data: null };
+  };
+
+  /**
+   * formerly `daily_reports.select(...)` dari browser.
+   *
+   * `userId` diambil dari prop halaman — bukan dari sesi. Sekarang
+   * endpoint memakai `me.id` di server, jadi laporan yang tampil dan
+   * laporan yang tersimpan tidak mungkin milik orang berbeda.
+   */
+  useEffect(() => {
+    if (!open || !assignment.id) return;
+
+    let cancelled = false;
+
+    async function checkExisting() {
+      setIsChecking(true);
+      try {
+        const res = await fetch(
+          withQuery("/api/daily-reports", { assignmentId: assignment.id }),
+          { credentials: "include", cache: "no-store" },
+        );
+        const json = (await res.json()) as {
+          ok: boolean;
+          data?: {
+            reports?: {
+              id: string;
+              date: string;
+              value: number | string;
+              notes?: string | null;
+            }[];
+          };
+          error?: string;
+        };
+
+        if (cancelled) return;
+
+        const reports = json.data?.reports ?? [];
+        const found = reports.find((r) => r.date === selectedDate);
+
+        if (found) {
+          setExistingReportId(found.id);
+          setValue(String(found.value));
+          setNotes(found.notes ?? "");
+        } else {
+          setExistingReportId(null);
+          setValue("");
+          setNotes("");
+        }
+      } catch (e) {
+        if (!cancelled) {
+          console.error("Gagal memuat laporan harian", e);
+          setError("Gagal memuat laporan. Coba lagi.");
+        }
+      } finally {
+        if (!cancelled) setIsChecking(false);
+      }
+    }
+
+    void checkExisting();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, assignment.id, selectedDate]);
 
   useEffect(() => {
     if (open) {
@@ -97,9 +169,18 @@ export function DailyInputForm({
     }
   }, [open, today]);
 
+  /**
+   * formerly `insert` / `update` dari browser.
+   *
+   * Selain itu, check-then-insert adalah race: ada unique index
+   * `(assignment_id, date)`, jadi dua tab yang terbuka bersamaan bisa
+   * sama-sama lolos pemeriksaan lalu salah satunya gagal diam-diam.
+   * `POST /api/daily-reports` sekarang memakai upsert di server.
+   */
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
+
     const numValue = parseFloat(value);
     if (isNaN(numValue) || numValue < 0) {
       setError("Masukkan angka yang valid.");
@@ -107,58 +188,54 @@ export function DailyInputForm({
     }
 
     setSubmitting(true);
-    try {
-      const supabase = createClient();
-      if (existingReportId) {
-        const { error: err } = await supabase
-          .from("daily_reports")
-          .update({ value: numValue, notes: notes.trim() })
-          .eq("id", existingReportId);
-        if (err) throw err;
-      } else {
-        const { error: err } = await supabase.from("daily_reports").insert({
-          assignment_id: assignment.id,
-          kpi_id: assignment.kpiId,
-          user_id: userId,
+
+    const res = existingReportId
+      ? await patchReport.mutate({
+          id: existingReportId,
+          value: numValue,
+          notes: notes.trim(),
+        })
+      : await postReport.mutate({
+          assignmentId: assignment.id,
+          kpiId: assignment.kpiId,
           date: selectedDate,
           value: numValue,
           notes: notes.trim(),
         });
-        if (err) throw err;
-      }
-      toast.success("Laporan harian berhasil disimpan!");
-      setValue("");
-      setNotes("");
-      onClose();
-    } catch {
-      toast.error("Gagal menyimpan. Coba lagi.");
-      setError("Gagal menyimpan. Coba lagi.");
-    } finally {
-      setSubmitting(false);
+
+    setSubmitting(false);
+
+    if (!res.ok) {
+      // formerly semua error jadi "Gagal menyimpan. Coba lagi." — user
+      // tidak pernah tahu kalau tanggalnya di masa depan atau valuenya
+      // negatif, dan akan menekan Simpan lagi.
+      setError(res.error ?? "Gagal menyimpan. Coba lagi.");
+      toast.error(res.error ?? "Gagal menyimpan.");
+      return;
     }
+
+    toast.success("Laporan harian berhasil disimpan!");
+    setValue("");
+    setNotes("");
+    onClose();
   }
 
   async function handleDelete() {
     if (!existingReportId) return;
     setSubmitting(true);
-    try {
-      const supabase = createClient();
-      const { error: err } = await supabase
-        .from("daily_reports")
-        .delete()
-        .eq("id", existingReportId);
-      if (err) throw err;
-      toast.success("Laporan berhasil dihapus.");
-      setValue("");
-      setNotes("");
-      setConfirmDelete(false);
-      onClose();
-    } catch {
-      setError("Gagal menghapus laporan. Coba lagi.");
-      setConfirmDelete(false);
-    } finally {
-      setSubmitting(false);
+    const res = await deleteReport();
+    setSubmitting(false);
+    setConfirmDelete(false);
+
+    if (!res.ok) {
+      setError(res.error ?? "Gagal menghapus laporan. Coba lagi.");
+      return;
     }
+
+    toast.success("Laporan berhasil dihapus.");
+    setValue("");
+    setNotes("");
+    onClose();
   }
 
   if (!kpi) return null;

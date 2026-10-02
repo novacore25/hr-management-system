@@ -369,6 +369,28 @@ export async function findAssignmentById(
   return row ? toAssignment(row as AssignmentRow, {}) : null;
 }
 
+/**
+ * Pemilik sebuah assignment beserta divisi mentahnya.
+ *
+ * `KpiAssignmentWithDetails` hanya membawa NAMA divisi, sedangkan
+ * otorisasi harus membandingkan **id** dengan `users.managed_departments`.
+ * Karena itu query terpisah, bukan nameof(long field).
+ */
+export async function getAssignmentOwner(
+  id: string,
+): Promise<{ userId: string; departmentId: string | null } | null> {
+  const [row] = await db
+    .select({
+      userId: kpiAssignments.userId,
+      departmentId: kpiAssignments.departmentId,
+    })
+    .from(kpiAssignments)
+    .where(eq(kpiAssignments.id, id))
+    .limit(1);
+
+  return row ?? null;
+}
+
 // ─────────────────────────────────────────────────────────────
 // WRITE
 // ─────────────────────────────────────────────────────────────

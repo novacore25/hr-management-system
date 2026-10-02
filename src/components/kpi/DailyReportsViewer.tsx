@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useMemo } from "react";
 import { MessageSquare } from "lucide-react";
-import { createClient } from "@/lib/supabase/client";
+import { useApiQuery } from "@/hooks/useApi";
+import { withQuery } from "@/lib/api-client";
 import { cn, formatDateDisplay, formatNumber, formatPercentage, formatCurrency } from "@/lib/utils";
 import type { Period } from "@/components/kpi/PeriodPicker";
 import type { DailyReport } from "@/types";
@@ -51,67 +52,44 @@ export function DailyReportsViewer({
   currentMonth,
   unit,
 }: DailyReportsViewerProps) {
-  const [reports, setReports] = useState<DailyReport[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const today = todayISODate();
 
-  useEffect(() => {
-    const supabase = createClient();
-    const today = todayISODate();
+  const rangeStart =
+    period.type === "range" ? period.start : firstDayOfMonth(currentYear, currentMonth);
+  const monthEnd = lastDayOfMonth(currentYear, currentMonth);
+  const rangeEnd =
+    period.type === "range" ? period.end : today < monthEnd ? today : monthEnd;
 
-    const rangeStart = period.type === "range"
-      ? period.start
-      : firstDayOfMonth(currentYear, currentMonth);
-    const monthEnd = lastDayOfMonth(currentYear, currentMonth);
-    const rangeEnd = period.type === "range"
-      ? period.end
-      : (today < monthEnd ? today : monthEnd);
+  /**
+   * formerly `supabase.from("daily_reports").select(...)` plus a
+   * `postgres_changes` subscription per assignment.
+   *
+   * The subscription is replaced by the 30-second polling in
+   * `useApiQuery` (see AGENTS.md, the Supabase Realtime replacement).
+   *
+   * The owner of the report is decided from the assignment in the
+   * server — not from a `userId` in the query string. So HR and Head
+   * can open staff reports without this component having to claim to
+   * be anyone.
+   */
+  const { data, isLoading } = useApiQuery<{ reports: DailyReport[] }>(
+    useCallback(
+      () =>
+        withQuery("/api/daily-reports", {
+          assignmentId,
+          from: rangeStart,
+          to: rangeEnd,
+        }),
+      [assignmentId, rangeStart, rangeEnd],
+    ),
+    [assignmentId, rangeStart, rangeEnd],
+  );
 
-    let isMounted = true;
-
-    async function fetchReports() {
-      setIsLoading(true);
-      const { data } = await supabase
-        .from("daily_reports")
-        .select("id, assignment_id, kpi_id, user_id, date, value, notes, created_at, updated_at")
-        .eq("assignment_id", assignmentId)
-        .gte("date", rangeStart)
-        .lte("date", rangeEnd)
-        .order("date", { ascending: false });
-
-      if (isMounted) {
-        setReports(
-          (data ?? []).map((r: any) => ({
-            id: r.id,
-            assignmentId: r.assignment_id,
-            kpiId: r.kpi_id ?? "",
-            userId: r.user_id,
-            date: r.date,
-            actualValue: r.value,
-            notes: r.notes ?? "",
-            createdAt: r.created_at,
-            updatedAt: r.updated_at,
-          }))
-        );
-        setIsLoading(false);
-      }
-    }
-
-    fetchReports();
-
-    const channel = supabase
-      .channel(`reports_${assignmentId}`)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "daily_reports", filter: `assignment_id=eq.${assignmentId}` },
-        fetchReports
-      )
-      .subscribe();
-
-    return () => {
-      isMounted = false;
-      channel.unsubscribe();
-    };
-  }, [assignmentId, period, currentYear, currentMonth]);
+  const reports = useMemo(
+    () =>
+      [...(data?.reports ?? [])].sort((a, b) => (a.date < b.date ? 1 : -1)),
+    [data],
+  );
 
   return (
     <>

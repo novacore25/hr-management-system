@@ -1,10 +1,10 @@
 "use client";
 
 import { useMemo, useState, useEffect } from "react";
-import { createClient } from "@/lib/supabase/client";
 import { useAllUsers } from "@/hooks/useUsers";
 import { useDailyReportsInRange } from "@/hooks/useDailyReports";
 import { useDepartments } from "@/hooks/useDivisions";
+import { useKpis } from "@/hooks/useKpis";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -60,54 +60,77 @@ export function DailyActivityFeed() {
 
   const { users } = useAllUsers();
   const { departments } = useDepartments();
-  const { reports, isLoading } = useDailyReportsInRange(startDate, endDate, {});
+
+  /**
+   * `scope: "all"` — halaman ini memang feed aktivitas seluruh tim
+   * (`/dashboard/hr/activity`, `/dashboard/executive/activity`).
+   *
+   * formerly hook ini dipanggil tanpa scope, jadi server membatasi
+   * laporan ke user yang sedang login. Akibatnya HR hanya melihat
+   * laporannya sendiri, di halaman yang justru ada untuk melihat
+   * semua orang. Server menolak `scope=all` untuk role di bawah
+   * Executive, jadi parameter ini bukan celah.
+   */
+  const { reports, isLoading } = useDailyReportsInRange(startDate, endDate, {
+    scope: "all",
+  });
 
   const userMap = useMemo(() => Object.fromEntries(users.map((u) => [u.id, u])), [users]);
 
-  const [kpiMap, setKpiMap] = useState<Record<string, KPI>>({});
-  useEffect(() => {
-    const months: Array<{ year: number; month: number }> = [];
+  /**
+   * formerly `supabase.from("kpis").select("*, departments(name)")` per
+   * bulan dalam rentang. Dengan stub hasilnya selalu kosong, jadi
+   * setiap baris menampilkan **UUID KPI** di tempat judulnya.
+   *
+   * Sekarang dari `/api/kpis`. Hook ini hanya bisa satu bulan, jadi
+   * rentang yang melintasi bulan pecah dipecah per bulan.
+   */
+  const months = useMemo(() => {
+    const out: Array<{ year: number; month: number }> = [];
     const start = new Date(startDate + "T00:00:00");
     const end = new Date(endDate + "T00:00:00");
     let d = new Date(start.getFullYear(), start.getMonth(), 1);
-    while (d <= end) {
-      months.push({ year: d.getFullYear(), month: d.getMonth() + 1 });
+    while (d <= end && out.length < 24) {
+      out.push({ year: d.getFullYear(), month: d.getMonth() + 1 });
       d = new Date(d.getFullYear(), d.getMonth() + 1, 1);
     }
-
-    const supabase = createClient();
-    Promise.all(
-      months.map(({ year, month }) =>
-        supabase
-          .from("kpis")
-          .select("*, departments(name)")
-          .eq("year", year)
-          .eq("month", month)
-      )
-    ).then((results) => {
-      const map: Record<string, KPI> = {};
-      results.flatMap((r) => r.data ?? []).forEach((row: any) => {
-        map[row.id] = {
-          id: row.id,
-          title: row.title,
-          description: row.description ?? "",
-          type: row.type,
-          unit: row.unit,
-          period: row.period,
-          status: row.status,
-          department: row.departments?.name ?? row.department ?? "",
-          brand: row.brand,
-          createdBy: row.created_by ?? "",
-          monthlyTarget: row.monthly_target ?? 0,
-          year: row.year,
-          month: row.month,
-          createdAt: row.created_at,
-          updatedAt: row.updated_at,
-        } as KPI;
-      });
-      setKpiMap(map);
-    }).catch(() => {});
+    return out;
   }, [startDate, endDate]);
+
+  const [kpiMap, setKpiMap] = useState<Record<string, KPI>>({});
+
+  useEffect(() => {
+    if (months.length === 0) return;
+    let cancelled = false;
+
+    async function loadKpis() {
+      const results = await Promise.all(
+        months.map(({ year, month }) =>
+          fetch(
+            `/api/kpis?year=${year}&month=${month}&includeTrash=1`,
+            { credentials: "include", cache: "no-store" },
+          )
+            .then((r) => (r.ok ? r.json() : { ok: false, data: null }))
+            .catch(() => ({ ok: false, data: null })),
+        ),
+      );
+
+      if (cancelled) return;
+
+      const map: Record<string, KPI> = {};
+      for (const res of results) {
+        for (const k of (res?.data?.kpis ?? []) as KPI[]) {
+          map[k.id] = k;
+        }
+      }
+      setKpiMap(map);
+    }
+
+    void loadKpis();
+    return () => {
+      cancelled = true;
+    };
+  }, [months]);
 
   function applyPreset(key: PresetKey) {
     setPreset(key);
@@ -120,6 +143,24 @@ export function DailyActivityFeed() {
 
   const filteredReports = useMemo(() => {
     let list = reports;
+
+    // formerly `departmentFilter` tidak pernah dipakai di mana pun —
+    // dropdownnya ada, state-nya berubah, tapi hasil filternya tetap sama.
+    // User memilih divisi, tidak ada yang berubah, dan tidak ada yang
+    // memberitahu.
+    if (departmentFilter) {
+      list = list.filter((r) => {
+        const user = userMap[r.userId];
+        // Divisi bisa datang dari user (`department`) atau dari KPI-nya.
+        // Yang membedakannya penting: seorang staf tanpa divisi tapi KPI-nya
+        // berdivisi tetap harus muncul di filter divisi itu.
+        return (
+          (user?.department ?? "") === departmentFilter ||
+          (kpiMap[r.kpiId]?.department ?? "") === departmentFilter
+        );
+      });
+    }
+
     if (onlyWithNotes) list = list.filter((r) => r.notes && r.notes.trim().length > 0);
     const q = search.trim().toLowerCase();
     if (q) {
@@ -134,7 +175,7 @@ export function DailyActivityFeed() {
       });
     }
     return list;
-  }, [reports, onlyWithNotes, search, userMap, kpiMap]);
+  }, [reports, departmentFilter, onlyWithNotes, search, userMap, kpiMap]);
 
   const groupedByDate = useMemo(() => {
     const map: Record<string, DailyReport[]> = {};
