@@ -122,6 +122,7 @@ jadi aman dijalankan berulang kali.
 0010_unique_constraints   ← JALANKAN PER BAGIAN, LIHAT §4.1
 0011_kpis_brand
 0012_feedbacks            ← JALANKAN PER BAGIAN, LIHAT §4.1
+0013_payroll_columns
 ```
 
 ### 4.1 Migrasi bercabang (0010 & 0012)
@@ -145,6 +146,39 @@ Kalau bersih (0 baris di semua query), lanjutkan bagian 2.
 
 0012: sama — bagian 1 melaporkan apakah ada baris `feedbacks` yang memakai
 `assignment_id`, bagian 2 menambahkan kolom dan constraint.
+
+### 4.2 `0013_payroll_columns` — JALANKAN SEBELUM MIGRASI DATA
+
+Menambah dua kolom ke `payrolls`:
+
+| Kolom | Kenapa |
+|---|---|
+| `deduction_notes` | `publishRow()` mengirimnya, tapi kolomnya **tidak pernah ada** — jadi kalau tidak ditambah, slip gaji tidak bisa dipublikasikan sama sekali. |
+| `system_overtime_days` | Ada di `src/types/index.ts` dan dihitung di halaman, tapi **tidak pernah dikirim** dalam payload apa pun — nilainya hilang setiap kali halaman dimuat ulang. |
+
+Idempotent (`ADD COLUMN IF NOT EXISTS`), jadi aman di produksi:
+
+```bash
+docker exec -i $DB psql -U postgres -d db_hr_system -v ON_ERROR_STOP=1 < drizzle/0013_payroll_columns.sql
+```
+
+Nanti di bagian paling bawah akan tercetak dua baris:
+
+```
+ column_name      | data_type | is_nullable
+------------------+-----------+------------
+ deduction_notes  | text      | YES
+ system_overtime_days | integer | YES
+```
+
+Kalau yang muncul `NOTICE: column ... already exists, skipping` — itu
+berarti migrasi pernah jalan. Bukan error.
+
+**Penting untuk Fase 6:** kalau ternyata Supabase ternyata sudah punya
+kedua kolom ini, `ADD COLUMN IF NOT EXISTS` tidak melakukan apa-apa dan
+data yang ada tetap utuh. Kalau ternyata tidak punya, kolomnya dibuat
+kosong — dan nilai kosong itu memang tidak pernah tersimpan sebelumnya,
+jadi tidak ada data yang hilang.
 
 ### Cara menjalankan file dari repo lokal
 

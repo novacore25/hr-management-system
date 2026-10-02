@@ -574,7 +574,7 @@ export async function finalizeOvertime(
   const standard = calculateOvertimeRates(baseSalary);
 
   // Tarif per jam boleh disesuaikan HR, tapi tidak boleh 0 kalau gaji
-  // dasarnya 0 — itu akan menghasilkan gaji lembur 0 tanpa报错.
+  // dasarnya 0 — itu akan menghasilkan gaji lembur 0 tanpa penjelasan.
   let hourlyBaseRate =
     input.hourlyBaseRate !== undefined && input.hourlyBaseRate > 0
       ? input.hourlyBaseRate

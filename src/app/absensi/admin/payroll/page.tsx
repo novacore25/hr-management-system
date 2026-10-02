@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { createClient } from "@/lib/supabase/client";
 import { format, subMonths, addMonths } from "date-fns";
 import { id as localeId } from "date-fns/locale";
 import {
@@ -13,7 +12,6 @@ import { toast } from "sonner";
 import { createPortal } from "react-dom";
 import OvertimeFinalizeModal from "@/components/absensi/OvertimeFinalizeModal";
 import type { OvertimeRequest } from "@/types/absensi";
-import { rowToOvertimeRequest } from "@/types/absensi";
 import type { Payroll, PayrollStaffSetting, DeductionType, AdditionType, PayrollOvertimeDetailItem } from "@/types";
 
 const MONTH_NAMES = ["Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus","September","Oktober","November","Desember"];
@@ -43,7 +41,6 @@ interface StaffRow {
 }
 
 export default function HrPayrollPage() {
-  const supabase = createClient() as any;
   const [currentDate, setCurrentDate] = useState(new Date());
   const [rows, setRows] = useState<StaffRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -82,102 +79,300 @@ export default function HrPayrollPage() {
     }
   }, [rows, month, year]);
 
-  async function upsertPayroll(payload: any, id?: string) {
-    let res = id
-      ? await supabase.from("payrolls").update(payload).eq("id", id)
-      : await supabase.from("payrolls").insert(payload);
+  /**
+ * Satu-satunya jalan untuk menulis slip gaji.
+ *
+ * formerly `supabase.from("payrolls").update/insert(payload).eq("id", id)`
+ * **langsung dari browser**, tanpa cek role dan tanpa validasi angka.
+ * Siapa pun yang punya sesi bisa menulis slip gaji siapa pun, dengan
+ * angka negatif kalau mau.
+ *
+ * Workaround `overtime_detail` juga dihapus: kolom itu memang ada di
+ * schema, dan kegagalan karena kolom tidak dikenal harus muncul sebagai
+ * error, bukan dihapus diam-diam sampai detail lembur hilang.
+ */
+async function savePayroll(payload: Record<string, unknown>) {
+    const res = await fetch("/api/payroll", {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: "save", ...payload }),
+    });
+    const json = (await res.json().catch(() => null)) as
+      | { ok?: boolean; error?: string }
+      | null;
 
-    if (res.error && (res.error.message?.includes("overtime_detail") || res.error.code === "PGRST204")) {
-      const fallbackPayload = { ...payload };
-      delete fallbackPayload.overtime_detail;
-      res = id
-        ? await supabase.from("payrolls").update(fallbackPayload).eq("id", id)
-        : await supabase.from("payrolls").insert(fallbackPayload);
+    if (!res.ok) {
+      throw new Error(json?.error ?? "Gagal menyimpan slip gaji.");
     }
-    if (res.error) throw res.error;
-    return res;
   }
 
-  // Autosave to DB after 60s of inactivity
+  /** Buat jenis tambahan / potongan baru. */
+  async function createType(
+    kind: "addition-type" | "deduction-type",
+    name: string,
+  ) {
+    const res = await fetch("/api/payroll", {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: kind, name }),
+    });
+    const json = (await res.json().catch(() => null)) as
+      | {
+          ok?: boolean;
+          error?: string;
+          data?: {
+            additionType?: { id: string; name: string; isDefault: boolean };
+            deductionType?: { id: string; name: string; isDefault: boolean };
+          };
+        }
+      | null;
+
+    if (!res.ok) {
+      throw new Error(json?.error ?? "Gagal membuat jenis baru.");
+    }
+
+    return (
+      json?.data?.additionType ?? json?.data?.deductionType ?? null
+    ) as { id: string; name: string; isDefault: boolean } | null;
+  }
+
+  /**
+ * Payload slip gaji untuk satu baris.
+ *
+ * Dipakai `saveRow`, `publishRow`, dan autosave — supaya ketiganya
+ * benar-benar mengirimkolom yang sama.
+ *
+ * formerly autosave mengirim **9 kolom**, sedangkan `saveRow` mengirim
+ * 16 dan `publishRow` 18. Akibatnya slip yang disimpan otomatis
+ * kehilangan `overtime_rate`, `system_overtime_minutes`, snapshot, dan
+ * `deduction_notes` — lalu masih ditandai `_dirty: false` sehingga
+ * localStorage ikut dihapus. Perubahan itu hilang total tanpa error.
+ */
+function payrollPayload(row: StaffRow, isPublished: boolean) {
+    return {
+      userId: row.id,
+      month,
+      year,
+      baseSalary: row.payroll.base_salary || 0,
+      mobilityAllowance: row.payroll.mobility_allowance || 0,
+      performanceBonus: row.payroll.performance_bonus || 0,
+      overtimePay: row.payroll.overtime_pay || 0,
+      overtimeRate: row.payroll.overtime_rate ?? 25000,
+      systemOvertimeMinutes: row.payroll.system_overtime_minutes || 0,
+      payrollOvertimeMinutes:
+        row.payroll.payroll_overtime_minutes ??
+        row.payroll.system_overtime_minutes ??
+        0,
+      // Dihitung di `fetchData` tapi belum pernah ikut tersimpan --
+      // nilainya hilang begitu halaman dimuat ulang. Migrasi 0013.
+      systemOvertimeDays: row.payroll.system_overtime_days ?? 0,
+      overtimeNotes: row.payroll.overtime_notes || "",
+      overtimeDetail: row.payroll.overtime_detail || [],
+      additionsDetail: row.payroll.additions_detail || [],
+      deductions: row.payroll.deductions || 0,
+      deductionsDetail: row.payroll.deductions_detail || [],
+      deductionNotes: row.payroll.deduction_notes || "",
+      notes: row.payroll.notes || "",
+      snapshotName: isPublished ? row.name : null,
+      snapshotPosition: isPublished
+        ? row.setting?.contract_position || null
+        : null,
+      snapshotCompany: isPublished ? row.setting?.company || null : null,
+      isPublished,
+    };
+  }
+
+  // Autosave ke DB setelah 60s idle
   useEffect(() => {
     const dirtyRows = rows.filter(r => r.payroll._dirty);
     if (dirtyRows.length === 0) return;
 
     const timeout = setTimeout(async () => {
-      const promises = dirtyRows.map(async (row) => {
-        const payload = {
-          user_id: row.id,
-          month,
-          year,
-          base_salary: row.payroll.base_salary || 0,
-          mobility_allowance: row.payroll.mobility_allowance || 0,
-          performance_bonus: row.payroll.performance_bonus || 0,
-          overtime_pay: row.payroll.overtime_pay || 0,
-          overtime_notes: row.payroll.overtime_notes || "",
-          overtime_detail: row.payroll.overtime_detail || [],
-          additions_detail: row.payroll.additions_detail || [],
-          deductions: row.payroll.deductions || 0,
-          deductions_detail: row.payroll.deductions_detail || [],
-          notes: row.payroll.notes || "",
-          status: "draft",
-        };
-        
-        return upsertPayroll(payload, row.payroll.id);
-      });
-      
-      try {
-        await Promise.all(promises);
-        toast.success("Draf gaji berhasil disinkronkan otomatis (Autosave).");
-        setRows(prev => prev.map(r => {
-          if (dirtyRows.find(d => d.id === r.id)) {
-            return { ...r, payroll: { ...r.payroll, _dirty: false } };
+      /**
+       * formerly `Promise.all` tanpa pemeriksaan hasil per baris. Kalau
+       * satu slip ditolak, `Promise.all` melempar -- tapi baris lain
+       * yang sudah tersimpan tetap ditandai `_dirty: false` dan
+       * localStorage dihapus. Draft yang gagal hilang dari recovery.
+       *
+       * sekarang hasilnya diperiksa satu per satu, dan baris yang
+       * gagal tetap `_dirty` supaya masih tersimpan di localStorage.
+       */
+      const results = await Promise.all(
+        dirtyRows.map(async (row) => {
+          try {
+            await savePayroll(payrollPayload(row, false));
+            return { id: row.id, ok: true as const };
+          } catch (e) {
+            return {
+              id: row.id,
+              ok: false as const,
+              error: e instanceof Error ? e.message : "Gagal menyimpan.",
+            };
           }
-          return r;
-        }));
+        }),
+      );
+
+      const gagal = results.filter((r) => !r.ok);
+
+      if (gagal.length === 0) {
+        toast.success("Draf gaji berhasil disinkronkan otomatis (Autosave).");
+        setRows(prev =>
+          prev.map((r) =>
+            results.find((d) => d.id === r.id)
+              ? { ...r, payroll: { ...r.payroll, _dirty: false } }
+              : r,
+          ),
+        );
         localStorage.removeItem(`payroll_draft_${month}_${year}`);
-      } catch (e) {
-        console.error("Autosave DB failed", e);
+        return;
       }
+
+      console.error("Autosave gagal untuk:", gagal);
+      toast.error(
+        `${gagal.length} slip gagal disimpan otomatis: ${gagal[0].error}` +
+          (gagal.length > 1 ? " (lihat console untuk sisanya)" : ""),
+      );
     }, 60000);
 
     return () => clearTimeout(timeout);
-  }, [rows, month, year, supabase]);
+  }, [rows, month, year]);
 
-  useEffect(() => { fetchData(); }, [month, year]);
+  useEffect(() => {
+    void fetchData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [month, year]);
 
+  /**
+   * formerly **enam** query paralel dari browser: `users`,
+   * `payroll_staff_settings`, `payrolls`, `payroll_deduction_types`,
+   * `payroll_addition_types`, dan `overtime_requests` dengan filter
+   * tanggal sendiri.
+   *
+   * Dua masalah:
+   *
+   *   1. Gaji dasar setiap orang terbaca tanpa cek role.
+   *   2. Rentang lembur dihitung dari browser. Kalau browser dan server
+   *     _compute_ berbeda timezone, awal/akhir bulan bisa bergeser —
+   *      sehingga slip gaji memotong lembur yang bukan periode ini.
+   *
+   * Sekarang satu endpoint; rentang periode dihitung server.
+   */
   async function fetchData() {
     setLoading(true);
 
-    const startDate = `${year}-${String(month).padStart(2, "0")}-01`;
-    const lastDay = new Date(year, month, 0).getDate();
-    const endDate = `${year}-${String(month).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+    const res = await fetch(
+      `/api/payroll?year=${year}&month=${month}`,
+      { credentials: "include", cache: "no-store" },
+    );
+    const json = (await res.json()) as {
+      ok: boolean;
+      data?: {
+        payrolls?: any[];
+        staff?: {
+          id: string;
+          name: string;
+          email: string;
+          departmentName: string | null;
+        }[];
+        overtime?: any[];
+      };
+      error?: string;
+    };
 
-    const [usersRes, settingsRes, payrollsRes, deductionTypesRes, additionTypesRes, overtimeRes] = await Promise.all([
-      supabase.from("users").select("id, name, email, department_id, departments(name)").eq("absensi_status", "active").order("name"),
-      supabase.from("payroll_staff_settings").select("*"),
-      supabase.from("payrolls").select("*").eq("month", month).eq("year", year),
-      supabase.from("payroll_deduction_types").select("*").order("name"),
-      supabase.from("payroll_addition_types").select("*").order("name"),
-      supabase.from("overtime_requests" as any)
-        .select("*")
-        .eq("status", "finalized")
-        .gte("overtime_date", startDate)
-        .lte("overtime_date", endDate)
-        .order("overtime_date", { ascending: true })
-    ]);
-
-    if (overtimeRes.error) {
-      console.error("Error fetching overtime_requests in payroll:", overtimeRes.error);
+    if (!res.ok) {
+      toast.error(json.error ?? "Gagal memuat data gaji.");
+      setLoading(false);
+      return;
     }
 
-    const users = (usersRes.data ?? []) as any[];
-    const settings = (settingsRes.data ?? []) as PayrollStaffSetting[];
-    const payrolls = (payrollsRes.data ?? []) as Payroll[];
-    const overtimesData = (overtimeRes.data ?? []) as any[];
-    const parsedOvertimes: OvertimeRequest[] = overtimesData.map(rowToOvertimeRequest);
+    const d = json.data ?? {};
 
-    setDeductionTypes((deductionTypesRes.data ?? []) as DeductionType[]);
-    setAdditionTypes((additionTypesRes.data ?? []) as AdditionType[]);
+    const users = (d.staff ?? []).map((u) => ({
+      id: u.id,
+      name: u.name,
+      email: u.email,
+      departments: { name: u.departmentName },
+    }));
+
+    const payrolls = (d.payrolls ?? []).map((p) => ({
+      id: p.id,
+      user_id: p.userId,
+      month: p.month,
+      year: p.year,
+      base_salary: Number(p.baseSalary),
+      mobility_allowance: Number(p.mobilityAllowance),
+      performance_bonus: Number(p.performanceBonus),
+      overtime_pay: Number(p.overtimePay),
+      overtime_rate: p.overtimeRate === null ? null : Number(p.overtimeRate),
+      overtime_notes: p.overtimeNotes ?? "",
+      overtime_detail: p.overtimeDetail ?? [],
+      system_overtime_minutes: p.systemOvertimeMinutes ?? 0,
+      payroll_overtime_minutes: p.payrollOvertimeMinutes ?? null,
+      system_overtime_days: p.systemOvertimeDays ?? null,
+      additions_detail: p.additionsDetail ?? [],
+      deductions: Number(p.deductions),
+      deductions_detail: p.deductionsDetail ?? [],
+      deduction_notes: p.deductionNotes ?? "",
+      notes: p.notes ?? "",
+      status: p.status,
+    })) as Payroll[];
+
+    /**
+     * Pengaturan gaji dasar diambil lewat `?view=settings` karena
+     * `GET /api/payroll` untuk periode tidak mengirimkannya — tidak ada
+     * yang membutuhkan dua request ini paralel, dan `?view=settings` lebih
+     * ringan (tidak ikut menarik seluruh slip).
+     */
+    const settingsRes = await fetch("/api/payroll?view=settings", {
+      credentials: "include",
+      cache: "no-store",
+    });
+    const settingsJson = (await settingsRes.json().catch(() => null)) as {
+      ok?: boolean;
+      data?: { settings?: any[] };
+    } | null;
+
+    const settings = ((settingsJson?.data?.settings ?? []) as any[]).map(
+      (s) =>
+        ({
+          user_id: s.userId,
+          contract_position: s.contractPosition,
+          company: s.company,
+          default_base_salary: Number(s.defaultBaseSalary),
+          default_mobility_allowance: Number(s.defaultMobilityAllowance),
+          notes: s.notes,
+        }) as PayrollStaffSetting,
+    );
+
+    const typesRes = await fetch("/api/payroll?view=types", {
+      credentials: "include",
+      cache: "no-store",
+    });
+    const typesJson = (await typesRes.json().catch(() => null)) as {
+      ok?: boolean;
+      data?: { deductions?: any[]; additions?: any[] };
+    } | null;
+
+    setDeductionTypes(
+      (typesJson?.data?.deductions ?? []).map((t) => ({
+        id: t.id,
+        name: t.name,
+        is_default: t.isDefault,
+      })) as DeductionType[],
+    );
+    setAdditionTypes(
+      (typesJson?.data?.additions ?? []).map((t) => ({
+        id: t.id,
+        name: t.name,
+        is_default: t.isDefault,
+      })) as AdditionType[],
+    );
+
+    // Server sudah mengirim camelCase, jadi `rowToOvertimeRequest` tidak
+    // perlu lagi -- pemetaan snake_case-nya sudah terjadi di DAL.
+    const parsedOvertimes = (d.overtime ?? []) as OvertimeRequest[];
     
     // Group monthly overtime sessions by user_id
     const userOvertimeMap: Record<string, {
@@ -357,31 +552,11 @@ export default function HrPayrollPage() {
   async function saveRow(row: StaffRow) {
     const tid = toast.loading(`Menyimpan gaji ${row.name}...`);
     try {
-      const payload = {
-        user_id: row.id,
-        month,
-        year,
-        base_salary: row.payroll.base_salary || 0,
-        mobility_allowance: row.payroll.mobility_allowance || 0,
-        performance_bonus: row.payroll.performance_bonus || 0,
-        overtime_pay: row.payroll.overtime_pay || 0,
-        overtime_rate: row.payroll.overtime_rate || 25000,
-        system_overtime_minutes: row.payroll.system_overtime_minutes || 0,
-        payroll_overtime_minutes: row.payroll.payroll_overtime_minutes ?? row.payroll.system_overtime_minutes ?? 0,
-        overtime_notes: row.payroll.overtime_notes || "",
-        overtime_detail: row.payroll.overtime_detail || [],
-        additions_detail: row.payroll.additions_detail || [],
-        deductions: row.payroll.deductions || 0,
-        deductions_detail: row.payroll.deductions_detail || [],
-        notes: row.payroll.notes || "",
-        status: "draft",
-      };
-
-      await upsertPayroll(payload, row.payroll.id);
+      await savePayroll(payrollPayload(row, false));
 
       setRows(prev => prev.map(r => r.id === row.id ? { ...r, payroll: { ...r.payroll, _dirty: false } } : r));
       toast.success(`Draf gaji ${row.name} berhasil disimpan.`, { id: tid });
-      fetchData();
+      void fetchData();
     } catch (err: unknown) {
       toast.error("Gagal: " + (err instanceof Error ? err.message : (err as any)?.message || JSON.stringify(err)), { id: tid });
     }
@@ -391,34 +566,10 @@ export default function HrPayrollPage() {
     setConfirmPublish(null);
     const tid = toast.loading(`Mengirim slip gaji ${row.name}...`);
     try {
-      const payload = {
-        user_id: row.id,
-        month,
-        year,
-        base_salary: row.payroll.base_salary || 0,
-        mobility_allowance: row.payroll.mobility_allowance || 0,
-        performance_bonus: row.payroll.performance_bonus || 0,
-        overtime_pay: row.payroll.overtime_pay || 0,
-        overtime_rate: row.payroll.overtime_rate || 25000,
-        system_overtime_minutes: row.payroll.system_overtime_minutes || 0,
-        payroll_overtime_minutes: row.payroll.payroll_overtime_minutes ?? row.payroll.system_overtime_minutes ?? 0,
-        overtime_notes: row.payroll.overtime_notes || "",
-        overtime_detail: row.payroll.overtime_detail || [],
-        additions_detail: row.payroll.additions_detail || [],
-        deductions: row.payroll.deductions || 0,
-        deductions_detail: row.payroll.deductions_detail || [],
-        deduction_notes: row.payroll.deduction_notes || "",
-        notes: row.payroll.notes || "",
-        status: "published",
-        snapshot_name: row.name,
-        snapshot_position: row.setting?.contract_position || null,
-        snapshot_company: row.setting?.company || null,
-      };
-
-      await upsertPayroll(payload, row.payroll.id);
+      await savePayroll(payrollPayload(row, true));
 
       toast.success(`Slip gaji ${row.name} berhasil dikirim!`, { id: tid });
-      fetchData();
+      void fetchData();
     } catch (err: unknown) {
       toast.error("Gagal: " + (err instanceof Error ? err.message : (err as any)?.message || JSON.stringify(err)), { id: tid });
     }
@@ -429,10 +580,25 @@ export default function HrPayrollPage() {
     if (!row.payroll.id) { toast.info("Belum ada data untuk dihapus."); return; }
     const tid = toast.loading(`Menghapus slip gaji ${row.name}...`);
     try {
-      const { error } = await supabase.from("payrolls").delete().eq("id", row.payroll.id);
-      if (error) throw error;
+      // formerly `payrolls.delete().eq("id", row.payroll.id)` tanpa cek
+      // status. Slip yang sudah `published` sudah dilihat staf —
+      // menghapusnya membuat slip yang sama muncul lagi berbeda jumlah.
+      // Server yang menolak.
+      const res = await fetch(
+        `/api/payroll?id=${encodeURIComponent(row.payroll.id)}`,
+        { method: "DELETE", credentials: "include" },
+      );
+      const json = (await res.json().catch(() => null)) as
+        | { ok?: boolean; error?: string }
+        | null;
+
+      if (!res.ok) {
+        toast.error(json?.error ?? "Gagal menghapus slip gaji.", { id: tid });
+        return;
+      }
+
       toast.success(`Slip gaji ${row.name} berhasil dihapus.`, { id: tid });
-      fetchData();
+      void fetchData();
     } catch (err: unknown) {
       toast.error("Gagal: " + (err instanceof Error ? err.message : (err as any)?.message || JSON.stringify(err)), { id: tid });
     }
@@ -874,8 +1040,17 @@ export default function HrPayrollPage() {
                                       e.preventDefault();
                                       if (!newCustomAddition.trim()) return;
                                       const finalName = newCustomAddition.trim();
-                                      const { data } = await supabase.from('payroll_addition_types').insert({ name: finalName }).select().single();
-                                      if (data) setAdditionTypes(prev => [...prev, data]);
+                                      // formerly `payroll_addition_types.insert()`
+                                      // dari browser: nama jenis tidak divalidasi (bisa kosong atau
+                                      // lebih dari 60 karakter), dan tidak ada cek role. Kode ini ada
+                                      // di empat tempat (Enter + tombol OK, untuk tambahan dan untuk
+                                      // potongan) -- sekarang semuanya lewat satu helper.
+                                      const created = await createType("addition-type", finalName).catch((e) => {
+                                        toast.error(e instanceof Error ? e.message : "Gagal membuat jenis baru.");
+                                        return null;
+                                      });
+                                      if (!created) return;
+                                      if (created) setAdditionTypes(prev => [...prev, created as any]);
                                       
                                       const newList = [...(row.payroll.additions_detail || []), { name: finalName, amount: 0 }];
                                       setRows(prev => prev.map(r => r.id === row.id ? { ...r, payroll: { ...r.payroll, additions_detail: newList, _dirty: true } } : r));
@@ -892,8 +1067,17 @@ export default function HrPayrollPage() {
                                   onClick={async () => {
                                     if (!newCustomAddition.trim()) return;
                                     const finalName = newCustomAddition.trim();
-                                    const { data } = await supabase.from('payroll_addition_types').insert({ name: finalName }).select().single();
-                                    if (data) setAdditionTypes(prev => [...prev, data]);
+                                    // formerly `payroll_addition_types.insert()`
+                                    // dari browser: nama jenis tidak divalidasi (bisa kosong atau
+                                    // lebih dari 60 karakter), dan tidak ada cek role. Kode ini ada
+                                    // di empat tempat (Enter + tombol OK, untuk tambahan dan untuk
+                                    // potongan) -- sekarang semuanya lewat satu helper.
+                                    const created = await createType("addition-type", finalName).catch((e) => {
+                                      toast.error(e instanceof Error ? e.message : "Gagal membuat jenis baru.");
+                                      return null;
+                                    });
+                                    if (!created) return;
+                                    if (created) setAdditionTypes(prev => [...prev, created as any]);
                                     const newList = [...(row.payroll.additions_detail || []), { name: finalName, amount: 0 }];
                                     setRows(prev => prev.map(r => r.id === row.id ? { ...r, payroll: { ...r.payroll, additions_detail: newList, _dirty: true } } : r));
                                     setAddingAdditionFor(null);
@@ -1020,8 +1204,17 @@ export default function HrPayrollPage() {
                                       if (!newCustomDeduction.trim()) return;
                                       const finalName = newCustomDeduction.trim();
                                       // Save to DB
-                                      const { data } = await supabase.from('payroll_deduction_types').insert({ name: finalName }).select().single();
-                                      if (data) setDeductionTypes(prev => [...prev, data]);
+                                      // formerly `payroll_deduction_types.insert()`
+                                      // dari browser: nama jenis tidak divalidasi (bisa kosong atau
+                                      // lebih dari 60 karakter), dan tidak ada cek role. Kode ini ada
+                                      // di empat tempat (Enter + tombol OK, untuk tambahan dan untuk
+                                      // potongan) -- sekarang semuanya lewat satu helper.
+                                      const created = await createType("deduction-type", finalName).catch((e) => {
+                                        toast.error(e instanceof Error ? e.message : "Gagal membuat jenis baru.");
+                                        return null;
+                                      });
+                                      if (!created) return;
+                                      if (created) setDeductionTypes(prev => [...prev, created as any]);
                                       
                                       const newList = [...(row.payroll.deductions_detail || []), { name: finalName, amount: 0 }];
                                       setRows(prev => prev.map(r => r.id === row.id ? { ...r, payroll: { ...r.payroll, deductions_detail: newList, _dirty: true } } : r));
@@ -1038,8 +1231,17 @@ export default function HrPayrollPage() {
                                   onClick={async () => {
                                     if (!newCustomDeduction.trim()) return;
                                     const finalName = newCustomDeduction.trim();
-                                    const { data } = await supabase.from('payroll_deduction_types').insert({ name: finalName }).select().single();
-                                    if (data) setDeductionTypes(prev => [...prev, data]);
+                                    // formerly `payroll_deduction_types.insert()`
+                                    // dari browser: nama jenis tidak divalidasi (bisa kosong atau
+                                    // lebih dari 60 karakter), dan tidak ada cek role. Kode ini ada
+                                    // di empat tempat (Enter + tombol OK, untuk tambahan dan untuk
+                                    // potongan) -- sekarang semuanya lewat satu helper.
+                                    const created = await createType("deduction-type", finalName).catch((e) => {
+                                      toast.error(e instanceof Error ? e.message : "Gagal membuat jenis baru.");
+                                      return null;
+                                    });
+                                    if (!created) return;
+                                    if (created) setDeductionTypes(prev => [...prev, created as any]);
                                     const newList = [...(row.payroll.deductions_detail || []), { name: finalName, amount: 0 }];
                                     setRows(prev => prev.map(r => r.id === row.id ? { ...r, payroll: { ...r.payroll, deductions_detail: newList, _dirty: true } } : r));
                                     setAddingDeductionFor(null);

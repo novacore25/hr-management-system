@@ -1,7 +1,10 @@
 # STATUS MIGRASI — dibaca sebelum mengerjakan apa pun
 
-Terakhir diperbarui: setelah lembur & Pengaturan Gaji selesai — tersisa
-**2 file** di allowlist stub, keduanya payroll (Phase 5).
+**MIGRASI KODE SUDAH SELESAI.** Allowlist stub kosong: tidak ada satu
+pun file di `src/` yang menyentuh Supabase lagi.
+
+Yang tersisa hanya **migrasi data** (Fase 6) dan **Cloudflare R2**
+(Fase 4d). Keduanya bukan pekerjaan pemindahan kode.
 
 ---
 
@@ -77,33 +80,35 @@ overtime & payroll yang sengaja ditunda.
 
 ## Yang BELUM selesai
 
-### Sisa 2 file — payroll (Phase 5)
+### ✅ MIGRASI SUDAH SELESAI — allowlist stub KOSONG
 
-Allowlist stub: 14 → **2 file**.
+Tidak ada satu pun file di `src/` yang meng-import
+`lib/supabase/client`. Allowlist di `scripts/verify-no-stub.ts` sengaja
+dibiarkan ada tapi **kosong**, dan `verify:stub` sekarang **gagal** kalau
+allowlist diisi — supaya tidak ada yang bisa menambahkannya diam-diam.
 
-| File | Isi |
-|---|---|
-| `/absensi/admin/payroll` | 1422 baris — Input Gaji: hitung slip, potong lembur, publish |
-| `/absensi/(staff)/payroll` | 226 baris — Slip gaji milik staf sendiri |
+```powershell
+npm run verify:stub        # harus: "tidak ada import stub di src/ sama sekali"
+npm run verify:stubguard   # menguji bahwa guard-nya benar-benar gagal
+```
 
-Server layer-nya sudah ada (`src/server/dal/payroll.ts` +
-`/api/payroll`), termasuk `listPayrolls`, `listDeductionTypes`,
-`listAdditionTypes`, `countPayrolls`. Yang belum: penulisan `payrolls`
-(buat/ubah/publish) dan dua halaman di atas.
+Catatan: `npm run verify:stubguard` sengaja memanipulasi allowlist dan
+membuat file uji. Kalau menjalankannya saat dev server sedang kompilasi,
+restart dev server setelahnya.
 
-**Rekomendasi:** kerjakan sebagai satu batch tersendiri. Ini data gaji —
-paling sensitif di aplikasi — dan involves perhitungan yang berdampak ke
-uang orang sungguhan.
+### Berikutnya: migrasi data (Phase 6)
 
-### Yang sudah selesai di batch ini
+Server layer sudah lengkap untuk semua tabel yang dipakai aplikasi.
+Yang tersisa adalah memindahkan data nyata dari Supabase lewat
+`pg_dump`. **Sebelum itu:**
 
-- Seluruh halaman `/dashboard/**` dan `/absensi/**` (kecuali 2 payroll).
-- Komponen KPI harian (`DailyInputForm`, `DailyActivityFeed`,
-  `DailyReportsViewer`).
-- Overtime: DAL + endpoint + 4 halaman/komponen.
-- Payroll: DAL + endpoint + halaman Pengaturan Gaji.
+1. Jalankan migrasi `0013_payroll_columns.sql` di VPS (dibawah).
+2. Daftar migrasi yang masih harus di-apply di produksi: `0010`,
+   `0011`, `0012`, `0013`.
+3. Saat memindahkan `payrolls`, perhatikan kolom `deduction_notes` dan
+   `system_overtime_days` — keduanya baru ada di tabel kita (0013).
 
-### Komponen KPI harian — ✅ selesai, enam bug ditemukan
+### Fase 5 — Payroll 🟡 1 dari 3 halaman selesai
 
 Tiga komponen yang dipakai di 7 halaman sekaligus (`tim`, `tim/kpi`,
 `tim/input`, `head`, `hr/activity`, `executive/activity`,
@@ -263,7 +268,7 @@ halaman itu, tapi dari endpoint yang mereka panggil):
 
 ## Verifikasi
 
-Delapan skrip, **493 assert**, semuanya membaca isi respons dan isi
+Sepuluh skrip, **587 assert**, semuanya membaca isi respons dan isi
 database — bukan cuma status code.
 
 ```powershell
@@ -274,10 +279,12 @@ npm run verify:feedbacks    # 39  laporan benar-benar tersimpan
 npm run verify:reports      # 65  koreksi, kepemilikan, tanggal
 npm run verify:adminkpi     # 64  role, divisi, bobot, hapus KPI
 npm run verify:hrkpi        # 123 sampah, restore, cascade, bulk, copy, form
-npm run verify:overtime     # 76  tahap lembur,-transition, gaji di server
+npm run verify:overtime     # 76  tahap lembur, transisi, gaji di server
+npm run verify:payroll      # 84  otorisasi, angka negatif, slip terkunci
+npm run verify:stubguard    # 10  guard stub-nya benar-benar gagal
 ```
 
-Total **493 assert**, delapan skrip.
+Total **587 assert**, sepuluh skrip.
 
 Semuanya membersihkan data ujinya sendiri dan bisa dijalankan berulang
 kali.
@@ -360,38 +367,43 @@ tapi wajib disertai alasan dan tercatat di `calculation_breakdown`.
 
 Verifikasi: `verify:overtime`, 76 assert.
 
-### Fase 4c — Payroll 🟡 sebagian
-
-`src/server/dal/payroll.ts` + `/api/payroll` + halaman Pengaturan Gaji.
-
-**Bug paling serius di proyek ini ditemukan di sini:**
-`payroll_staff_settings.upsert(...)` ditulis **langsung dari browser
-tanpa cek role sama sekali**. Siapa pun yang punya sesi — termasuk staf
-biasa — cukup membuka `/absensi/admin/payroll/settings` lalu mengubah
-gaji dasar siapa pun. Angka negatif juga diterima.
-
-Sekarang HR/Executive saja, dengan validasi user target, angka >= 0, dan
-perusahaan yang dikenal. Sisa: halaman Input Gaji + Slip Gaji.
-
-`/absensi/admin/overtime` (4 query), bagian overtime di
-`/absensi/admin/approvals` (7 query), `OvertimeStaffSection`,
-`OvertimeFinalizeModal`. Perhitungan Depnaker ada di
-`src/lib/overtimeHelpers.ts` — masih di client, harus pindah ke server.
-
-Tabel `overtime_requests` sudah ada dengan 35 kolom termasuk
-`proof_images`, `calculation_breakdown`, `total_overtime_pay`.
-
 ### Fase 4d — Cloudflare R2 (belum mulai)
 
 Menunggu: upload bukti lembur (`overtime_proofs`), template & berkas
 surat.Dampak: saat ini `fileUrl` selalu `null` dan link "Unduh"
 disembunyikan.
 
-### Fase 5 — Payroll 🟡 1 dari 3 halaman selesai
+### Fase 5 — Payroll ✅ selesai
 
-Lihat bagian "Sisa 2 file" di atas. Tabel sudah ada (`payrolls`,
-`payroll_staff_settings`, `payroll_addition_types`,
-`payroll_deduction_types`) dan server layer-nya sudah ada juga.
+`src/server/dal/payroll.ts` + `/api/payroll` + 3 halaman.
+
+**Tiga authorize yang paling serius di proyek ini:**
+
+1. **Gaji dasar bisa ditulis siapa pun.** formerly
+   `payroll_staff_settings.upsert(...)` dari browser **tanpa cek role
+   sama sekali**. Staf biasa cukup membuka
+   `/absensi/admin/payroll/settings` lalu mengubah gaji siapa pun.
+   Angka negatif juga diterima.
+2. **Slip gaji bisa ditulis siapa pun.** `payrolls.insert/update(...)`
+   dari browser, tanpa cek role dan tanpa validasi angka.
+3. **Slip gaji orang lain bisa dibaca.** Halaman staf melakukan
+   `payrolls.select("*").eq("user_id", user.id)` dengan `user.id` dari
+   `AuthContext`. Diubah di DevTools, slip rekan terbuka. Sekarang
+   `?view=mine`, server memakai `me.id` dari sesi.
+
+Tambahan: slip yang sudah `published` terkunci — tidak bisa diedit
+diam-diam, tidak bisa dihapus, dan hanya bisa diubah lewat publish ulang
+supaya ada jejaknya.
+
+### Migrasi 0013 — dua kolom `payrolls` yang tidak pernah ada
+
+`deduction_notes` (dikirim saat publish) dan `system_overtime_days`
+(dihitung di halaman tapi **tidak pernah dikirim** dalam payload apa pun)
+ada di `src/types/index.ts` tapi **tidak ada di tabel `payrolls`**.
+
+Idempotent (`ADD COLUMN IF NOT EXISTS`), jadi aman baik di lokal maupun
+di produksi. Sudah diuji lokal: berhasil, dan menjalankannya dua kali
+tetap aman.
 
 ### Fase 6 — Migrasi data (belum mulai)
 

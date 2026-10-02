@@ -22,6 +22,8 @@
     "verify:adminkpi": "node scripts/verify-admin-kpi.mjs",
     "verify:hrkpi": "node scripts/verify-hr-kpi.mjs",
     "verify:overtime": "node scripts/verify-overtime.mjs",
+    "verify:payroll": "node scripts/verify-payroll.mjs",
+    "verify:stubguard": "node scripts/verify-stub-guard.mjs",
     "verify": "npm run typecheck && tsx scripts/verify-no-stub.ts && npm run test"
   },
   "dependencies": {

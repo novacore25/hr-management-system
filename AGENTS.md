@@ -369,6 +369,38 @@ override manual, wajib disertai alasan dan tercatat di audit trail —
 tanpa itu, perhitungannya pindah ke server tapi angkanya masih bisa
 dipalsukan.
 
+Variasinya: **data yang sudah dilihat orang lain tidak boleh berubah
+diam-diam.** Slip gaji yang sudah `published` sudah dibaca staf — jadi
+`update` dan `delete` harus ditolak. Perubahan hanya boleh lewat
+publish ulang, supaya ada jejaknya.
+
+### 3.15 Guard yang tidak pernah gagal sama dengan tidak ada guard
+
+`scripts/verify-no-stub.ts`. Allowlistnya sudah kosong (migrasi selesai).
+Kalau allowlist itu boleh diisi lagi tanpa dicek, dia akan diisi lagi —
+dan diam-diam. Jadi sekarang:
+
+- Allowlist tidak kosong → **gagal**, walau file yang terdaftar sudah
+  tidak memakai stub.
+- Pesannya: "allowlist harus menyusut, tidak pernah tumbuh".
+
+Dan guard itu sendiri punya test (`scripts/verify-stub-guard.mjs`) yang
+sengaja memanipulasinya: mengisi allowlist → harus gagal; membuat file
+berisi import stub → harus gagal; membersihkan lagi → harus lulus.
+
+Guard yang belum pernah diuji hanya guard yang belum bekerja.
+
+### 3.16 `spawnSync` tanpa `shell: true` gagal diam-diam di Windows
+
+Menjalankan `npx`/`tsx` dari `spawnSync` menghasilkan **kode 1 tanpa
+output sama sekali**. Terlihat seperti program-nya yang gagal, bukan
+seperti pemanggilannya yang salah — dan kalau yang dipanggil adalah
+guard, artinya guard-nya terlihat "rusak" padahal tidak.
+
+Pakai `spawnSync(process.execPath, ["node_modules/tsx/dist/cli.mjs", ...])`
+untuk menjalankan hal lokal. Kalau memang harus `shell: true`, sadari
+sekali bahwa argumennya akan melewati parser cmd.exe.
+
 ---
 
 ## 4. Environment
@@ -401,6 +433,8 @@ npm run verify:reports      # 65 assert: koreksi, kepemilikan, tanggal
 npm run verify:adminkpi     # 64 assert: role, divisi, bobot, hapus KPI
 npm run verify:hrkpi        # 123 assert: sampah, restore, cascade, bulk, copy, form
 npm run verify:overtime     # 76 assert: tahap lembur, transisi, gaji di server
+npm run verify:payroll      # 84 assert: otorisasi gaji, angka negatif, slip terkunci
+npm run verify:stubguard    # 10 assert: guard stub benar-benar gagal
 ```
 
 Semuanya membersihkan data ujinya sendiri, jadi bisa dijalankan berulang

@@ -1,8 +1,6 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { createClient } from "@/lib/supabase/client";
-import { useAuth } from "@/contexts/AuthContext";
 import { format } from "date-fns";
 import { id as localeId } from "date-fns/locale";
 import { Banknote, Loader2, Eye, X, Download } from "lucide-react";
@@ -19,40 +17,102 @@ const MONTH_NAMES = ["Januari","Februari","Maret","April","Mei","Juni","Juli","A
 const COMPANY_COLORS: Record<string, string> = { TNT: "#00897B", Hype: "#E53935", Nova: "#1E88E5" };
 
 export default function MyPayrollPage() {
-  const supabase = createClient() as any;
-  const { user } = useAuth();
   const [payrolls, setPayrolls] = useState<EnrichedPayroll[]>([]);
   const [loading, setLoading] = useState(true);
   const [previewPayroll, setPreviewPayroll] = useState<EnrichedPayroll | null>(null);
   const [isDownloading, setIsDownloading] = useState(false);
+  /**
+   * Nama untuk slip cetak.
+   *
+   * formerly `user?.name` dari `AuthContext`. Kalau AuthContext belum
+   * selesai memuat, slip tercetak dengan "Karyawan" sebagai nama --
+   * dan tidak ada yang memberitahu, slip sudah terlanjur diunduh.
+   */
+  const [employeeName, setEmployeeName] = useState("");
 
   const printRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (user?.id) fetchData();
-  }, [user?.id]);
+    void fetchData();
+  }, []);
 
+  /**
+   * formerly dua query dari browser:
+   *
+   *   payrolls.select("*").eq("user_id", user.id).eq("status", "published")
+   *   payroll_staff_settings.select("*").eq("user_id", user.id).single()
+   *
+   * `user.id` berasal dari `AuthContext` — yaitu state browser. Diubah di
+   * DevTools, slip gaji **rekan** terbuka, karena tidak ada apa pun yang
+   * membandingkan id itu dengan sesi di server.
+   *
+   * sekarang `?view=mine`; server memakai `me.id` dari sesi dan tetap
+   * menyaring `status = 'published'` supaya draf HR tidak pernah terlihat.
+   */
   async function fetchData() {
     setLoading(true);
     try {
-      const [payrollsRes, settingsRes] = await Promise.all([
-        supabase.from("payrolls")
-          .select("*")
-          .eq("user_id", user!.id)
-          .eq("status", "published")
-          .order("year", { ascending: false })
-          .order("month", { ascending: false }),
-        supabase.from("payroll_staff_settings")
-          .select("*")
-          .eq("user_id", user!.id)
-          .single()
-      ]);
+      const res = await fetch("/api/payroll?view=mine", {
+        credentials: "include",
+        cache: "no-store",
+      });
+      const json = (await res.json()) as {
+        ok: boolean;
+        data?: { payrolls?: any[]; setting?: any; userName?: string };
+        error?: string;
+      };
 
-      const data = (payrollsRes.data ?? []) as Payroll[];
-      const setting = (settingsRes.data ?? null) as PayrollStaffSetting | null;
+      if (!res.ok) {
+        toast.error(json.error ?? "Gagal memuat data slip gaji.");
+        return;
+      }
 
-      const enriched = data.map(p => ({ ...p, setting }));
-      setPayrolls(enriched);
+      const setting: PayrollStaffSetting | null = json.data?.setting
+        ? {
+            user_id: json.data.setting.userId,
+            contract_position: json.data.setting.contractPosition,
+            company: json.data.setting.company,
+            default_base_salary: Number(json.data.setting.defaultBaseSalary),
+            default_mobility_allowance: Number(
+              json.data.setting.defaultMobilityAllowance,
+            ),
+            notes: json.data.setting.notes,
+          } as PayrollStaffSetting
+        : null;
+
+      const data = (json.data?.payrolls ?? []).map((p) => {
+        const row = {
+          id: p.id,
+          user_id: p.userId,
+          month: p.month,
+          year: p.year,
+          base_salary: Number(p.baseSalary),
+          mobility_allowance: Number(p.mobilityAllowance),
+          performance_bonus: Number(p.performanceBonus),
+          overtime_pay: Number(p.overtimePay),
+          overtime_rate: p.overtimeRate === null ? null : Number(p.overtimeRate),
+          overtime_notes: p.overtimeNotes ?? "",
+          overtime_detail: p.overtimeDetail ?? [],
+          additions_detail: p.additionsDetail ?? [],
+          deductions: Number(p.deductions),
+          deductions_detail: p.deductionsDetail ?? [],
+          deduction_notes: "",
+          notes: p.notes ?? "",
+          status: p.status,
+          snapshot_name: p.snapshotName ?? null,
+          snapshot_position: p.snapshotPosition ?? null,
+          snapshot_company: p.snapshotCompany ?? null,
+        } as Payroll;
+
+        return { ...row, setting };
+      });
+
+      setPayrolls(data);
+      setEmployeeName(
+        json.data?.userName ||
+          data[0]?.snapshot_name ||
+          "Karyawan",
+      );
     } catch (err) {
       console.error(err);
       toast.error("Gagal memuat data slip gaji.");
@@ -183,7 +243,7 @@ export default function MyPayrollPage() {
               <div className="print-only">
                 <PayslipPrintView
                   ref={printRef}
-                  employeeName={user?.name || "Karyawan"}
+                  employeeName={previewPayroll.snapshot_name || employeeName || "Karyawan"}
                   contractPosition={previewPayroll.setting?.contract_position || "Karyawan"}
                   company={previewPayroll.setting?.company || "Nova"}
                   month={previewPayroll.month}

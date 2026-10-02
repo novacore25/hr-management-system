@@ -913,7 +913,20 @@ export const payrolls = pgTable(
     >(),
     overtimeNotes: text("overtime_notes"),
 
-    // Snapshot —agar slip gaji tidak berubah消 jika data karyawan berubah
+    /**
+     * Berapa hari orang ini lembur pada periode ini.
+     *
+     * Dihitung dari `overtime_requests` yang sudah `finalized`. Kolom ini
+     * sebelumnya ada di `types/index.ts` dan dihitung di halaman, tapi
+     * tidak pernah dikirim dalam payload apa pun — jadi nilainya selalu
+     * hilang begitu halaman dimuat ulang. Ditambahkan di migrasi 0013.
+     */
+    systemOvertimeDays: integer("system_overtime_days"),
+
+    /** Catatan potongan. Dikirim `publishRow()`. Migrasi 0013. */
+    deductionNotes: text("deduction_notes"),
+
+    // Snapshot —agar slip gaji tidak berubah jika data karyawan berubah
     snapshotName: varchar("snapshot_name", { length: 255 }),
     snapshotPosition: text("snapshot_position"),
     snapshotCompany: companyEnum("snapshot_company"),

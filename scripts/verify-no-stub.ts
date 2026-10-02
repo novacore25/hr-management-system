@@ -29,17 +29,22 @@ const ROOT = "src";
 const STUB_IMPORT = /from\s+["'][^"']*lib\/supabase\/(client|server)["']/;
 
 /**
- * Satu-satunya import stub yang masih diizinkan.
+ * Daftar putih import stub — SUDAH KOSONG.
  *
- * Yang masih diizinkan adalah file yang dijadwalkan pindah di Phase 4c
- * (overtime) dan Phase 5 (payroll), plus halaman /dashboard/** yang
- * migrasinya belum dikerjakan. Hapus dari daftar ini seiring file
- * dipindahkan - jangan pernah menambahkan.
+ * Migrasi dari Supabase selesai: tidak ada satu pun file di `src/` lagi
+ * yang meng-import `lib/supabase/client`. Daftar ini sengaja dibiarkan
+ * ada (dan dijaga kosong) supaya:
+ *
+ *   1. Kalau nanti ada yang menambahkannya, itu terlihat di diff --
+ *      dan diff itu adalah keputusan, bukan hal yang terjadi diam-diam.
+ *   2. Tidak ada kode yang perlu dihapus sebelum migrate berikutnya.
+ *
+ * allowlist ini pernah berisi 14 file. Kalau Anda melihat isinya tidak
+ * kosong: jangan langsung menambah. Tanya dulu apakah file itu bisa
+ * lewat Route Handler -- stub membalas `error: null`, jadi UI bisa
+ * menampilkan "Berhasil" tanpa menyimpan apa pun.
  */
-const ALLOWLIST = [
-  "app/absensi/admin/payroll/page.tsx",
-  "app/absensi/(staff)/payroll/page.tsx",
-  ];
+const ALLOWLIST: string[] = [];
 
 /** Stub itu sendiri tidak dihitung. */
 const SELF = [
@@ -81,17 +86,42 @@ for (const file of walk(ROOT)) {
 }
 
 if (offenders.length > 0) {
-  console.error("GAGAL: file berikut memakai stub Supabase tanpa izin:");
+  console.error("GAGAL: file berikut memakai stub Supabase:");
   for (const f of offenders) console.error("  - " + f);
   console.error("");
-  console.error("Sudah selesai? Tambahkan ALLOWLIST di scripts/verify-no-stub.ts");
   console.error(
-    "Belum? Pindahkan ke Route Handler. Janganandalkan stub: dia membalas",
+    "Migrasi sudah selesai -- tidak ada allowlist yang tersisa. Pindahkan",
   );
-  console.error("`error: null`, jadi UI bisa menampilkan 'Berhasil' tanpa menyimpan.");
+  console.error(
+    "file ini ke Route Handler. Jangan mengandalkan stub: dia membalas",
+  );
+  console.error(
+    "`error: null`, jadi UI bisa menampilkan 'Berhasil' tanpa menyimpan.",
+  );
+  process.exit(1);
+}
+
+/**
+ * Allowlist yang tidak kosong selalu gagal, walau file yang terdaftar
+ * sudah tidak memakai stub.
+ *
+ * Alasannya: allowlist adalah daftar file yang *masih* perlu dipindah.
+ * Kalau sudah kosong, migrasi selesai dan daftarnya harus dihapus --
+ * supaya tidak ada yang mengira masih ada pekerjaan tertunda. Kalau
+ * allowlist boleh tumbuh diam-diam, dia akan tumbuh.
+ */
+if (ALLOWLIST.length > 0) {
+  console.error("GAGAL: ALLOWLIST tidak kosong.");
+  console.error("");
+  for (const f of ALLOWLIST) console.error("  - " + f);
+  console.error("");
+  console.error(
+    "Kalau file-file ini sudah tidak memakai stub, HAPUS dari daftar.",
+  );
+  console.error("Allowlist harus menyusut, tidak pernah tumbuh.");
   process.exit(1);
 }
 
 console.log(
-  `PASS: tidak ada import stub di luar allowlist (${allowedCount} file masih di allowlist).`,
+  `PASS: tidak ada import stub di src/ sama sekali (${allowedCount} di allowlist).`,
 );
