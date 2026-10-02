@@ -1,7 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
-import { createClient } from "@/lib/supabase/client";
+import React, { useState, useEffect, useCallback } from 'react';
 import { toast } from "sonner";
 import { Search, Save, Filter, Building2, Briefcase, Wallet, Car, StickyNote, User as UserIcon } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
@@ -34,52 +33,71 @@ export default function PayrollSettingsPage() {
   const [companyFilter, setCompanyFilter] = useState<PayrollCompany | 'Semua'>('Semua');
   const [saving, setSaving] = useState<string | null>(null);
   
-  const supabase = createClient();
   const { user: currentUser } = useAuth();
 
   useEffect(() => {
-    fetchData();
+    void fetchData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const { data: usersData, error: usersError } = await supabase
-        .from('users')
-        .select('id, name, email, department_id, departments(name)')
-        .eq('absensi_status', 'active');
-        
-      if (usersError) throw usersError;
-      
-      // Transform users data
-      const formattedUsers = (usersData as any[] || []).map((u: any) => ({
-        id: u.id,
-        name: u.name,
-        email: u.email,
-        departmentName: u.departments?.name || 'Unknown'
-      }));
-      setUsers(formattedUsers);
+      /**
+       * formerly dua query dari browser: users dan payroll_staff_settings.
+       * Keduanya tanpa cek role — jadi gaji dasar setiap orang bisa dibaca
+       * dan ditulis siapa pun yang punya sesi, bukan cuma HR.
+       */
+      const res = await fetch("/api/payroll?view=settings", {
+        credentials: "include",
+        cache: "no-store",
+      });
+      const json = (await res.json()) as {
+        ok: boolean;
+        data?: {
+          settings?: any[];
+          staff?: {
+            id: string;
+            name: string;
+            email: string;
+            departmentName: string | null;
+          }[];
+        };
+        error?: string;
+      };
 
-      // Fetch settings
-      const { data: settingsData, error: settingsError } = await supabase
-        .from('payroll_staff_settings')
-        .select('*');
-        
-      if (settingsError) throw settingsError;
+      if (!res.ok) {
+        toast.error(json.error ?? "Gagal mengambil data pengaturan gaji.");
+        return;
+      }
+
+      setUsers(
+        (json.data?.staff ?? []).map((u) => ({
+          id: u.id,
+          name: u.name,
+          email: u.email,
+          departmentName: u.departmentName || "Unknown",
+        })),
+      );
 
       const settingsMap: Record<string, PayrollStaffSetting> = {};
-      if (settingsData) {
-        settingsData.forEach((s: any) => {
-          settingsMap[s.user_id] = s as PayrollStaffSetting;
-        });
+      for (const s of json.data?.settings ?? []) {
+        settingsMap[s.userId] = {
+          user_id: s.userId,
+          contract_position: s.contractPosition,
+          company: s.company,
+          default_base_salary: Number(s.defaultBaseSalary),
+          default_mobility_allowance: Number(s.defaultMobilityAllowance),
+          notes: s.notes,
+        } as PayrollStaffSetting;
       }
       setSettings(settingsMap);
     } catch (error: any) {
-      toast.error('Gagal mengambil data: ' + error.message);
+      toast.error("Gagal mengambil data: " + error.message);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   const handleSettingChange = (userId: string, field: keyof PayrollStaffSetting, value: any) => {
     setSettings(prev => ({
@@ -94,27 +112,39 @@ export default function PayrollSettingsPage() {
   const saveSetting = async (userId: string) => {
     const setting = settings[userId];
     if (!setting) return;
-    
+
     setSaving(userId);
     try {
-      const payload = {
-        user_id: userId,
-        contract_position: setting.contract_position || '',
-        company: setting.company || 'Nova',
-        default_base_salary: setting.default_base_salary || 0,
-        default_mobility_allowance: setting.default_mobility_allowance || 0,
-        notes: setting.notes || '',
-        updated_at: new Date().toISOString()
-      };
+      /**
+       * formerly \`payroll_staff_settings.upsert(payload, { onConflict:
+       * 'user_id' })\` dari browser. Tidak ada cek role, tidak ada
+       * validasi angka — gaji dasar bisa diubah orang yang tidak
+       * berwenang, dan negatif pun diterima.
+       */
+      const res = await fetch("/api/payroll", {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          userId,
+          contractPosition: setting.contract_position || "",
+          company: setting.company || "Nova",
+          defaultBaseSalary: Number(setting.default_base_salary) || 0,
+          defaultMobilityAllowance: Number(setting.default_mobility_allowance) || 0,
+          notes: setting.notes || "",
+        }),
+      });
 
-      const { error } = await supabase
-        .from('payroll_staff_settings')
-        .upsert(payload as any, { onConflict: 'user_id' });
-        
-      if (error) throw error;
-      toast.success('Pengaturan berhasil disimpan');
+      const json = (await res.json().catch(() => null)) as { error?: string } | null;
+      if (!res.ok) {
+        toast.error(json?.error ?? "Gagal menyimpan pengaturan.");
+        return;
+      }
+
+      toast.success("Pengaturan berhasil disimpan");
+      void fetchData();
     } catch (error: any) {
-      toast.error('Gagal menyimpan: ' + error.message);
+      toast.error("Gagal menyimpan: " + error.message);
     } finally {
       setSaving(null);
     }
