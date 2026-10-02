@@ -162,6 +162,67 @@ Tiga aturan:
 Isi dokumentasi juga bisa merusak dirinya sendiri tanpa disadari — file
 markdown tidak pernah diuji, dan tidak ada `tsc` yang melihatnya.
 
+### 2.6 Skema Drizzle dan SQL migrasi WAJIB dicek silang
+
+Skema (`src/db/schema.ts`) dan file migrasi (`drizzle/*.sql`) adalah dua
+tulisannya struktur database yang sama. Kalau hanya satu yang berubah,
+selisihnya muncul sebagai error yang jauh dari penyebabnya.
+
+Empat selisih yang sudah terjadi, semuanya di migrasi 0014:
+
+| Selisih | Gejala |
+|---|---|
+| Kolom di SQL tanpa `DEFAULT`, tapi skema bilang `.defaultRandom()` | 500 "null value in column id" |
+| Kolom `uuid` di SQL, tapi `users.id` bertipe `text` | FK ditolak "incompatible types" |
+| Kolom ada di skema, tapi tidak ikut diselect di DAL | typecheck "missing N properties" |
+| Tipe kolom beda antara skema dan tabel | nilai terbaca salah diam-diam |
+
+Baris ketiga paling mengelirukan: `Row` di DAL diturunkan dari
+`$inferSelect`, jadi **satu kolom yang tidak diambil** membuat setiap
+`rows.map(toKpi)` gagal, dan pesannya tidak menyebut kolom mana.
+
+Aturan: setiap kali menambah kolom, cek keempatnya di tempat yang
+sama. Jangan menambah kolom di skema tanpa menambahkannya ke select
+DAL kalau tabel itu punya select eksplisit.
+
+### 2.7 `ADD COLUMN IF NOT EXISTS` tidak memperbaiki kolom yang salah tipe
+
+Penting untuk migrasi yang dijalankan manual.
+
+Kalau run pertama membuat kolom dengan tipe A lalu file diperbaiki
+menjadi tipe B, run kedua membaca "sudah ada, skipping", dan tipe A
+tetap di sana. FK atau constraint yang bergantung padanya akan gagal
+**selamanya**, dan pesan errornya tidak pernah menyuruh memperbaiki
+tipenya.
+
+Solusi: tambahkan langkah normalisasi eksplisit yang aman di kedua
+keadaan. Lihat LANGKAH 4 di `drizzle/0014_supabase_parity.sql`.
+
+### 2.8 Ganti teks dengan skrip: kunci harus non-overlapping
+
+Pengalaman yang merusak `src/db/schema.ts`, dipulihkan dengan
+`git checkout`.
+
+Skrip saya memakai daftar pasangan penggantian. Dua kunci tumpang
+tindih: kunci pendek sudah menjadi bagian dari hasil penggantian
+kunci panjang, lalu diterapkan lagi ke baris yang sama. Akibatnya
+`defaultNow` menjadi `defkultNow`, `departments` menjadi
+`depkrtments`, dan ratusan baris lain rusak dalam satu kali jalan.
+
+Tiga aturan:
+
+1. **Satu baris hanya boleh experiencing satu penggantian per item
+   daftar.** Terapkan penggantian satu kali per pasangan, jangan
+   dalam loop tanpa batas.
+2. **Kunci harus sepanjang mungkin.** Kalau dua kunci bisa cocok pada
+   teks yang sama, itu bug yang belum terjadi.
+3. **Setelah menulis file, jalankan `npx tsc --noEmit`.** Typecheck
+   adalah satu-satunya tempat yang langsung memberi tahu kalau file
+   rusak, bukan review mata.
+
+Perubahan yang perlu ditulis ulang dalam jumlah besar sebaiknya
+memakai tool `edit`, yang menampilkan diff.
+
 ---
 
 ## 3. Jebakan yang sudah sekali bitten

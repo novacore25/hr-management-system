@@ -672,6 +672,105 @@ lagi debugging, dan baca **AGENTS.md** kalau mau menambah aturan baru.
 
 ---
 
+### Fase 6 — Migrasi data: audit bentuk data (2026-10-02)
+
+Audit **read-only** terhadap Supabase. Tidak ada yang diubah, baik di
+Supabase maupun di produksi. Password disimpan di
+`/root/.supabase-pg.env` (mode 600, tidak ada di repo).
+
+#### Apa yang sebenarnya ada di Supabase
+
+```
+users 66 · departments 10 · kpis 2018 · kpi_assignments 2701
+daily_reports 4992 · attendance 3430 · leave_requests 346
+monthly_scores 502 · payrolls 71 · kpi_settings 46
+overtime_requests 4 · feedbacks 14 · kpi_histories 0
+```
+
+Foreign key **nihil yang menggantung**. Tidak ada view, tidak ada
+trigger di tabel `public`. Satu-satunya skema selain `public` adalah
+`pgbouncer`. Server: PostgreSQL 17.6 (pg_dump kita 18.6, kompatibel).
+
+#### Selisih skema: 37 kolom + 2 FK
+
+| Tabel | Kolom hilang |
+|---|---|
+| `leave_requests` | **15** — seluruh alur persetujuan 2 tahap |
+| `users` | **8** — KTP, WhatsApp, kontak darurat, kuota urgent |
+| `overtime_requests` | 4 — tarif jam pertama dan berikutnya |
+| `absensi_settings` | 2 — kuota urgent default, bulan reset |
+| `kpi_settings` | 2 — `id`, `quantity_weight` (warisan) |
+| `kpis` | 2 — `category`, `department` (warisan) |
+| `kpi_assignments` | 2 — `weight`, `notes` (warisan) |
+| `monthly_scores` | 1 — `quality_notes` |
+| `department_locations` | 1 — `created_at` |
+
+Semuanya sudah dipasang di `drizzle/0014_supabase_parity.sql` dan
+sudah diuji di database lokal.
+
+#### Dua nilai enum yang hilang
+
+- `leave_type.urgent` — 1 pengajuan, sudah berstatus `cancelled`
+- `leave_status.approved_executive` — 0 baris, tapi wajib ada untuk
+  alur 2 tahap
+
+Tanpa keduanya, **satu baris historis saja sudah membuat seluruh load
+gagal.**
+
+#### `managed_departments` berisi NAMA, bukan UUID
+
+Tipe `text[]` di Supabase, `jsonb` di skema kita. Isinya `HYPE` dan
+`MCN & TAP`, keduanya **tidak cocok** dengan `departments.id`. Hanya
+2 dari 66 user yang punya nilai; 64 lainnya array kosong.
+
+Kalau tidak dipetakan, kedua user itu dapat halaman kosong **tanpa
+error sama sekali**.
+
+#### `working_days_elapsed` nol semua
+
+2701 dari 2701 penugasan bernilai 0. Bug yang sudah dicatat di
+`AGENTS.md` §3.6 ternyata nyata di data produksi, bukan hanya di data
+uji. Fungsi `recalculate_assignment_totals()` di Supabase sendiri
+tidak pernah menyentuh kolom ini.
+
+#### Constraint KPI: dilepas, bukan diperbaiki
+
+164 kelompok melanggar UNIQUE `(title, year, month)`, yaitu 962 dari
+2018 baris. Setelah diperiksa, itu **bukan duplikat**: KPI yang
+tampak kembar berbeda `brand`. `VT Terupload` ada untuk Glamritz,
+DR.Belle, dan J.CHICKEN secara terpisah.
+
+Kuncinya lupa menyertakan `brand`, kolom yang justru ditambahkan
+migrasi 0011, yaitu **setelah** constraint-nya dibuat. Bahkan dengan
+`(title, year, month, brand, department_id)` masih ada 3 kelompok
+kembar, jadi constraint-nya dilepas. Yang dipasang hanya index
+non-unique.
+
+#### Cuti `urgent`: diterima, tidak dibangun
+
+Fiturnya pernah ada, lalu kebijakan HR menghapusnya. `urgent_quota`
+total 66 (semua user dapat 1), `urgent_balance` sekarang 39.
+Aplikasi yang masih jalan di Supabase juga tidak menawarkan `urgent`
+di form. Jadi: enum menerima nilainya supaya 1 pengajuan historis
+terbaca, tapi form tetap 3 pilihan.
+
+---
+
+## Migrasi 0014 — SUDAH DIJALANKAN di lokal
+
+File: `drizzle/0014_supabase_parity.sql`. Idempotent, sudah dijalankan
+beberapa kali di database uji lokal.
+
+Isinya: 37 kolom, 2 FK, 2 nilai enum, dan pelepasan constraint KPI
+yang salah. Verifikasi independen ada di `scripts/verify-0014.sql`,
+dipisah dari file migrasi supaya hasilnya tidak bergantung pada apa
+yang skrip migrasi laporkan.
+
+**Belum di VPS.** Jalankan setelah Fase B selesai, supaya database
+produksi tidak pernah punya skema yang setengah jalan.
+
+---
+
 ## Status migrasi di VPS — OK 0000 s/d 0013 lengkap (2026-10-02)
 
 Semuanya sudah terpasang dan diverifikasi. Yang membedakan catatan ini
