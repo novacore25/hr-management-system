@@ -5,6 +5,9 @@ node_modules/
 
 # Next.js
 /.next/
+# Output `npm run verify:build` — sengaja dipisah dari `.next` supaya
+# tidak menabrak dev server yang sedang jalan (lihat scripts/build-verify.mjs).
+/.next-verify/
 /out/
 next-env.d.ts
 *.tsbuildinfo

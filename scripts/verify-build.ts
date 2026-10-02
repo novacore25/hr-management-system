@@ -27,7 +27,13 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-const manifestPath = resolve(".next/server/middleware-manifest.json");
+// Sama dengan yang dipakai `scripts/build-verify.mjs`. Kalau folder ini
+// diubah di sana, ubah juga di sini — kalau tidak, build dan pemeriksa
+// akan membaca folder yang berbeda, dan penjaga selalu lolos tanpa
+// memeriksa apa pun.
+const DIST_DIR = process.env.NEXT_DIST_DIR || ".next";
+
+const manifestPath = resolve(DIST_DIR, "server", "middleware-manifest.json");
 
 let manifest: { middleware?: Record<string, unknown> };
 

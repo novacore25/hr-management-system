@@ -7,6 +7,24 @@ const nextConfig: NextConfig = {
   // dan runtime RAM turun dari ~400MB ke ~120MB.
   output: "standalone",
 
+  // ── Folder output build, bukan `.next` ─────────────────────────
+  //
+  // `next dev` dan `next build` memakai folder yang sama kalau distDir
+  // tidak diubah. Kalau `npm run verify:build` dijalankan saat dev
+  // server masih hidup, build menimpa chunk yang sedang dipakai dev
+  // server — gejalanyablur, Persis seperti punya banyak bug:
+  //
+  //   - `/_next/static/css/...` dilayani sebagai `text/plain`
+  //     ("Refused to apply style ... MIME type")
+  //   - Route Handler balas 500 padahal kodenya tidak berubah
+  //   - overlay Next.js menampilkan `[object Event]`
+  //
+  // Build produksi karena itu dipindah ke folder sendiri lewat
+  // `NEXT_DIST_DIR` (lihat script `verify:build` di package.json).
+  // Docker build TIDAK menyetelnya, jadi tetap memakai `.next` seperti
+  // biasanya.
+  distDir: process.env.NEXT_DIST_DIR || ".next",
+
   // ── Optimasi build di VPS 2 vCPU ──────────────────────────────
   // Type-check & lint dipindah ke `npm run typecheck` terpisah.
   // Dijalankan SEBELUM docker build, bukan di dalam container.
@@ -23,6 +41,19 @@ const nextConfig: NextConfig = {
 
   // Header keamanan
   poweredByHeader: false,
+
+  // ── Asal dev yang diizinkan ─────────────────────────────────────
+  //
+  // `localhost` dan `127.0.0.1` dianggap origin BERBEDA oleh browser,
+  // padahal menunjuk ke dev server yang sama. Tanpa ini Next.js
+  // mencetak "Cross origin request detected from 127.0.0.1 to
+  // /_next/* resource" di terminal pada setiap muat halaman — noise yang
+  // menyembunyikan masalah asli.
+  //
+  // 127.0.0.1 dipakai karena cookie httpOnly yang tersisa di profile
+  // browser tidak bisa ditimpa dari JavaScript (lihat
+  // docs/LOCAL-TESTING.md).
+  allowedDevOrigins: ["127.0.0.1", "localhost"],
   async headers() {
     return [
       {

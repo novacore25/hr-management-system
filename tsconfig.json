@@ -22,19 +22,28 @@
       }
     ],
     "paths": {
-      "@/*": ["./src/*"],
-      "firebase/app": ["./node_modules/@firebase/app/dist/app-public.d.ts"],
-      "firebase/auth": ["./node_modules/@firebase/auth/dist/auth-public.d.ts"],
-      "firebase/firestore": ["./node_modules/@firebase/firestore/dist/index.d.ts"]
+      "@/*": [
+        "./src/*"
+      ],
+      "firebase/app": [
+        "./node_modules/@firebase/app/dist/app-public.d.ts"
+      ],
+      "firebase/auth": [
+        "./node_modules/@firebase/auth/dist/auth-public.d.ts"
+      ],
+      "firebase/firestore": [
+        "./node_modules/@firebase/firestore/dist/index.d.ts"
+      ]
     },
     "target": "ES2017"
   },
   "include": [
-    "next-env.d.ts",
     "**/*.ts",
     "**/*.tsx",
+    ".next/dev/types/**/*.ts",
     ".next/types/**/*.ts",
-    ".next/dev/types/**/*.ts"
+    "next-env.d.ts",
+    ".next-verify/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

@@ -12,7 +12,7 @@
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "db:migrate": "drizzle-kit migrate",
-    "verify:build": "npm run build && tsx scripts/verify-build.ts",
+    "verify:build": "node scripts/build-verify.mjs",
     "verify:stub": "tsx scripts/verify-no-stub.ts",
     "verify:endpoints": "node scripts/verify-endpoints.mjs",
     "verify:quality": "node scripts/verify-quality.mjs",
