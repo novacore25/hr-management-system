@@ -98,6 +98,28 @@ document.cookie = "authjs.session-token=<TOKEN_TADI>; path=/; max-age=28800; Sam
 
 Lalu buka halaman yang mau diuji.
 
+### Kalau cookie-nya diabaikan — pakai 127.0.0.1
+
+Symptomnya: cookie **berhasil ditulis** (`document.cookie` menampilkannya),
+`/api/auth/session` tetap `null`, dan setiap navigasi menghapus lagi
+cookienya. Handle logout pun tidak menyelesaikannya.
+
+Penyebabnya cookie `authjs.session-token` yang **httpOnly** masih ada di
+profile browser. JavaScript tidak bisa membaca atau menimpanya, jadi
+browser mengirim yang lama — yang sudah tidak berlaku — lebih dulu.
+`withAuth`/`auth()` lalu menghapusnya, dan siklusnya berulang.
+
+Solusi: buka `http://127.0.0.1:3100/login` (bukan `localhost`). Cookie
+berpindah domain, jadi cookie	httpOnly yang tersisa tidak ikut terkirim.
+Dev server mendengarkan semua interface, jadi cara ini selalu bisa.
+
+Alternatif kalau ini tidak berhasil: hapus data situs untuk `localhost`
+lewat browser, atau pakai profile/incognito baru.
+
+> Untuk **server** (`curl`, `node fetch`) ini bukan masalah — hanya
+> browser yang punya cookie	httpOnly. Kalau `node` bisa membaca sesi tapi
+> browser tidak, penyebabnya di sini, bukan di token.
+
 ### User uji
 
 | Id | Peran | Untuk menguji |
