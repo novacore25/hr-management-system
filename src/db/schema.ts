@@ -802,9 +802,16 @@ export const overtimeRequests = pgTable(
       hourlyBaseRate?: number;
       multiplier?: number;
       isOverride?: boolean;
-      maxPayCap?: number;
+      maxPayCap?: number | null;
       budgetSaved?: number;
       depnFormula?: string;
+      /** Gaji sebelum plafon diterapkan — disimpan supaya bisa diaudit. */
+      uncappedTotalPay?: number;
+      isCapped?: boolean;
+      /** Angka yang benar-benar dibayarkan. */
+      totalOvertimePay?: number;
+      /** Wajib diisi kalau `isOverride` true — supaya bisa ditelusuri. */
+      overrideReason?: string | null;
     }>(),
 
     createdAt: timestamp("created_at", { withTimezone: true })
