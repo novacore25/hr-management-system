@@ -1,9 +1,7 @@
 # STATUS MIGRASI — dibaca sebelum mengerjakan apa pun
 
-Terakhir diperbarui: setelah komponen KPI harian selesai — seluruh
-halaman `/dashboard/**` dan `/absensi/**` (kecuali overtime & payroll)
-sudah pindah dari stub Supabase ke Route Handler + DAL. Sisa **7 file**
-di allowlist stub: 4 overtime, 3 payroll.
+Terakhir diperbarui: setelah lembur & Pengaturan Gaji selesai — tersisa
+**2 file** di allowlist stub, keduanya payroll (Phase 5).
 
 ---
 
@@ -79,16 +77,31 @@ overtime & payroll yang sengaja ditunda.
 
 ## Yang BELUM selesai
 
-### `/dashboard/**` — semua halaman sudah pindah
+### Sisa 2 file — payroll (Phase 5)
 
-Allowlist stub: 14 → **7 file**.
+Allowlist stub: 14 → **2 file**.
 
-Sisa 7 file: overtime (4: `absensi/admin/approvals`,
-`absensi/admin/overtime`, `OvertimeFinalizeModal`, `OvertimeStaffSection`)
-dan payroll (3: `absensi/admin/payroll`,
-`absensi/admin/payroll/settings`, `absensi/(staff)/payroll`).
+| File | Isi |
+|---|---|
+| `/absensi/admin/payroll` | 1422 baris — Input Gaji: hitung slip, potong lembur, publish |
+| `/absensi/(staff)/payroll` | 226 baris — Slip gaji milik staf sendiri |
 
-Tidak ada lagi halaman KPI atau dashboard yang menyentuh stub.
+Server layer-nya sudah ada (`src/server/dal/payroll.ts` +
+`/api/payroll`), termasuk `listPayrolls`, `listDeductionTypes`,
+`listAdditionTypes`, `countPayrolls`. Yang belum: penulisan `payrolls`
+(buat/ubah/publish) dan dua halaman di atas.
+
+**Rekomendasi:** kerjakan sebagai satu batch tersendiri. Ini data gaji —
+paling sensitif di aplikasi — dan involves perhitungan yang berdampak ke
+uang orang sungguhan.
+
+### Yang sudah selesai di batch ini
+
+- Seluruh halaman `/dashboard/**` dan `/absensi/**` (kecuali 2 payroll).
+- Komponen KPI harian (`DailyInputForm`, `DailyActivityFeed`,
+  `DailyReportsViewer`).
+- Overtime: DAL + endpoint + 4 halaman/komponen.
+- Payroll: DAL + endpoint + halaman Pengaturan Gaji.
 
 ### Komponen KPI harian — ✅ selesai, enam bug ditemukan
 
@@ -250,7 +263,7 @@ halaman itu, tapi dari endpoint yang mereka panggil):
 
 ## Verifikasi
 
-Tujuh skrip, **417 assert**, semuanya membaca isi respons dan isi
+Delapan skrip, **493 assert**, semuanya membaca isi respons dan isi
 database — bukan cuma status code.
 
 ```powershell
@@ -261,9 +274,10 @@ npm run verify:feedbacks    # 39  laporan benar-benar tersimpan
 npm run verify:reports      # 65  koreksi, kepemilikan, tanggal
 npm run verify:adminkpi     # 64  role, divisi, bobot, hapus KPI
 npm run verify:hrkpi        # 123 sampah, restore, cascade, bulk, copy, form
+npm run verify:overtime     # 76  tahap lembur,-transition, gaji di server
 ```
 
-Total **417 assert**.
+Total **493 assert**, delapan skrip.
 
 Semuanya membersihkan data ujinya sendiri dan bisa dijalankan berulang
 kali.
@@ -329,7 +343,35 @@ Component pendukung yang juga masih pakai stub:
 `components/kpi/{DailyInputForm,DailyActivityFeed,DailyReportsViewer}`,
 `components/hr/KpiFormPage`, `components/FeedbackModal`.
 
-### Fase 4c — Overtime (belum mulai)
+### Fase 4c — Overtime ✅ selesai
+
+`src/server/dal/overtime.ts` + `/api/overtime` + 4 halaman/komponen.
+
+Alur 4 tahap (`pending → approved/rejected → reported → finalized`)
+sekarang ditegakkan **di server**. Dulu `update({ status }).eq("id")`
+tanpa cek status lama — approve bisa dijalankan ulang pada pengajuan yang
+sudah `finalized`, menimpa gaji yang sudah dibayar.
+
+Yang paling serius: **gaji lembur dihitung di browser**. `total_overtime_pay`
+dikirim dari klien apa adanya dan langsung dipakai untuk slip gaji.
+Sekarang server yang menghitung (formula Depnaker di
+`lib/overtimeHelpers.ts` dipindah ke server); override manual tetap ada
+tapi wajib disertai alasan dan tercatat di `calculation_breakdown`.
+
+Verifikasi: `verify:overtime`, 76 assert.
+
+### Fase 4c — Payroll 🟡 sebagian
+
+`src/server/dal/payroll.ts` + `/api/payroll` + halaman Pengaturan Gaji.
+
+**Bug paling serius di proyek ini ditemukan di sini:**
+`payroll_staff_settings.upsert(...)` ditulis **langsung dari browser
+tanpa cek role sama sekali**. Siapa pun yang punya sesi — termasuk staf
+biasa — cukup membuka `/absensi/admin/payroll/settings` lalu mengubah
+gaji dasar siapa pun. Angka negatif juga diterima.
+
+Sekarang HR/Executive saja, dengan validasi user target, angka >= 0, dan
+perusahaan yang dikenal. Sisa: halaman Input Gaji + Slip Gaji.
 
 `/absensi/admin/overtime` (4 query), bagian overtime di
 `/absensi/admin/approvals` (7 query), `OvertimeStaffSection`,
@@ -345,12 +387,11 @@ Menunggu: upload bukti lembur (`overtime_proofs`), template & berkas
 surat.Dampak: saat ini `fileUrl` selalu `null` dan link "Unduh"
 disembunyikan.
 
-### Fase 5 — Payroll (belum mulai)
+### Fase 5 — Payroll 🟡 1 dari 3 halaman selesai
 
-`/absensi/admin/payroll`, `/absensi/admin/payroll/settings`,
-`/absensi/(staff)/payroll`. Tabel sudah ada (`payrolls`,
+Lihat bagian "Sisa 2 file" di atas. Tabel sudah ada (`payrolls`,
 `payroll_staff_settings`, `payroll_addition_types`,
-`payroll_deduction_types`).
+`payroll_deduction_types`) dan server layer-nya sudah ada juga.
 
 ### Fase 6 — Migrasi data (belum mulai)
 

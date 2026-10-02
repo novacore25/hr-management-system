@@ -351,6 +351,24 @@ Dan jangan memanggil `recalc` tepat setelah menyimpan nilai dari form —
 recalc akan menimpa angka yang baru saja diketik user. `recalc` hanya
 boleh jalan setelah perubahan pada tabel anak.
 
+### 3.14 Amount yang dikirim dari browser tidak pernah dihitung ulang
+
+Pola yang sama seperti §3.13, tapi soal uang:
+
+`payroll_staff_settings.upsert(...)` ditulis dari browser **tanpa cek
+role sama sekali**. Siapa pun yang punya sesi — termasuk staf biasa —
+cukup membuka `/absensi/admin/payroll/settings` lalu mengubah gaji
+dasar siapa pun. Angka negatif juga diterima.
+
+Hal yang sama terjadi pada gaji lembur: `total_overtime_pay` dikirim
+dari klien apa adanya, dan langsung dipakai untuk menghitung slip gaji.
+
+Rule: **nilai yang memengaruhi uang orang lain harus dihitung server.**
+Kirim parameter (tarif, plafon, durasi), bukan hasilnya. Kalau ada
+override manual, wajib disertai alasan dan tercatat di audit trail —
+tanpa itu, perhitungannya pindah ke server tapi angkanya masih bisa
+dipalsukan.
+
 ---
 
 ## 4. Environment
@@ -382,6 +400,7 @@ npm run verify:feedbacks    # 39 assert: laporan benar-benar tersimpan
 npm run verify:reports      # 65 assert: koreksi, kepemilikan, tanggal
 npm run verify:adminkpi     # 64 assert: role, divisi, bobot, hapus KPI
 npm run verify:hrkpi        # 123 assert: sampah, restore, cascade, bulk, copy, form
+npm run verify:overtime     # 76 assert: tahap lembur, transisi, gaji di server
 ```
 
 Semuanya membersihkan data ujinya sendiri, jadi bisa dijalankan berulang
