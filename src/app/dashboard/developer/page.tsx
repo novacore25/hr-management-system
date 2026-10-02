@@ -3,11 +3,18 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 
+/**
+ * formerly redirect ke `/dashboard/developer/import` — halaman Import KPI
+ * CSV yang sudah dihapus.
+ *
+ * Sekarang diarahkan ke Laporan Bug & Fitur, satu-satunya halaman
+ * developer yang tersisa.
+ */
 export default function DeveloperPage() {
   const router = useRouter();
 
   useEffect(() => {
-    router.replace("/dashboard/developer/import");
+    router.replace("/dashboard/developer/feedbacks");
   }, [router]);
 
   return (

@@ -87,10 +87,36 @@ fitur intinya sudah ada servernya.
 | `/dashboard/hr/kpi` | 14 | 817 baris — terbesar |
 | `/dashboard/hr/employees` | 3 | 432 |
 | `/dashboard/head/kpi-setup` | 4 | 330 |
-| `/dashboard/developer/import` | 5 | 661 |
 
 Sudah jadi: 4 halaman kualitas, 4 halaman penugasan,
 `developer/feedbacks`, `tim/history`.
+
+### `/dashboard/developer/import` — SUDAH DIHAPUS
+
+Halaman Import KPI CSV (660 baris) dihapus atas permintaan pemilik
+sistem: tidak ada yang memakainya. Link di Sidebar dihapus, dan
+`/dashboard/developer` sekarang mengarah ke `developer/feedbacks`.
+
+Alasan teknis yang ditemukan saat meninjau (berlaku kalau nanti ada fitur
+impor baru — jangan mengulang):
+
+1. `.eq("department_id", deptIdByName[dept] ?? "")` — kalau ada baris CSV
+   untuk user tanpa divisi (HR, Executive, Head — semuanya `NULL`), nilai
+   `""` langsung ditolak Postgres: `invalid input syntax for type uuid`.
+   **Seluruh import gagal**, bukan cuma baris itu. Errornya hanya masuk
+   `console.error`, jadi user melihat halaman diam.
+2. `brand` dikirim ke `kpis` — kolom yang baru ada di migrasi 0011.
+3. `working_days_elapsed: 0` — kolom yang tidak pernah diisi (lihat bagian
+   `working_days_elapsed` di bawah).
+4. Tidak idempoten: impor dua kali akan menjumlahkan `kpis.monthlyTarget`
+   dua kali dan menduplikasi assignment.
+5. `kpi_assignments` tidak punya UNIQUE di `(kpi_id, user_id, year, month)`,
+   jadi tidak ada pengaman duplikasi di database.
+
+Kalau nanti dibangun ulang: **[PENTING] jalankan server-side, validasi
+baris-per-baris, dan satu baris yang gagal tidak boleh membatalkan yang
+lainnya.** Impor massal tanpa transaksi parsial menghasilkan data setengah
+jadi.
 
 ### Halaman KPI kualitas — sudah selesai, dengan tiga perbaikan
 
