@@ -102,6 +102,32 @@ nilai 0-nya selalu fallback diam-diam. Sudah ditemukan berkali-kali:
 `ttl`, `address_ktp`, `phone_wa`, `emergency_contact`, `join_date`,
 `employment_status`, `contract_end_date`, `weight`, `religion`.
 
+### 2.5 Dokumentasi di-UPDATE, bukan DIGANTI
+
+`docs/STATUS.md` menyimpan katalog bug — itu hasil kerja terpenting, bukan
+daftar fitur. Setiap batch tambah bagiannya; jangan menimpa bagian lain
+sekalian.
+
+Yang sudah terjadi sekali: saat menulis bagian baru, sebuah `edit`
+menimpa **judul** bagian di bawahnya. Isi 6 bug-nya utuh, judulnya hilang,
+dan pembaca berikutnya mengira itu bagian yang salah. Tidak ada
+kompiler yang menangkapnya.
+
+Tiga aturan:
+
+1. **Baca target sebelum mengedit.** Kalau `oldString` tidak cocok, jangan
+   dipaksa — cari tahu dulu bentuk sebenarnya.
+2. **Sisakan penanda kalau isinya sengaja diganti.** Kalau sebuah daftar
+   tidak boleh ada lagi, tulis kenapa di tempatnya. "Dihapus karena sudah
+   tidak benar" jauh lebih berguna daripada keheningan.
+3. **Dokumentasi perlu guard-nya sendiri**, sama seperti kodenya.
+   `npm run verify:docs` memeriksa: klaim basi, jumlah assert yang
+   ditulis vs yang dijalankan, judul duplikat, rujukan path, dan
+   karakter non-Latin. Jalankan setiap selesai mengubah dokumentasi.
+
+Isi dokumentasi juga bisa merusak dirinya sendiri tanpa disadari — file
+markdown tidak pernah diuji, dan tidak ada `tsc` yang melihatnya.
+
 ---
 
 ## 3. Jebakan yang sudah sekali bitten
@@ -400,6 +426,29 @@ guard, artinya guard-nya terlihat "rusak" padahal tidak.
 Pakai `spawnSync(process.execPath, ["node_modules/tsx/dist/cli.mjs", ...])`
 untuk menjalankan hal lokal. Kalau memang harus `shell: true`, sadari
 sekali bahwa argumennya akan melewati parser cmd.exe.
+
+### 3.17 Guard yang memanggil dirinya sendiri
+
+`verify:docs` memanggil semua skrip `verify:*` untuk membandingkan jumlah
+assert yang tertulis di dokumentasi dengan yang benar-benar jalan.
+Jadi skrip itu sendiri ikut terpanggil — dan memanggil blok pemeriksa
+dokumentasinya lagi, tanpa henti. Sampai 8 proses node, harus dihentikan
+manual.
+
+Rule: **guard yang memanggil skrip lain dari daftar yang dia sendiri
+sebut harus mengecualikan dirinya.** Satu baris, tapi tidak ada yang
+menulisnya karena kelihatan benar saat diketik.
+
+### 3.18 `Select-String` dengan `\uXXXX` di PowerShell tidak meng-escape
+
+`Select-String -Pattern '[\u4e00-\u9fff]'` **mencocokkan hampir semua
+baris**, karena `\u` di dalam kurung siku bukan escape — PowerShell
+mengliteralkan seluruh karakternya. Hasilnya kelihatan seperti "puluhan
+baris rusak" padahal file-nya bersih.
+
+Untuk cek karakter non-Latin, pakai Node dengan regex JS
+(`/[\u4e00-\u9fff]/u`), yang memang punya escape itu. Sama untuk regex
+kompleks lain: jangan mengandalkan `Select-String` untuknya.
 
 ---
 
