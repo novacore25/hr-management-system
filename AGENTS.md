@@ -435,6 +435,7 @@ npm run verify:hrkpi        # 123 assert: sampah, restore, cascade, bulk, copy, 
 npm run verify:overtime     # 76 assert: tahap lembur, transisi, gaji di server
 npm run verify:payroll      # 84 assert: otorisasi gaji, angka negatif, slip terkunci
 npm run verify:stubguard    # 10 assert: guard stub benar-benar gagal
+npm run verify:docs        # 22 assert: dokumentasi tidak berbohong tentang diri sendiri
 ```
 
 Semuanya membersihkan data ujinya sendiri, jadi bisa dijalankan berulang

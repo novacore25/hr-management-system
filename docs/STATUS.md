@@ -8,12 +8,52 @@ Yang tersisa hanya **migrasi data** (Fase 6) dan **Cloudflare R2**
 
 ---
 
+## Cara membaca dokumen ini
+
+Dokumen ini panjang karena **katalog bugnya adalah hasil kerja
+terpenting** — bukan daftar fitur yang selesai. Setiap batch punya
+bagiannya sendiri; tidak ada yang dihapus.
+
+| Fase | Isi | Status |
+|---|---|---|
+| Infrastruktur | 26 tabel, Auth.js, middleware, Docker, guards | ✅ |
+| 0 | Rotasi kunci DNS / OAuth / Supabase | ✅ |
+| 1 | Pembersihan repo (buang Firebase, `service_role`) | ✅ |
+| 2 | Server layer KPI — **hooks saja**, halaman belum | ✅ |
+| 3 | Stack self-hosted di VPS | ✅ |
+| 4a | Server layer absensi | ✅ |
+| 4b | Halaman `/absensi/**` | ✅ |
+| 4c-a | `/dashboard/hr/quality` | ✅ |
+| 4c-b | 4 halaman kualitas (`head`/`executive`/`hr`) | ✅ |
+| 4c-c | 4 halaman penugasan KPI | ✅ |
+| 4c-d | `developer/feedbacks` + `tim/history` | ✅ |
+| 4c-e | `hr/employees` + `head/kpi-setup` | ✅ |
+| 4c-f | `/dashboard/hr/kpi` | ✅ |
+| 4c-g | `components/hr/KpiFormPage` | ✅ |
+| 4c-h | 3 komponen KPI harian (dipakai 7 halaman) | ✅ |
+| 4c-i | Overtime — 4 halaman/komponen | ✅ |
+| 5 | Payroll — 3 halaman | ✅ |
+| 4d | Cloudflare R2 (foto bukti lembur) | ⬜ |
+| 6 | Migrasi data dari Supabase | ⬜ |
+
+**Bug per fase:** cari `### Fase 4c-f` dst. **Katalog pola berulang:**
+lihat bagian "Pola yang terulang". **Status database produksi:**
+lihat bagian "Produksi".
+
+---
+
 ## Ringkasan
 
-Migrasi Supabase → VPS **belum selesai**. Yang sudah selesai adalah
-seluruh **lapisan server** untuk absensi + sebagian KPI. Yang belum:
-sebagian halaman `/dashboard/**`, modul overtime, payroll, storage, dan
-**pemindahan data asli**.
+Migrasi Supabase → VPS: **lapisan kode selesai**, data belum.
+
+Semua 60 halaman kini membaca dan menulis lewat Route Handler + DAL di
+server. Yang tersisa bukan pemindahan kode, melainkan dua hal yang
+sengaja ditunda: **upload foto** (butuh Cloudflare R2, bukan Supabase
+Storage) dan **pemindahan data asli** (Fase 6).
+
+Allowlist stub di `scripts/verify-no-stub.ts` sengaja dibiarkan ada tapi
+**kosong**, dan `verify:stub` sekarang **gagal** kalau ada yang
+mengisinya.
 
 ---
 
@@ -29,10 +69,11 @@ sebagian halaman `/dashboard/**`, modul overtime, payroll, storage, dan
 | Strategi sesi konsisten | ✅ JWT untuk app + middleware (990dadc) |
 | Dockerfile multi-stage standalone | ✅ ~250 MB |
 | Guard `verify:build` (middleware) | ✅ |
-| Guard `verify:stub` (stub import) | ✅ |
+| Guard `verify:stub` (stub import) | ✅ — allowlist **kosong** |
+| Guard `verify:stubguard` (guard-nya sendiri) | ✅ baru (10 assert) |
 | Health check `/api/health` | ✅ |
 | Migrations 0000–0009 | ✅ semua di VPS |
-| Migrations 0010–0012 | ⬜ baru, harus di VPS |
+| Migrations 0010–0013 | ⬜ baru, harus di VPS (lihat `docs/DEPLOY.md` §4) |
 | `withAuth` meneruskan Response apa adanya | ✅ baru (semua Route Handler) |
 
 ### Fase 1 — Pembersihan
@@ -49,17 +90,17 @@ Endpoint: `/api/kpis`, `/api/assignments`, `/api/assignments/period`,
 `/api/me`, `/api/me/profile`.
 
 **Catatan penting:** Fase 2 yang "selesai" itu hanya **hooks**. Halaman
-`/dashboard/**` sendiri masih memanggil stub — lihat tabel di bawah.
+`/dashboard/**` sendiri masih memanggil stub — baru bebas di Fase 4c.
 
 ### Fase 4a — Server layer absensi
 
 `src/server/dal/{absensi,attendance,leave}.ts`.
 Endpoint: `/api/absensi/{settings,attendance,leave,logs,staff,team,dashboard,locations,summary,letters}`.
 
-### Fase 4b — Halaman absensi ✅ COMPLETE
+### Fase 4b — Halaman absensi ✅
 
-Tidak ada lagi halaman `/absensi/**` yang memanggil stub, kecuali modul
-overtime & payroll yang sengaja ditunda.
+Tidak ada lagi halaman `/absensi/**` yang memanggil stub. Modul overtime
+(Fase 4c-i) dan payroll (Fase 5) ikut selesai belakangan.
 
 | Halaman | Status |
 |---|---|
@@ -102,18 +143,33 @@ Server layer sudah lengkap untuk semua tabel yang dipakai aplikasi.
 Yang tersisa adalah memindahkan data nyata dari Supabase lewat
 `pg_dump`. **Sebelum itu:**
 
-1. Jalankan migrasi `0013_payroll_columns.sql` di VPS (dibawah).
-2. Daftar migrasi yang masih harus di-apply di produksi: `0010`,
-   `0011`, `0012`, `0013`.
-3. Saat memindahkan `payrolls`, perhatikan kolom `deduction_notes` dan
-   `system_overtime_days` — keduanya baru ada di tabel kita (0013).
+1. Jalankan migrasi yang masih tertunda di VPS: `0010`, `0011`, `0012`,
+   `0013`. Runbook + perintahnya ada di `docs/DEPLOY.md` §4.
+   `0010` dan `0012` **harus dijalankan per bagian** — lihat
+   `docs/DEPLOY.md` §4.1.
+2. Saat memindahkan `payrolls`, perhatikan kolom `deduction_notes` dan
+   `system_overtime_days` — keduanya baru ada di tabel kita lewat 0013.
+3. `users.managed_departments` harus ditulis sebagai **UUID**, bukan nama
+   divisi. Alasannya ada di bagian "Produksi" di bawah.
 
-### Fase 5 — Payroll 🟡 1 dari 3 halaman selesai
+### Urutan yang disarankan
+
+1. Terapkan migrasi 0010–0013 di VPS (`docs/DEPLOY.md` §4).
+2. Deploy aplikasi versi sekarang.
+3. Cek `/api/health` dan buka beberapa halaman — database produksi masih
+   kosong, jadi halaman akan kosong, dan itu **normal**.
+4. Migrasi data Supabase (`pg_dump`).
+5. Perbaiki `managed_departments` ke format UUID kalau perlu.
+6. Naikkan role akun pemilik ke `hr`, lalu buat user lain.
+
+### Fase 4c-h — Komponen KPI harian ✅ selesai, enam bug ditemukan
 
 Tiga komponen yang dipakai di 7 halaman sekaligus (`tim`, `tim/kpi`,
 `tim/input`, `head`, `hr/activity`, `executive/activity`,
 `ExpandableStaffGrid`). Salah satu bug di sini dampaknya ke semua
 halaman itu.
+
+`DailyInputForm` · `DailyActivityFeed` · `DailyReportsViewer`.
 
 1. **Filter divisi mati.** `departmentFilter` ada di state dan ada
    dropdownnya, tapi tidak pernah dipakai di `filteredReports`. User
@@ -141,7 +197,7 @@ halaman itu.
    browser — cukup menebak id. Sekarang `DELETE` menerima
    `assignmentId` + `date` dan server memverifikasi lewat assignment.
 
-### `KpiFormPage` — ✅ selesai, empat bug ditemukan
+### Fase 4c-g — `KpiFormPage` ✅ selesai, empat bug ditemukan
 
 Form buat/edit KPI, dipakai `/dashboard/hr/kpi/{new,edit}` dan
 `/dashboard/head/kpi-setup/{new,edit}`.
@@ -170,7 +226,7 @@ Form buat/edit KPI, dipakai `/dashboard/hr/kpi/{new,edit}` dan
 Bonus: validasi tipe/unit/periode/target dipindahkan ke server. Dulu
 semuanya hanya di form yang bisa dilewati dengan satu request biasa.
 
-### `/dashboard/hr/kpi` — ✅ selesai, enam bug ditemukan
+### Fase 4c-f — `/dashboard/hr/kpi` ✅ selesai, enam bug ditemukan
 
 Halaman terbesar, dengan tab Sampah, Restore, Hapus Permanen, dan
 "Copy dari Bulan Lalu".
@@ -221,7 +277,7 @@ Pelajaran: **laporan hasil operasi adalah bagian dari functionality.**
 Kalau UI menampilkan angka, angka itu harus dihitung dari perubahan
 nyata — bukan dari nilai default.
 
-### `hr/employees` + `head/kpi-setup` — ✅ selesai, empat bug ditemukan
+### Fase 4c-e — `hr/employees` + `head/kpi-setup` ✅ selesai, empat bug ditemukan
 
 Keduanya menulis langsung ke `users` dan `kpis` dari browser. Yang
 ketahuan:
@@ -268,8 +324,8 @@ halaman itu, tapi dari endpoint yang mereka panggil):
 
 ## Verifikasi
 
-Sepuluh skrip, **587 assert**, semuanya membaca isi respons dan isi
-database — bukan cuma status code.
+Sebelas skrip, **609 assert**. Semuanya membaca isi respons, isi
+database, atau isi file — bukan cuma status code.
 
 ```powershell
 npm run verify:endpoints    # 24  amplop, status, isi data
@@ -282,9 +338,10 @@ npm run verify:hrkpi        # 123 sampah, restore, cascade, bulk, copy, form
 npm run verify:overtime     # 76  tahap lembur, transisi, gaji di server
 npm run verify:payroll      # 84  otorisasi, angka negatif, slip terkunci
 npm run verify:stubguard    # 10  guard stub-nya benar-benar gagal
+npm run verify:docs        # 22  dokumentasi tidak berbohong
 ```
 
-Total **587 assert**, sepuluh skrip.
+Total **609 assert**, sebelas skrip.
 
 Semuanya membersihkan data ujinya sendiri dan bisa dijalankan berulang
 kali.
@@ -294,7 +351,7 @@ restore benar-benar menghidupkan penugasan, dan bahwa jalur satu-id juga
 melaporkan jumlah yang sebenarnya. Bug "0 dari 1 KPI dipindahkan" lolos
 dari 79 assert pertama dan hanya terlihat lewat toast di browser.
 
-### `/dashboard/developer/import` — SUDAH DIHAPUS
+### Fase 4c-a/b — `/dashboard/developer/import` SUDAH DIHAPUS
 
 Halaman Import KPI CSV (660 baris) dihapus atas permintaan pemilik
 sistem: tidak ada yang memakainya. Link di Sidebar dihapus, dan
@@ -321,7 +378,7 @@ baris-per-baris, dan satu baris yang gagal tidak boleh membatalkan yang
 lainnya.** Impor massal tanpa transaksi parsial menghasilkan data setengah
 jadi.
 
-### Halaman KPI kualitas — sudah selesai, dengan tiga perbaikan
+### Fase 4c-a & 4c-b — Halaman KPI kualitas ✅ selesai, dengan tiga perbaikan
 
 Empat halaman itu formerly melakukan 2 operasi dari browser per Simpan
 (upsert `monthly_scores` + update `kpi_assignments`), percentage dihitung
@@ -346,11 +403,19 @@ Endpoint: `GET/PUT /api/kpi/quality` dengan `scope=self|managed|all`,
 
 Verifikasi: `npm run verify:quality` (32 assert).
 
-Component pendukung yang juga masih pakai stub:
-`components/kpi/{DailyInputForm,DailyActivityFeed,DailyReportsViewer}`,
-`components/hr/KpiFormPage`, `components/FeedbackModal`.
+> Catatan: bagian ini pernah menutupi dengan daftar "component pendukung
+> yang masih pakai stub": `DailyInputForm`, `DailyActivityFeed`,
+> `DailyReportsViewer`, `KpiFormPage`, `FeedbackModal`. **Semuanya sudah
+> selesai** -- lihat Fase 4c-g, 4c-h, dan bagian `developer/feedbacks`
+> di bawah. Daftar itu dihapus karena sudah tidak benar, bukan karena
+> bug yang tercatatnya hilang.
 
-### Fase 4c — Overtime ✅ selesai
+### Fase 4c-d — `developer/feedbacks` + `tim/history` ✅
+
+Rinciannya ada di bagian "Laporan bug" dan "Riwayat input harian"
+lebih bawah. Endpoint: `/api/feedbacks`, `PATCH /api/daily-reports`.
+
+### Fase 4c-i — Overtime ✅ selesai
 
 `src/server/dal/overtime.ts` + `/api/overtime` + 4 halaman/komponen.
 
@@ -442,7 +507,7 @@ Dua konsekuensi yang perlu diketahui:
 
 ---
 
-### Penugasan KPI — sudah selesai
+### Fase 4c-c — Penugasan KPI ✅ selesai
 
 Empat halaman (`head/penugasan`, `head/penugasan/new`, `hr/assignments`,
 `hr/assignments/new`) pindah ke `/api/assignments` + `/api/kpi-settings`.
@@ -480,7 +545,7 @@ Verifikasi: `npm run verify:assignments` (70 assert).
 
 ---
 
-### Laporan bug (`developer/feedbacks` + `FeedbackModal`) — sudah selesai
+### Fase 4c-d — Laporan bug (`developer/feedbacks` + `FeedbackModal`) ✅ selesai
 
 Fitur ini **tidak pernah menyimpan satu laporan pun** sejak migrasi.
 Schema Drizzle memodelkan `feedbacks` sebagai "catatan untuk satu
@@ -501,7 +566,7 @@ Verifikasi: `npm run verify:feedbacks` (39 assert).
 
 ---
 
-### Riwayat input harian (`tim/history`) — sudah selesai
+### Fase 4c-d — Riwayat input harian (`tim/history`) ✅ selesai
 
 Tiga hal yang ditemukan:
 
@@ -518,9 +583,11 @@ Tiga hal yang ditemukan:
    pemilik — cukup menebak id, staf biasa bisa mengubah laporannya
    orang lain.
 
-Endpoint baru: `PATCH /api/daily-reports`.
+Endpoint baru: `PATCH /api/daily-reports`. Kemudian ditambah `GET
+?assignmentId=` dengan pemilik ditentukan server, `DELETE`, dan validasi
+tanggal.
 
-Verifikasi: `npm run verify:reports` (35 assert).
+Verifikasi: `npm run verify:reports` (**65 assert**).
 
 ---
 
@@ -544,6 +611,48 @@ Seed lokal diperluas: KPI bertipe `result` + `activity`, 6 laporan
 harian, dan `working_days_total` terisi — sebelumnya nol semua, jadi
 `/dashboard/tim/history` dan `/dashboard/hr/kpi` tidak punya apa pun
 untuk ditampilkan.
+
+---
+
+## Pola yang terulang
+
+Bug yang sama muncul di banyak halaman. Kalau tangani satu, periksa
+pola yang sama di halaman lain — bukan hanya di file itu saja.
+
+| Pola | Gejalanya | Dimulai dari |
+|---|---|---|
+| **Stub membalas `error: null`** | "Berhasil" padahal tidak ada yang tersimpan | modulating check-in, feedback, daily report, input gaji |
+| **Otorisasi dari `AuthContext`** | nilainya bisa diubah di DevTools lalu halaman kebuka | `head/quality`, `head/penugasan`, `hr/employees`, `head/kpi-setup`, slip gaji |
+| **Bulk = `for` dengan `await`** | Sebagian berhasil, sebagian gagal, tetap dilaporkan "berhasil" | hapus KPI massal, finalisasi lembur |
+| **Angka dikirim dari client** | Nilai bisa dipalsukan; dipakai untuk uang | gaji lembur, slip gaji |
+| **Kolom ada di tipe tapi tidak di tabel** | Nilainya selalu hilang, diam-diam | `working_days_elapsed`, `kpis.brand`, `deduction_notes`, `system_overtime_days` |
+| **Filter yang tidak menyaring apa pun** | Dropdown ada, hasilnya sama | filter divisi di feed aktivitas |
+| **`?? 0` untuk nilai yang bisa `undefined`** | Angka yang dilaporkan salah, aksi tetap sukses | "0 dari 1 KPI dipindahkan" |
+| **Kondisi hanya di form** | Bisa dilewati dengan satu request | bobot KPI, durasi lembur, tanggal laporan |
+
+Aturan yang lahir dari semuanya, sudah di `AGENTS.md` §3.1–§3.16.
+Jangan baca ulang 16 aturan itu sebagai daftar — baca **pasanya** kalau
+lagi debugging, dan baca **AGENTS.md** kalau mau menambah aturan baru.
+
+---
+
+## Migrasi 0013 — SUDAH ADA, belum di VPS
+
+File: `drizzle/0013_payroll_columns.sql`. Idempotent, sudah diuji lokal
+(termasuk dijalankan dua kali).
+
+Menambah dua kolom ke `payrolls` yang **dipakai aplikasi tapi tidak pernah
+ada**:
+
+| Kolom | Kenapa |
+|---|---|
+| `deduction_notes` | `publishRow()` mengirimnya. Kalau kolomnya tidak ada, slip gaji tidak bisa dipublikasikan sama sekali. |
+| `system_overtime_days` | Ada di `types/index.ts` dan dihitung di halaman, tapi tidak pernah dikirim dalam payload apa pun — nilainya hilang setiap kali halaman dimuat ulang. |
+
+Kalau ternyata Supabase sudah punya kedua kolom, `ADD COLUMN IF NOT
+EXISTS` tidak melakukan apa-apa dan data yang ada tetap utuh.
+
+Cara menjalankan + yang harus diperiksa: `docs/DEPLOY.md` §4.2.
 
 ---
 
@@ -602,14 +711,44 @@ Data uji sengaja mencakup kasus tepi supaya mudah diuji ulang:
 
 ## Riwayat commit (referensi cepat)
 
+Hanya commit sejak migrasi ke VPS dimulai (`fe81490`). Commit sebelum
+itu adalah aplikasi Supabase yang sekarang sudah dibuang.
+
 | Commit | Isi |
 |---|---|
-| `65e4dca` | `/dashboard/hr/quality` + guard `verify:stub` |
-| `c7429b2` | 4b selesai: admin/dashboard + fix AttendanceWidget |
-| `990dadc` | Fix strategi sesi (login bounce) |
+| `fe81490` | Migrasi ke stack VPS: Drizzle + Auth.js v5 |
+| `ef61150` | Skrip setup database VPS yang idempotent |
+| `194fd9a` | Seed data minimal (divisi, jenis surat, absensi) |
+| `91e95f3` | Fase 2: session context + API user & divisi |
+| `07e86a1` | Fix Docker: `npm ci` sebelum copy manifest |
+| `d19b82f` | Diagnostik konfigurasi di `/api/health` |
+| `3f0186b` | Fase 2: 7 KPI hooks ke Route Handler + DAL |
+| `3333887` | Stub Supabase `channel()` dibuat chainable |
+| `23060a8` | Data demo untuk uji UI |
+| `634ca2a` | Fase 4a: server layer absensi |
+| `55c771d` | 4b batch 1 — team, latereasons, logs, settings |
+| `0d2985c` | 4b batch 2 — profile, staff requests |
+| `8d10d0a` | 4b batch 3 — staff KPI, letters, fix nomor surat |
+| `58249cd` | 4b batch 4 — admin/staff, bobot KPI global |
 | `5e80ece` | Fix middleware + pulihkan `admin/logs` 0 byte |
-| `58249cd` | 4b batch 4: admin/staff + global KPI weights |
-| `8d10d0a` | 4b batch 3: kpi + letters + fix nomor surat |
-| `0d2985c` | 4b batch 2: profile + requests |
-| `55c771d` | 4b batch 1: team, latereasons, logs, settings |
-| `634ca2a` | 4a: server layer absensi |
+| `990dadc` | Fix strategi sesi (login bounce) |
+| `c7429b2` | 4b selesai — admin/dashboard + fix widget check-in |
+| `65e4dca` | 4c-a — `hr/quality` + guard `verify:stub` |
+| `bb9c4e5` | Dokumentasi konteks untuk AI/dev baru |
+| `69fa0e0` | 4c-b — 4 halaman kualitas + perbaiki `withAuth` |
+| `0d6d2d5` | 4c-c — 4 halaman penugasan + validasi server |
+| `e8a30e0` | 4c-d — laporan bug, riwayat harian, kolom kosong |
+| `67de38f` | Hapus halaman Import KPI CSV (tidak dipakai) |
+| `1af6c9b` | Runbook deploy VPS + daftar container & migrasi |
+| `d6d40d2` | 4c-e — `hr/employees` + `head/kpi-setup` |
+| `ecb4f1b` | Catat jebakan cookie httpOnly saat uji di browser |
+| `39c33d1` | Fix: `verify:build` menabrak dev server |
+| `484b15e` | 4c-f — `hr/kpi`, tab Sampah akhirnya hidup |
+| `f744151` | 4c-g — `KpiFormPage`, divisi jadi id |
+| `255183c` | 4c-h — komponen KPI harian |
+| `6ca3aa9` | 4c-i — server layer overtime, 4 tahap + gaji di server |
+| `22b1da1` | 4c-i — `OvertimeFinalizeModal` + `OvertimeStaffSection` |
+| `c4a8bb9` | 4c-i — halaman overtime + approvals |
+| `467741a` | Fase 5 — DAL payroll + halaman Pengaturan Gaji |
+| `784182f` | Docs: status allowlist 14 → 2 |
+| `dca09b8` | Fase 5 — slip gaji. **MIGRASI KODE SELESAI** |
