@@ -3,8 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { X, Check, FileText, Info, RefreshCw, HandCoins, CalendarRange } from "lucide-react";
-import { createClient } from "@/lib/supabase/client";
-import { useAuth } from "@/contexts/AuthContext";
+import { useApiMutation } from "@/hooks/useApi";
 import { toast } from "sonner";
 import {
   formatDurationDetail,
@@ -29,7 +28,6 @@ export default function OvertimeFinalizeModal({
   baseSalary,
   onSuccess,
 }: OvertimeFinalizeModalProps) {
-  const { user } = useAuth();
   const [mounted, setMounted] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -37,12 +35,22 @@ export default function OvertimeFinalizeModal({
   const [finalHours, setFinalHours] = useState(0);
   const [finalMinutes, setFinalMinutes] = useState(0);
   const [dayType, setDayType] = useState<"weekday" | "weekend" | "holiday">("weekday");
-  
+
   // Rate & Pay states (all editable)
   const [hourlyBaseRate, setHourlyBaseRate] = useState(0);
   const [totalPayOverride, setTotalPayOverride] = useState<number | null>(null);
   const [maxPayCap, setMaxPayCap] = useState<number | null>(null);
   const [finalNotes, setFinalNotes] = useState("");
+  /**
+   * Wajib diisi kalau `totalPayOverride` dipakai. Tanpa ini, override
+   * jadi cara diam-diam mengubah gaji tanpa jejak.
+   */
+  const [overrideReason, setOverrideReason] = useState("");
+
+  const patchOvertime = useApiMutation<Record<string, unknown>, unknown>(
+    "/api/overtime",
+    "PATCH",
+  );
 
   useEffect(() => {
     setMounted(true);
@@ -93,10 +101,13 @@ export default function OvertimeFinalizeModal({
         (typeof overtime.totalOvertimePay === "number" && Math.abs(overtime.totalOvertimePay - expectedCalc) > 5);
 
       setTotalPayOverride(wasManualOverride ? overtime.totalOvertimePay! : null);
+      // Alasannya ikut dipulihkan, kalau pengajuan ini pernah di-override.
+      setOverrideReason(overtime.calculationBreakdown?.overrideReason ?? "");
     } else {
       // Fresh finalize
       setHourlyBaseRate(calculated.hourlyBaseRate);
       setTotalPayOverride(null);
+      setOverrideReason("");
     }
 
     const savedCap = overtime.calculationBreakdown?.maxPayCap ?? null;
@@ -144,9 +155,13 @@ export default function OvertimeFinalizeModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user) return;
+    if (!overtime) return;
     if (totalDurationMinutes <= 0) {
       toast.error("Durasi lembur harus lebih dari 0 menit.");
+      return;
+    }
+    if (totalPayOverride !== null && !overrideReason.trim()) {
+      toast.error("Override gaji wajib disertai alasan.");
       return;
     }
 
@@ -154,37 +169,33 @@ export default function OvertimeFinalizeModal({
     const tid = toast.loading("Menyimpan finalisasi & upah lembur...");
 
     try {
-      const supabase = createClient();
-      const payload = {
-        status: "finalized",
-        final_duration_minutes: totalDurationMinutes,
-        finalized_by: user.id,
-        finalized_date: new Date().toISOString(),
-        final_notes: finalNotes.trim() || null,
-        day_type: dayType,
-        is_holiday: dayType === "holiday" || dayType === "weekend",
-        hourly_base_rate: hourlyBaseRate,
-        total_overtime_pay: finalTotalPay,
-        calculation_breakdown: {
-          baseSalary,
-          hourlyBaseRate,
-          totalDurationMinutes,
-          uncappedTotalPay: uncappedCalculatedPay,
-          maxPayCap: isCapActive ? maxPayCap : null,
-          isCapped: isOverCap,
-          budgetSaved: isOverCap ? uncappedCalculatedPay - maxPayCap : 0,
-          totalOvertimePay: finalTotalPay,
-          isOverride: totalPayOverride !== null,
-          depnakerFormula: true
-        },
-      };
+      /**
+       * formerly seluruh perhitungan gaji dilakukan di sini dan yang
+       * dikirim ke database hanyalah angkanya — jadi client bebas
+       * mengirim `total_overtime_pay` sesuka hati, dan angka itu
+       * langsung dipakai untuk menghitung slip gaji.
+       *
+       * sekarang server yang menghitung. Yang dikirim hanya
+       * keputusannya: tarif per jam, plafon, dan override manual
+       * (wajib disertai alasan). Form ini masih menampilkan pratinjau
+       * supaya HR bisa memeriksa angkanya sebelum menekan Simpan — tapi
+       * yang tersimpan adalah hitungan server.
+       */
+      const res = await patchOvertime.mutate({
+        id: overtime.id,
+        action: "finalize",
+        dayType,
+        hourlyBaseRate,
+        maxPayCap: isCapActive ? maxPayCap : null,
+        totalPayOverride,
+        overrideReason: totalPayOverride !== null ? (overrideReason || "").trim() : null,
+        finalNotes: finalNotes.trim() || null,
+      });
 
-      const { error } = await supabase
-        .from("overtime_requests" as any)
-        .update(payload)
-        .eq("id", overtime.id);
-
-      if (error) throw error;
+      if (!res.ok) {
+        toast.error(res.error ?? "Gagal finalisasi.", { id: tid });
+        return;
+      }
 
       toast.success(
         `Lembur disahkan: ${formatDurationDetail(totalDurationMinutes)} (${formatRp(finalTotalPay)})!`,
@@ -194,7 +205,7 @@ export default function OvertimeFinalizeModal({
       onClose();
     } catch (err: any) {
       console.error("Error finalizing overtime:", err);
-      toast.error("Gagal finalisasi: " + err.message, { id: tid });
+      toast.error("Gagal finalisasi: " + (err?.message ?? "terjadi kesalahan"), { id: tid });
     } finally {
       setSaving(false);
     }
@@ -414,9 +425,26 @@ export default function OvertimeFinalizeModal({
               </div>
 
               {totalPayOverride !== null && (
-                <p className="text-[10px] font-bold text-amber-500 flex items-center justify-end gap-1">
-                  <Info size={12} /> Angka di-override manual.
-                </p>
+                <div className="space-y-2 pt-1">
+                  <p className="text-[10px] font-bold text-amber-500 flex items-center justify-end gap-1">
+                    <Info size={12} /> Angka di-override manual.
+                  </p>
+                  {/*
+                    Server menolak override tanpa alasan, jadi alasannya
+                    harus diminta di sini juga — kalau tidak, user baru
+                    tahu setelah menekan Simpan.
+                  */}
+                  <input
+                    type="text"
+                    value={overrideReason}
+                    onChange={(e) => setOverrideReason(e.target.value)}
+                    placeholder="Alasan override (wajib diisi)"
+                    className="w-full px-3 py-2 bg-[var(--ab-bg-surface)] border border-amber-500/30 rounded-lg text-xs text-[var(--ab-text-main)] placeholder:text-[var(--ab-text-dim)] focus:outline-none focus:border-amber-500"
+                  />
+                  <p className="text-[10px] text-[var(--ab-text-dim)]">
+                    Alasan ini tersimpan di riwayat dan ikut ke slip gaji.
+                  </p>
+                </div>
               )}
 
               {isOverCap && totalPayOverride === null && (

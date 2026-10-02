@@ -42,9 +42,7 @@ const ALLOWLIST = [
   "app/absensi/admin/payroll/page.tsx",
   "app/absensi/admin/payroll/settings/page.tsx",
   "app/absensi/(staff)/payroll/page.tsx",
-  "components/absensi/OvertimeFinalizeModal.tsx",
-  "components/absensi/OvertimeStaffSection.tsx",
-];
+  ];
 
 /** Stub itu sendiri tidak dihitung. */
 const SELF = [

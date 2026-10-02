@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import type { OvertimeRequest, OvertimeTask, OvertimeTaskReport } from "@/types/absensi";
 import ConfirmDialog from "@/components/absensi/ConfirmDialog";
@@ -67,7 +66,39 @@ export function OvertimeStaffSection() {
   const [isCompressing, setIsCompressing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Lightbox Preview Modal State
+  /**
+ * Bentuk dasar untuk "rekan tim lembur hari ini".
+ *
+ * Endpoint `?scope=today` sengaja hanya mengembalikan nama, jam, dan
+ * status — bukan `tasks`, `staff_notes`, atau `task_reports` milik orang
+ * lain. Field lain diisi nilai kosong supaya tipenya tetap sama dengan
+ * `OvertimeRequest` dan komponen ini tidak perlu tahu bedanya.
+ */
+const EMPTY_OVERTIME = {
+  requestDate: "",
+  requestedDurationMinutes: 0,
+  tasks: [] as OvertimeTaskReport[],
+  staffNotes: null as string | null,
+  approvedDurationMinutes: null as number | null,
+  approvedBy: null as string | null,
+  approvalDate: null as string | null,
+  approvalNotes: null as string | null,
+  rejectionReason: null as string | null,
+  actualDurationMinutes: null as number | null,
+  reportSubmittedAt: null as string | null,
+  taskReports: [] as OvertimeTaskReport[],
+  staffReportNotes: null as string | null,
+  finalDurationMinutes: null as number | null,
+  finalizedBy: null as string | null,
+  finalizedDate: null as string | null,
+  finalNotes: null as string | null,
+  proofImages: [] as string[],
+  createdAt: "",
+  updatedAt: "",
+  userPosition: undefined as string | undefined,
+} satisfies Partial<OvertimeRequest>;
+
+// Lightbox Preview Modal State
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
 
   // Full detail modal state
@@ -111,60 +142,53 @@ export function OvertimeStaffSection() {
   const [isCanceling, setIsCanceling] = useState(false);
 
   // Fetch overtime requests for current user
+  //
+  // formerly `overtime_requests.select("*, users!user_id(...)").eq("user_id",
+  // user.id)` dari browser. `.eq("user_id", user.id)` memakai id dari
+  // AuthContext — kalau nilainya diubah di DevTools, user bisa melihat
+  // pengajuan lembur orang lain.
+  //
+  // sekarang `?scope=mine`, dan server memakai `me.id` dari sesi.
   const fetchOvertimes = async () => {
-    if (!user) return;
     setIsLoading(true);
     try {
-      const supabase = createClient();
-      const { data, error } = await supabase
-        .from("overtime_requests" as any)
-        .select("*, users!user_id(name, position, departments(name))")
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false });
+      const res = await fetch("/api/overtime?scope=mine", {
+        credentials: "include",
+        cache: "no-store",
+      });
+      const json = (await res.json()) as {
+        ok: boolean;
+        data?: { requests?: OvertimeRequest[] };
+        error?: string;
+      };
 
-      if (error) {
-        console.error("Error fetching overtime requests:", error);
+      if (!res.ok) {
+        setOvertimeRequests([]);
+        console.error("Gagal memuat pengajuan lembur:", json.error);
+        return;
       }
 
-      if (data) {
-        setOvertimeRequests(
-          data.map((r: any) => ({
-            id: r.id,
-            userId: r.user_id,
-            requestDate: r.request_date,
-            overtimeDate: r.overtime_date,
-            requestedStartTime: (r.requested_start_time || "").substring(0, 5),
-            requestedEndTime: (r.requested_end_time || "").substring(0, 5),
-            requestedDurationMinutes: r.requested_duration_minutes,
-            tasks: r.tasks || [],
-            staffNotes: r.staff_notes,
-            status: r.status,
-            approvedStartTime: r.approved_start_time ? r.approved_start_time.substring(0, 5) : null,
-            approvedEndTime: r.approved_end_time ? r.approved_end_time.substring(0, 5) : null,
-            approvedDurationMinutes: r.approved_duration_minutes,
-            approvedBy: r.approved_by,
-            approvalDate: r.approval_date,
-            approvalNotes: r.approval_notes,
-            rejectionReason: r.rejection_reason,
-            actualStartTime: r.actual_start_time ? r.actual_start_time.substring(0, 5) : null,
-            actualEndTime: r.actual_end_time ? r.actual_end_time.substring(0, 5) : null,
-            actualDurationMinutes: r.actual_duration_minutes,
-            reportSubmittedAt: r.report_submitted_at,
-            taskReports: r.task_reports,
-            staffReportNotes: r.staff_report_notes,
-            finalDurationMinutes: r.final_duration_minutes,
-            finalizedBy: r.finalized_by,
-            finalizedDate: r.finalized_date,
-            finalNotes: r.final_notes,
-            proofImages: r.proof_images || [],
-            createdAt: r.created_at,
-            updatedAt: r.updated_at,
-            userName: r.users?.name,
-            userDepartment: r.users?.departments?.name,
-            userPosition: r.users?.position,
-          }))
-        );
-      }
+      // Server sudah mengirim camelCase, jadi tidak ada pemetaan lagi.
+      setOvertimeRequests(
+        ((json.data?.requests ?? []) as OvertimeRequest[]).map((r) => ({
+          ...r,
+          requestedStartTime: (r.requestedStartTime || "").substring(0, 5),
+          requestedEndTime: (r.requestedEndTime || "").substring(0, 5),
+          approvedStartTime: r.approvedStartTime
+            ? r.approvedStartTime.substring(0, 5)
+            : null,
+          approvedEndTime: r.approvedEndTime
+            ? r.approvedEndTime.substring(0, 5)
+            : null,
+          actualStartTime: r.actualStartTime
+            ? r.actualStartTime.substring(0, 5)
+            : null,
+          actualEndTime: r.actualEndTime ? r.actualEndTime.substring(0, 5) : null,
+          tasks: r.tasks ?? [],
+          taskReports: r.taskReports ?? [],
+          proofImages: r.proofImages ?? [],
+        })),
+      );
     } catch (err) {
       console.error(err);
     } finally {
@@ -174,59 +198,52 @@ export function OvertimeStaffSection() {
 
   const todayDateStr = new Date().toISOString().substring(0, 10);
 
-  // Fetch all staff overtime for today (Rekan Tim Lembur Hari Ini)
+  // Rekan tim yang lembur hari ini.
+  //
+  // formerly `.select("*, ...")` dari browser — jadi semua kolom ikut
+  // terbaca, termasuk `tasks`, `staff_notes`, dan `task_reports` milik
+  // orang lain. Halaman ini cuma menampilkan nama, jam, dan status.
+  // Sekarang `?scope=today` mengembalikan hanya field itu.
   const fetchTodayColleagues = async () => {
     setIsLoadingColleagues(true);
     try {
-      const supabase = createClient();
-      const { data, error } = await supabase
-        .from("overtime_requests" as any)
-        .select("*, users!user_id(name, position, departments(name))")
-        .eq("overtime_date", todayDateStr)
-        .neq("status", "rejected")
-        .order("created_at", { ascending: false });
+      const res = await fetch(
+        `/api/overtime?scope=today&date=${todayDateStr}`,
+        { credentials: "include", cache: "no-store" },
+      );
+      const json = (await res.json()) as {
+        ok: boolean;
+        data?: { requests?: any[] };
+      };
 
-      if (error) {
-        console.error("Error fetching today colleagues:", error);
-      } else if (data) {
-        setTodayColleagues(
-          data.map((r: any) => ({
-            id: r.id,
-            userId: r.user_id,
-            requestDate: r.request_date,
-            overtimeDate: r.overtime_date,
-            requestedStartTime: (r.requested_start_time || "").substring(0, 5),
-            requestedEndTime: (r.requested_end_time || "").substring(0, 5),
-            requestedDurationMinutes: r.requested_duration_minutes,
-            tasks: r.tasks || [],
-            staffNotes: r.staff_notes,
-            status: r.status,
-            approvedStartTime: r.approved_start_time ? r.approved_start_time.substring(0, 5) : null,
-            approvedEndTime: r.approved_end_time ? r.approved_end_time.substring(0, 5) : null,
-            approvedDurationMinutes: r.approved_duration_minutes,
-            approvedBy: r.approved_by,
-            approvalDate: r.approval_date,
-            approvalNotes: r.approval_notes,
-            rejectionReason: r.rejection_reason,
-            actualStartTime: r.actual_start_time ? r.actual_start_time.substring(0, 5) : null,
-            actualEndTime: r.actual_end_time ? r.actual_end_time.substring(0, 5) : null,
-            actualDurationMinutes: r.actual_duration_minutes,
-            reportSubmittedAt: r.report_submitted_at,
-            taskReports: r.task_reports,
-            staffReportNotes: r.staff_report_notes,
-            finalDurationMinutes: r.final_duration_minutes,
-            finalizedBy: r.finalized_by,
-            finalizedDate: r.finalized_date,
-            finalNotes: r.final_notes,
-            proofImages: r.proof_images || [],
-            createdAt: r.created_at,
-            updatedAt: r.updated_at,
-            userName: r.users?.name,
-            userDepartment: r.users?.departments?.name,
-            userPosition: r.users?.position,
-          }))
-        );
+      if (!res.ok) {
+        setTodayColleagues([]);
+        return;
       }
+
+      setTodayColleagues(
+        (json.data?.requests ?? []).map((r) => ({
+          ...EMPTY_OVERTIME,
+          id: r.id,
+          userId: r.userId,
+          overtimeDate: r.overtimeDate,
+          requestedStartTime: (r.requestedStartTime || "").substring(0, 5),
+          requestedEndTime: (r.requestedEndTime || "").substring(0, 5),
+          status: r.status,
+          approvedStartTime: r.approvedStartTime
+            ? r.approvedStartTime.substring(0, 5)
+            : null,
+          approvedEndTime: r.approvedEndTime
+            ? r.approvedEndTime.substring(0, 5)
+            : null,
+          actualStartTime: r.actualStartTime
+            ? r.actualStartTime.substring(0, 5)
+            : null,
+          actualEndTime: r.actualEndTime ? r.actualEndTime.substring(0, 5) : null,
+          userName: r.userName,
+          userDepartment: r.departmentName,
+        })),
+      );
     } catch (err) {
       console.error(err);
     } finally {
@@ -235,43 +252,54 @@ export function OvertimeStaffSection() {
   };
 
   const handleCancelRequest = async () => {
-    if (!cancelingId || !user) return;
+    if (!cancelingId) return;
     setIsCanceling(true);
     const tid = toast.loading("Membatalkan pengajuan lembur...");
-    try {
-      const supabase = createClient();
-      const { error } = await supabase
-        .from("overtime_requests" as any)
-        .delete()
-        .eq("id", cancelingId)
-        .eq("user_id", user.id)
-        .eq("status", "pending");
 
-      if (error) throw error;
-      toast.success("Pengajuan lembur berhasil dibatalkan", { id: tid });
-      setCancelingId(null);
-      fetchOvertimes();
-      fetchTodayColleagues();
-    } catch (err: any) {
-      toast.error("Gagal membatalkan: " + (err.message || "Terjadi kesalahan"), { id: tid });
-    } finally {
-      setIsCanceling(false);
+    /**
+     * formerly `.delete().eq("id").eq("user_id").eq("status", "pending")`
+     * dari browser. Ketiga filternya benar, tapi hasil `delete()` tidak
+     * pernah diperiksa — kalau tidak ada yang terhapus (misalnya status
+     * sudah berubah), UI tetap menampilkan "berhasil dibatalkan".
+     *
+     * sekarang DELETE `/api/overtime?id=...&cancel=1`; server mengembalikan
+     * 400 dengan alasannya kalau tahapnya tidak cocok.
+     */
+    const res = await fetch(
+      `/api/overtime?id=${encodeURIComponent(cancelingId)}&cancel=1`,
+      { method: "DELETE", credentials: "include" },
+    );
+    const json = (await res.json().catch(() => null)) as
+      | { ok?: boolean; error?: string }
+      | null;
+
+    setIsCanceling(false);
+
+    if (!res.ok) {
+      toast.error(json?.error ?? "Gagal membatalkan pengajuan.", { id: tid });
+      return;
     }
+
+    toast.success("Pengajuan lembur berhasil dibatalkan", { id: tid });
+    setCancelingId(null);
+    void fetchOvertimes();
+    void fetchTodayColleagues();
   };
 
+  // Polling 30 detik menggantikan subscription `postgres_changes` Supabase
+  // (lihat AGENTS.md).
   useEffect(() => {
-    fetchOvertimes();
-    fetchTodayColleagues();
-    const supabase = createClient();
-    const ch = supabase
-      .channel("overtime_staff_watch")
-      .on("postgres_changes", { event: "*", schema: "public", table: "overtime_requests" }, () => {
-        fetchOvertimes();
-        fetchTodayColleagues();
-      })
-      .subscribe();
-    return () => { ch.unsubscribe(); };
-  }, [user]);
+    void fetchOvertimes();
+    void fetchTodayColleagues();
+
+    const timer = setInterval(() => {
+      void fetchOvertimes();
+      void fetchTodayColleagues();
+    }, 30_000);
+
+    return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Task repeater actions
   const addTask = () => {
@@ -306,32 +334,47 @@ export function OvertimeStaffSection() {
     setShowConfirm(false);
     setIsSubmitting(true);
     const tid = toast.loading("Mengirim pengajuan lembur...");
-    try {
-      const supabase = createClient();
-      const { error } = await supabase.from("overtime_requests" as any).insert({
-        user_id: user.id,
-        request_date: new Date().toISOString().substring(0, 10),
-        overtime_date: overtimeDate,
-        requested_start_time: startTime + ":00",
-        requested_end_time: endTime + ":00",
-        requested_duration_minutes: durationMinutes,
+
+    /**
+     * formerly `overtime_requests.insert({ user_id: user.id, ... })` dari
+     * browser.
+     *
+     * `user_id` berasal dari AuthContext — kalau diubah di DevTools,
+     * pengajuan akan tercatat atas nama orang lain. Validasi durasi
+     * maksimum dan tanggal juga hanya ada di form, jadi bisa dilewati
+     * dengan satu request biasa.
+     *
+     * sekarang semua itu dicek server; form hanya memberi tahu lebih awal.
+     */
+    const res = await fetch("/api/overtime", {
+      method: "POST",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        overtimeDate,
+        startTime,
+        endTime,
         tasks: validTasks,
-        staff_notes: staffNotes.trim() || null,
-        status: "pending",
-      });
+        staffNotes: staffNotes.trim() || null,
+      }),
+    });
 
-      if (error) throw error;
+    const json = (await res.json().catch(() => null)) as
+      | { ok?: boolean; error?: string }
+      | null;
+    setIsSubmitting(false);
 
-      toast.success("Pengajuan lembur berhasil dikirim ke HR!", { id: tid });
-      setStaffNotes("");
-      setTasks([{ id: "1", task: "", target: "", note: "" }]);
-      setActiveTab("history");
-      fetchOvertimes();
-    } catch (err: any) {
-      toast.error("Gagal: " + (err.message || "Terjadi kesalahan"), { id: tid });
-    } finally {
-      setIsSubmitting(false);
+    if (!res.ok) {
+      toast.error(json?.error ?? "Gagal mengirim pengajuan.", { id: tid });
+      return;
     }
+
+    toast.success("Pengajuan lembur berhasil dikirim ke HR!", { id: tid });
+    setStaffNotes("");
+    setTasks([{ id: "1", task: "", target: "", note: "" }]);
+    setActiveTab("history");
+    void fetchOvertimes();
+    void fetchTodayColleagues();
   };
 
   // Open Report Modal
@@ -429,65 +472,60 @@ export function OvertimeStaffSection() {
 
   // Submit Overtime Report
   const handleSubmitReport = async () => {
-    if (!reportingReq || !user) return;
+    if (!reportingReq) return;
     if (!actualEndTime) { toast.error("Isi jam selesai aktual."); return; }
 
     const actualStart = reportingReq.approvedStartTime || reportingReq.requestedStartTime;
-    const actualDur = calcDurationMinutes(actualStart, actualEndTime);
 
     setIsSubmittingReport(true);
-    const tid = toast.loading("Mengunggah bukti & mengirim laporan...");
-    try {
-      const supabase = createClient();
+    const tid = toast.loading("Mengirim laporan lembur...");
 
-      // Upload newly added files to Supabase Storage
-      const uploadedUrls: string[] = [];
-      for (let i = 0; i < newProofFiles.length; i++) {
-        const item = newProofFiles[i];
-        const fileName = `${user.id}/${reportingReq.id}_${Date.now()}_${i}.jpg`;
-        const { error: upErr } = await supabase.storage
-          .from("overtime_proofs")
-          .upload(fileName, item.file, {
-            contentType: "image/jpeg",
-            upsert: true,
-          });
+    /**
+     * formerly: upload ke Supabase Storage, lalu
+     * `update({ status: "reported", ... }).eq("id", reportingReq.id)`.
+     *
+     * Dua masalah:
+     *   1. Tidak ada cek pemilik maupun tahap. Cukup menebak id, staf
+     *      bisa menulis laporan atas nama orang lain — dan laporan
+     *      inilah yang jadi dasar perhitungan gaji.
+     *   2. Durasi aktual tidak pernah dibandingkan dengan yang disetujui.
+     *      Kalau HR menyetujui 4 jam dan staf melaporkan 10, angkanya
+     *      diterima begitu saja.
+     *
+     * Upload foto belum ada: Supabase Storage sudah dilepas dan
+     * penggantinya (Cloudflare R2) masih Phase 4d. Foto yang sudah
+     * tersimpan tidak hilang; untuk sementara tidak bisa ditambah.
+     */
+    const res = await fetch("/api/overtime", {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        id: reportingReq.id,
+        action: "report",
+        actualStartTime: actualStart,
+        actualEndTime,
+        taskReports,
+        staffReportNotes: reportNotes.trim() || null,
+        proofImages: existingProofImages,
+      }),
+    });
 
-        if (upErr) throw upErr;
+    const json = (await res.json().catch(() => null)) as
+      | { ok?: boolean; error?: string }
+      | null;
+    setIsSubmittingReport(false);
 
-        const { data: { publicUrl } } = supabase.storage
-          .from("overtime_proofs")
-          .getPublicUrl(fileName);
-
-        uploadedUrls.push(publicUrl);
-      }
-
-      const finalProofImages = [...existingProofImages, ...uploadedUrls];
-
-      const { error } = await supabase
-        .from("overtime_requests" as any)
-        .update({
-          actual_start_time: actualStart + ":00",
-          actual_end_time: actualEndTime + ":00",
-          actual_duration_minutes: actualDur,
-          report_submitted_at: new Date().toISOString(),
-          task_reports: taskReports,
-          staff_report_notes: reportNotes.trim() || null,
-          proof_images: finalProofImages,
-          status: "reported",
-        })
-        .eq("id", reportingReq.id);
-
-      if (error) throw error;
-
-      toast.success("Laporan lembur berhasil disubmit ke HR!", { id: tid });
-      setReportingReq(null);
-      setNewProofFiles([]);
-      fetchOvertimes();
-    } catch (err: any) {
-      toast.error("Gagal submit laporan: " + err.message, { id: tid });
-    } finally {
-      setIsSubmittingReport(false);
+    if (!res.ok) {
+      toast.error(json?.error ?? "Gagal submit laporan.", { id: tid });
+      return;
     }
+
+    toast.success("Laporan lembur berhasil disubmit ke HR!", { id: tid });
+    setReportingReq(null);
+    setNewProofFiles([]);
+    void fetchOvertimes();
+    void fetchTodayColleagues();
   };
 
   const statusBadge = (s: string) => {

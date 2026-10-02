@@ -74,6 +74,47 @@ export async function GET(request: Request) {
       return { requests: await listOvertimeForUser(me.id) };
     }
 
+    /**
+     * `scope=today` — siapa saja yang lembur hari ini.
+     *
+     * formerly `overtime_requests.select("*, users!...")` dengan filter
+     * tanggal hari ini dari browser, jadi **semua** kolom ikut terbaca:
+     * termasuk `tasks`, `staff_notes`, dan `task_reports` milik orang
+     * lain. Halaman ini cuma menampilkan nama, jam, dan status.
+     *
+     * Jadi sekarang hanya field itu yang dikembalikan.
+     */
+    if (scope === "today") {
+      const day = searchParams.get("date") ?? todayStr();
+      if (!DATE_RE.test(day)) {
+        throw new ValidationError("Parameter 'date' harus format YYYY-MM-DD.");
+      }
+
+      const all = await listOvertimeRequests(day, day, [
+        "pending",
+        "approved",
+        "reported",
+        "finalized",
+      ]);
+
+      return {
+        requests: all.map((r) => ({
+          id: r.id,
+          userId: r.userId,
+          userName: r.userName,
+          departmentName: r.departmentName,
+          status: r.status,
+          overtimeDate: r.overtimeDate,
+          requestedStartTime: r.requestedStartTime,
+          requestedEndTime: r.requestedEndTime,
+          approvedStartTime: r.approvedStartTime,
+          approvedEndTime: r.approvedEndTime,
+          actualStartTime: r.actualStartTime,
+          actualEndTime: r.actualEndTime,
+        })),
+      };
+    }
+
     await requireKpiRole("hr", "executive");
 
     const from = searchParams.get("from") ?? todayStr();
