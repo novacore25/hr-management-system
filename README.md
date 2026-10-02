@@ -105,6 +105,7 @@ src/
 | **[`AGENTS.md`](AGENTS.md)** | Wajib dibaca AI assistant / developer baru. Aturan kerja, jebakan yang sudah pernah terjadi, cara verifikasi |
 | [`docs/STATUS.md`](docs/STATUS.md) | Phase mana yang selesai, apa yang tersisa, migrasi yang perlu dibuat |
 | [`docs/DECISIONS.md`](docs/DECISIONS.md) | Keputusan arsitektur + apa yang dikorbankan |
+| [`docs/DEPLOY.md`](docs/DEPLOY.md) | **Runbook deploy ke VPS** — container, migrasi, troubleshooting |
 | [`docs/LOCAL-TESTING.md`](docs/LOCAL-TESTING.md) | Menjalankan app lokal dengan data uji |
 
 > **Migrasi dari Supabase ke VPS belum 100% selesai.** Data asli belum

@@ -10,9 +10,13 @@ salah** sebelumnya.
 | File | Isi |
 |---|---|
 | `AGENTS.md` (ini) | Aturan kerja, jebakan, cara memverifikasi |
+| `docs/DEPLOY.md` | **Runbook deploy ke VPS** — container mana, migrasi mana yang sudah jalan, cara cek health, troubleshooting |
 | `docs/STATUS.md` | Phase mana yang selesai, apa yang tersisa |
 | `docs/DECISIONS.md` | Keputusan arsitektur + alasannya |
 | `docs/LOCAL-TESTING.md` | Cara menjalankan app lokal dengan data uji |
+
+**Kalau Anda (pemilik sistem) mau tahu kondisi terbaru tanpa membaca
+kode: baca `docs/DEPLOY.md` bagian 3 dan 4.**
 
 ---
 
