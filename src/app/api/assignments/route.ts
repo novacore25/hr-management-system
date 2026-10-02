@@ -114,6 +114,28 @@ export async function GET(request: Request) {
       return { count: await countActiveAssignments(kpiId) };
     }
 
+    // Versi massal — dipakai dialog konfirmasi hapus di
+    // /dashboard/hr/kpi. formerly satu request per KPI, dijalankan
+    // beruntun dari browser.
+    const kpiIds = (searchParams.get("kpiIds") ?? "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    if (kpiIds.length > 0) {
+      const bad = kpiIds.filter((id) => !isUuid(id));
+      if (bad.length > 0) {
+        return Response.json(
+          { ok: false, error: `Id KPI tidak valid: ${bad.join(", ")}` },
+          { status: 400 },
+        );
+      }
+      const { countActiveAssignmentsForKpis } = await import(
+        "@/server/dal/kpi"
+      );
+      return { count: await countActiveAssignmentsForKpis(kpiIds) };
+    }
+
     if (scope === "all") {
       await requireKpiRole("hr", "executive");
       return { assignments: await listAllAssignments(year, month, statuses) };

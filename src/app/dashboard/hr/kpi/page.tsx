@@ -3,8 +3,9 @@
 import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { createClient } from "@/lib/supabase/client";
-import { useKpis } from "@/hooks/useKpis";
+import { useKpis, useKpisIncludingTrash } from "@/hooks/useKpis";
+import { useApiMutation } from "@/hooks/useApi";
+import { withQuery } from "@/lib/api-client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -91,7 +92,40 @@ export default function HrKpiPage() {
   const [copying, setCopying] = useState(false);
   const year = parseInt(selectedMonth.split("-")[0]);
   const month = parseInt(selectedMonth.split("-")[1]);
-  const { kpis, isLoading, refresh } = useKpis(year, month);
+
+  /**
+   * Tab "Sampah" butuh KPI yang `deleted_at`-nya terisi, jadi halaman ini
+   * memang harus meminta `includeTrash=1` sejak awal.
+   *
+   * formerly `useKpis()` hanya mengembalikan KPI yang belum di-trash,
+   * sementara `trashedKpis` dihitung dari `kpis.filter(k => k.deletedAt)`.
+   * Padrannya tidak pernah menghasilkan apa pun — tab Sampah selalu
+   * kosong dan Restoration/Hapus Permanen tidak pernah bisa dipakai.
+   */
+  const { kpis, isLoading, refresh } = useKpisIncludingTrash(year, month);
+
+  const patchKpis = useApiMutation<Record<string, unknown>, unknown>(
+    "/api/kpis",
+    "PATCH",
+  );
+  const postKpis = useApiMutation<Record<string, unknown>, unknown>(
+    "/api/kpis",
+    "POST",
+  );
+  /** Hapus permanen butuh DELETE, yang tidak ada di useApiMutation. */
+  const deleteKpis = async (ids: string[]) => {
+    const res = await fetch(
+      withQuery("/api/kpis", { ids: ids.join(",") }),
+      { method: "DELETE", credentials: "include" },
+    );
+    const envelope = (await res.json().catch(() => null)) as
+      | { ok?: boolean; error?: string; data?: unknown }
+      | null;
+    if (!res.ok) {
+      return { ok: false as const, error: envelope?.error ?? "Gagal menghapus." };
+    }
+    return { ok: true as const, data: envelope?.data };
+  };
 
   const [tab, setTab] = useState<"list" | "trash">("list");
   const [selectedKpis, setSelectedKpis] = useState<Set<string>>(new Set());
@@ -119,66 +153,124 @@ export default function HrKpiPage() {
 
   const trashedKpis = useMemo(() => kpis.filter((k) => !!k.deletedAt), [kpis]);
 
+  /**
+   * formerly `supabase.from("kpis").update({ status })` dari browser —
+   * tanpa cek pemilik, tanpa cek hasilnya. Gagalnya tidak pernah
+   * dilaporkan ke user: `try/finally` tanpa `catch` menelan semuanya.
+   */
   async function setStatus(kpiId: string, status: string) {
     setStatusLoading(kpiId);
-    try {
-      const supabase = createClient();
-      await supabase.from("kpis").update({ status }).eq("id", kpiId);
-      refresh();
-    } finally {
-      setStatusLoading(null);
+    setDeleteError("");
+    const res = await patchKpis.mutate({ id: kpiId, status });
+    setStatusLoading(null);
+
+    if (res.ok) {
+      void refresh();
+    } else {
+      setDeleteError(res.error ?? "Gagal mengubah status KPI.");
     }
   }
 
+  /**
+   * formerly `kpis.update({ hide_actual })` dari browser, tanpa cek.
+   * Toast "berhasil" muncul bahkan kalau Error-nya ada — `catch` di
+   * handler lama hanya menangkap error yang benar-benar dilempar,
+   * sedangkan stub tidak pernah melempar apa pun.
+   */
   async function toggleHideActual(kpiId: string, hideActual: boolean) {
     setStatusLoading(kpiId);
-    try {
-      const supabase = createClient();
-      await supabase.from("kpis").update({ hide_actual: hideActual }).eq("id", kpiId);
-      toast.success(hideActual ? "Angka aktual disembunyikan" : "Angka aktual ditampilkan");
-      refresh();
-    } catch (e: any) {
-      toast.error("Gagal update: " + e.message);
-    } finally {
-      setStatusLoading(null);
+    setDeleteError("");
+    const res = await patchKpis.mutate({ id: kpiId, hideActual });
+    setStatusLoading(null);
+
+    if (res.ok) {
+      toast.success(
+        hideActual ? "Angka aktual disembunyikan" : "Angka aktual ditampilkan",
+      );
+      void refresh();
+    } else {
+      setDeleteError(res.error ?? "Gagal menyimpan pengaturan.");
     }
   }
 
+  /**
+   * formerly menghitung penugasan aktif dengan satu request per KPI,
+   * beruntun dari browser. Kalau 20 KPI dipilih, dialog baru muncul
+   * setelah 20 request. Dan kalau salah satunya gagal, jumlahnya tetap
+   * dijumlahkan — user melihat angka yang lebih kecil dari kenyataan
+   * tanpa ada yang memberitahu.
+   */
   async function handleSoftDelete(kpisToDelete: KPI[]) {
     setDeleteError("");
-    let totalAssignments = 0;
-    const supabase = createClient();
-    for (const kpi of kpisToDelete) {
-      const { count } = await supabase
-        .from("kpi_assignments")
-        .select("id", { count: "exact", head: true })
-        .eq("kpi_id", kpi.id)
-        .in("status", ["active", "hold"]);
-      totalAssignments += count ?? 0;
+
+    const res = await fetch(
+      withQuery("/api/assignments", {
+        kpiIds: kpisToDelete.map((k) => k.id).join(","),
+      }),
+      { credentials: "include", cache: "no-store" },
+    );
+    const envelope = (await res.json().catch(() => null)) as
+      | { ok?: boolean; error?: string; data?: { count?: number } }
+      | null;
+
+    if (!res.ok || typeof envelope?.data?.count !== "number") {
+      setDeleteError(
+        envelope?.error ?? "Gagal menghitung penugasan. Coba lagi.",
+      );
+      return;
     }
-    setConfirmDelete({ kpis: kpisToDelete, assignmentCount: totalAssignments });
+
+    setConfirmDelete({
+      kpis: kpisToDelete,
+      assignmentCount: envelope.data.count,
+    });
   }
 
+  /**
+   * formerly `for` biasa: cancel assignment per KPI lalu set deleted_at
+   * per KPI, semuanya dari browser tanpa cek hasil. Kalau request
+   * ketujuh gagal, enam KPI pertama sudah terlanjur dihapus — dan UI
+   * tetap menampilkan "7 KPI berhasil dipindahkan ke sampah".
+   *
+   * sekarang satu request; server melaporkan berapa yang benar-benar
+   * terpengaruh.
+   */
   async function executeSoftDelete() {
     if (!confirmDelete) return;
     const { kpis: kpisToDelete } = confirmDelete;
     setStatusLoading("bulk-delete");
-    try {
-      const supabase = createClient();
-      const now = new Date().toISOString();
-      for (const kpi of kpisToDelete) {
-        await supabase.from("kpi_assignments")
-          .update({ status: "cancelled", cancelled_at: now })
-          .eq("kpi_id", kpi.id)
-          .in("status", ["active", "hold"]);
-        await supabase.from("kpis").update({ deleted_at: now }).eq("id", kpi.id);
-      }
-      toast.success(`${kpisToDelete.length} KPI berhasil dipindah ke sampah`);
-      setSelectedKpis(new Set());
-      setConfirmDelete(null);
-    } finally {
-      setStatusLoading(null);
+    setDeleteError("");
+
+    const res = await patchKpis.mutate({
+      ids: kpisToDelete.map((k) => k.id),
+      action: "soft-delete",
+    });
+    setStatusLoading(null);
+
+    if (!res.ok) {
+      setDeleteError(res.error ?? "Gagal memindahkan KPI ke sampah.");
+      return;
     }
+
+    const done = (res.data as { kpis?: number } | undefined)?.kpis ?? 0;
+    const cancelled =
+      (res.data as { cancelledAssignments?: number } | undefined)
+        ?.cancelledAssignments ?? 0;
+
+    if (done !== kpisToDelete.length) {
+      setDeleteError(
+        `${done} dari ${kpisToDelete.length} KPI dipindahkan. Sisanya tidak berubah — buka tab Sampah untuk memastikan.`,
+      );
+    }
+
+    toast.success(
+      `${done} KPI dipindahkan ke sampah` +
+        (cancelled > 0 ? `, ${cancelled} penugasan dibatalkan` : ""),
+    );
+
+    setSelectedKpis(new Set());
+    setConfirmDelete(null);
+    void refresh();
   }
 
   function toggleSelectKpi(id: string) {
@@ -196,69 +288,123 @@ export default function HrKpiPage() {
     }
   }
 
+  /**
+   * formerly dua update dari browser: assignment `cancelled` -> `active`,
+   * lalu `deleted_at` -> null.
+   *
+   * Versi server awalnya hanya melakukan yang kedua. Akibatnya KPI-nya
+   * muncul kembali dengan NOL penugasan — tidak ada yang bisa mengisinya,
+   * dan tidak ada yang bisa melihat bahwa ada yang salah. Restore harus
+   * menghidupkan penugasannya lagi; hanya yang berstatus `cancelled`,
+   * yang `completed` tetap `completed` supaya skor final tidak berubah.
+   */
   async function handleRestore(kpi: KPI) {
     setStatusLoading(kpi.id);
-    try {
-      const supabase = createClient();
-      await supabase.from("kpi_assignments")
-        .update({ status: "active", cancelled_at: null })
-        .eq("kpi_id", kpi.id)
-        .eq("status", "cancelled");
-      await supabase.from("kpis").update({ deleted_at: null }).eq("id", kpi.id);
-      toast.success("KPI berhasil dipulihkan");
-    } finally {
-      setStatusLoading(null);
+    setDeleteError("");
+    const res = await patchKpis.mutate({ id: kpi.id, action: "restore" });
+    setStatusLoading(null);
+
+    if (!res.ok) {
+      setDeleteError(res.error ?? "Gagal memulihkan KPI.");
+      return;
     }
+
+    const restored =
+      (res.data as { restoredAssignments?: number } | undefined)
+        ?.restoredAssignments ?? 0;
+
+    toast.success(
+      restored > 0
+        ? `KPI dipulihkan, ${restored} penugasan diaktifkan kembali`
+        : "KPI berhasil dipulihkan",
+    );
+    void refresh();
   }
 
   async function handleBulkRestore() {
-    setStatusLoading("bulk-restore");
-    try {
-      const supabase = createClient();
-      await Promise.all(
-        [...trashSelected].map(async (id) => {
-          await supabase.from("kpi_assignments")
-            .update({ status: "active", cancelled_at: null })
-            .eq("kpi_id", id)
-            .eq("status", "cancelled");
-          return supabase.from("kpis").update({ deleted_at: null }).eq("id", id);
-        })
-      );
-      toast.success(`${trashSelected.size} KPI berhasil dipulihkan`);
-      setTrashSelected(new Set());
-    } finally {
-      setStatusLoading(null);
-    }
-  }
+    const ids = [...trashSelected];
+    if (ids.length === 0) return;
 
-  async function performDeepDelete(kpiId: string) {
-    const supabase = createClient();
-    await supabase.from("daily_reports").delete().eq("kpi_id", kpiId);
-    await supabase.from("kpi_assignments").delete().eq("kpi_id", kpiId);
-    await supabase.from("kpis").delete().eq("id", kpiId);
+    setStatusLoading("bulk-restore");
+    setDeleteError("");
+    const res = await patchKpis.mutate({ ids, action: "restore" });
+    setStatusLoading(null);
+
+    if (!res.ok) {
+      setDeleteError(res.error ?? "Gagal memulihkan KPI.");
+      return;
+    }
+
+    const done = (res.data as { kpis?: number } | undefined)?.kpis ?? 0;
+    const restored =
+      (res.data as { restoredAssignments?: number } | undefined)
+        ?.restoredAssignments ?? 0;
+
+    if (done !== ids.length) {
+      setDeleteError(
+        `${done} dari ${ids.length} KPI dipulihkan. Sisanya tidak berubah.`,
+      );
+    }
+    toast.success(
+      `${done} KPI dipulihkan` +
+        (restored > 0 ? `, ${restored} penugasan diaktifkan kembali` : ""),
+    );
+    setTrashSelected(new Set());
+    void refresh();
   }
 
   async function handlePermanentDelete(kpi: KPI) {
     setStatusLoading(kpi.id);
-    try {
-      await performDeepDelete(kpi.id);
-      toast.success("KPI berhasil dihapus permanen");
-      setConfirmPermanent(null);
-    } finally {
-      setStatusLoading(null);
+    setDeleteError("");
+    const res = await deleteKpis([kpi.id]);
+    setStatusLoading(null);
+
+    if (!res.ok) {
+      setDeleteError(res.error ?? "Gagal menghapus KPI.");
+      return;
     }
+    toast.success("KPI berhasil dihapus permanen");
+    setConfirmPermanent(null);
+    void refresh();
   }
 
+  /**
+   * formerly menghapus tiga tabel dari browser secara berurutan
+   * (`daily_reports` -> `kpi_assignments` -> `kpis`). Kalau langkah
+   * pertama gagal, yang tersisa adalah baris laporan tanpa KPI induknya.
+   *
+   * sekarang satu delete; anak-anaknya ikut terhapus lewat
+   * `ON DELETE CASCADE`. Server juga menolak KPI yang belum di-trash —
+   * penghapusan permanen tidak bisa dibatalkan, jadi harus lewat Sampah.
+   */
   async function handleBulkPermanentDelete() {
+    const ids = [...trashSelected];
+    if (ids.length === 0) return;
+
     setStatusLoading("bulk-perm-delete");
-    try {
-      await Promise.all([...trashSelected].map((id) => performDeepDelete(id)));
-      toast.success(`${trashSelected.size} KPI berhasil dihapus permanen`);
-      setTrashSelected(new Set());
-      setConfirmBulkPermanent(false);
-    } finally {
-      setStatusLoading(null);
+    setDeleteError("");
+    const res = await deleteKpis(ids);
+    setStatusLoading(null);
+
+    if (!res.ok) {
+      setDeleteError(res.error ?? "Gagal menghapus KPI.");
+      return;
     }
+
+    const { deleted = [], skipped = [] } = (res.data ?? {}) as {
+      deleted?: string[];
+      skipped?: string[];
+    };
+
+    if (skipped.length > 0) {
+      setDeleteError(
+        `${skipped.length} KPI tidak ada di Sampah, jadi tidak dihapus. Hapus permanen hanya untuk isi Sampah.`,
+      );
+    }
+    toast.success(`${deleted.length} KPI dihapus permanen`);
+    setTrashSelected(new Set());
+    setConfirmBulkPermanent(false);
+    void refresh();
   }
 
   function toggleTrashItem(id: string) {
@@ -275,58 +421,48 @@ export default function HrKpiPage() {
     }
   }
 
+  /**
+   * formerly membaca semua KPI bulan lalu lalu `insert` sekali dari
+ * browser. Yang jadi acuan "sudah ada atau belum" adalah
+ * `k.title + "|" + k.department` — tapi baris Supabase tidak punya kolom
+ * `department` (yang ada `department_id`), jadi kuncinya selalu berakhir
+ * `"judul|undefined"` untuk kedua sisi dan yang dibandingkan cuma
+ * judulnya. KPI dengan judul sama di divisi berbeda tetap ikut tersalin.
+ *
+ * sekarang server yang menentukan; bulan sebelumnya juga dihitung
+ * server supaya tidak bergantung pada jam lokal browser.
+ */
   async function handleCopyFromLastMonth() {
-    const prevDate = new Date(year, month - 2, 1);
-    const prevYear = prevDate.getFullYear();
-    const prevMonth = prevDate.getMonth() + 1;
-
     setCopying(true);
-    try {
-      const supabase = createClient();
-      const { data: prevKpis } = await supabase.from("kpis")
-        .select("*")
-        .eq("year", prevYear)
-        .eq("month", prevMonth)
-        .is("deleted_at", null);
+    setDeleteError("");
+    const res = await postKpis.mutate({ action: "copy-from-month", year, month });
+    setCopying(false);
 
-      if (!prevKpis || prevKpis.length === 0) {
-        toast.error(`Tidak ada KPI di bulan sebelumnya (${prevYear}-${String(prevMonth).padStart(2, "0")})`);
-        return;
-      }
-
-      const existingTitles = new Set(kpis.filter((k) => !k.deletedAt).map((k) => k.title + "|" + k.department));
-      const toCopy = prevKpis.filter((k: any) => !existingTitles.has(k.title + "|" + k.department));
-
-      if (toCopy.length === 0) {
-        toast.info("Semua KPI dari bulan sebelumnya sudah ada di bulan ini.");
-        return;
-      }
-
-      const { error } = await supabase.from("kpis").insert(
-        toCopy.map((k: any) => ({
-          title: k.title,
-          brand: k.brand ?? "",
-          description: k.description ?? "",
-          type: k.type,
-          unit: k.unit,
-          period: k.period ?? "monthly",
-          department_id: k.department_id ?? null,
-          monthly_target: k.monthly_target,
-          year,
-          month,
-          status: "draft",
-          deleted_at: null,
-        }))
-      );
-      if (error) throw error;
-
-      toast.success(`${toCopy.length} KPI berhasil disalin sebagai Draft dari bulan sebelumnya.`);
-    } catch (err) {
-      console.error("Copy KPI failed:", err);
-      toast.error("Gagal menyalin KPI.");
-    } finally {
-      setCopying(false);
+    if (!res.ok) {
+      setDeleteError(res.error ?? "Gagal menyalin KPI.");
+      return;
     }
+
+    const { copied = 0, skipped = 0, from } = (res.data ?? {}) as {
+      copied?: number;
+      skipped?: number;
+      from?: string;
+    };
+
+    if (copied === 0 && skipped === 0) {
+      toast.error(`Tidak ada KPI di bulan sebelumnya (${from ?? "-"}).`);
+      return;
+    }
+    if (copied === 0) {
+      toast.info("Semua KPI dari bulan sebelumnya sudah ada di bulan ini.");
+      return;
+    }
+
+    toast.success(
+      `${copied} KPI disalin sebagai Draft dari bulan sebelumnya` +
+        (skipped > 0 ? ` (${skipped} dilewati karena sudah ada)` : "") + ".",
+    );
+    void refresh();
   }
 
   if (isLoading) {

@@ -78,8 +78,19 @@ export function useDepartmentKpis(
   return { kpis: data?.kpis ?? [], isLoading, error };
 }
 
-/** KPI termasuk yang sudah di-trash. Butuh role HR/Executive. */
-export function useTrashedKpis(year: number, month: number) {
+/**
+ * KPI bulan itu **termasuk yang sudah di-trash**. Butuh role HR/Executive.
+ *
+ * formerly /dashboard/hr/kpi memakai `useKpis()` (yang menyaring
+ * `deleted_at IS NULL` di server) lalu menghitung
+ * `trashedKpis = kpis.filter(k => k.deletedAt)`. Polanya tidak pernah
+ * menghasilkan apa pun, jadi tab "Sampah" selalu kosong dan tombol
+ * Restore maupun Hapus Permanen tidak pernah bisa dipakai.
+ *
+ * Nama sebelumnya `useTrashedKpis` menyesatkan: yang dikembalikan bukan
+ * hanya isi sampah, tapi semua KPI bulan itu.
+ */
+export function useKpisIncludingTrash(year: number, month: number) {
   const build = useCallback(
     () => withQuery("/api/kpis", { year, month, includeTrash: "1" }),
     [year, month],
@@ -90,5 +101,10 @@ export function useTrashedKpis(year: number, month: number) {
     [year, month],
   );
 
-  return { kpis: data?.kpis ?? [], isLoading, error, refresh: refetch };
+  return {
+    kpis: data?.kpis ?? [],
+    isLoading,
+    error,
+    refresh: refetch,
+  };
 }

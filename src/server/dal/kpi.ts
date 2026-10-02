@@ -1,7 +1,7 @@
 import "server-only";
 import { db } from "@/db";
-import { and, eq, inArray, isNull, desc, sql } from "drizzle-orm";
-import { kpis, departments, kpiAssignments } from "@/db/schema";
+import { and, eq, inArray, isNull, isNotNull, desc, sql } from "drizzle-orm";
+import { kpis, departments, kpiAssignments, kpiHistories } from "@/db/schema";
 import type { KPI, KpiStatus, KpiType, KpiUnit, KpiPeriod } from "@/types";
 
 type KpiRow = typeof kpis.$inferSelect & { departmentName: string | null };
@@ -287,30 +287,112 @@ export async function assertCanManageKpi(
 export async function softDeleteKpi(
   id: string,
   actorId?: string,
-): Promise<{ cancelledAssignments: number }> {
+): Promise<{ kpis: number; cancelledAssignments: number }> {
   const now = new Date();
+
+  // `returning()` supaya hasilnya benar-benar bisa dilaporkan. Tanpa ini
+  // fungsi ini hanya mengembalikan jumlah penugasan, dan UI menghitung
+  // "berapa KPI yang terpengaruh" dari `?? 0` — sehingga aksi yang
+  // sukses dilaporkan sebagai "0 dari 1 KPI dipindahkan".
+  const marked = await db
+    .update(kpis)
+    .set({ deletedAt: now, updatedAt: now })
+    .where(and(eq(kpis.id, id), isNull(kpis.deletedAt)))
+    .returning({ id: kpis.id });
 
   const { cancelAssignmentsForKpi } = await import("./assignments");
   const cancelledAssignments = await cancelAssignmentsForKpi(id, actorId ?? "");
 
-  await db
-    .update(kpis)
-    .set({ deletedAt: now, updatedAt: now })
-    .where(eq(kpis.id, id));
-
-  return { cancelledAssignments };
+  return { kpis: marked.length, cancelledAssignments };
 }
 
-export async function restoreKpi(id: string): Promise<void> {
-  await db
+/**
+ * Kembalikan KPI dari sampah.
+ *
+ * WAJIB menghidupkan kembali penugasannya. formerly halaman
+ * /dashboard/hr/kpi melakukan dua hal: ubah assignment `cancelled` ->
+ * `active`, lalu kosongkan `deleted_at`. Versi server awalnya hanya
+ * melakukan yang kedua — jadi KPI-nya muncul kembali dengan **nol
+ * penugasan**: tidak ada yang bisa mengisinya, dan tidak ada yang bisa
+ * melihat bahwa ada yang salah.
+ *
+ * Hanya assignment yang benar-benar berstatus `cancelled` yang
+ * dihidupkan kembali. Assignment `completed` tetap completed — kalau
+ * dibalik jadi active, skor KPI yang sudah final ikut berubah.
+ */
+export async function restoreKpi(
+  id: string,
+  actorId?: string,
+): Promise<{ kpis: number; restoredAssignments: number }> {
+  // Sama seperti softDeleteKpi: hanya baris yang benar-benar berubah
+  // yang dilaporkan.
+  const cleared = await db
     .update(kpis)
     .set({ deletedAt: null, updatedAt: new Date() })
-    .where(eq(kpis.id, id));
+    .where(and(eq(kpis.id, id), isNotNull(kpis.deletedAt)))
+    .returning({ id: kpis.id });
+
+  if (cleared.length === 0) return { kpis: 0, restoredAssignments: 0 };
+
+  return {
+    kpis: cleared.length,
+    restoredAssignments: await restoreCancelledAssignments(id, actorId),
+  };
 }
 
-/** Hapus permanen. Hanya untuk KPI yang sudah di-trash. */
-export async function hardDeleteKpi(id: string): Promise<void> {
-  await db.delete(kpis).where(eq(kpis.id, id));
+/**
+ * Hidupkan kembali penugasan yang dibatalkan karena KPI-nya di-trash.
+ *
+ * Dipisah dari `restoreKpi` supaya operasi massal bisa mengosongkan
+ * `deleted_at` sekali untuk semua KPI, baru menghidupkan penugasannya —
+ * tanpa melakukan `UPDATE` yang sama dua kali.
+ */
+async function restoreCancelledAssignments(
+  kpiId: string,
+  actorId?: string,
+): Promise<number> {
+  const now = new Date();
+
+  const restored = await db
+    .update(kpiAssignments)
+    .set({ status: "active", cancelledAt: null, updatedAt: now })
+    .where(
+      and(eq(kpiAssignments.kpiId, kpiId), eq(kpiAssignments.status, "cancelled")),
+    )
+    .returning({ id: kpiAssignments.id, userId: kpiAssignments.userId });
+
+  for (const a of restored) {
+    await db.insert(kpiHistories).values({
+      assignmentId: a.id,
+      userId: a.userId,
+      action: "status_restored",
+      oldValue: { status: "cancelled" },
+      newValue: { status: "active", reason: "kpi_restored" },
+      triggeredBy: actorId ?? "",
+      createdAt: now,
+    });
+  }
+
+  return restored.length;
+}
+
+/**
+ * Hapus permanen.
+ *
+ * Hanya KPI yang SUDAH di-trash boleh dihapus permanen. Tanpa cek ini,
+ * satu klik di halaman yang salah akan menghapus KPI beserta seluruh
+ * laporan dan riwayat penugasannya — `daily_reports` dan
+ * `kpi_assignments` keduanya `ON DELETE CASCADE`.
+ *
+ * Mengembalikan false kalau KPI-nya tidak ada atau belum di-trash.
+ */
+export async function hardDeleteKpi(id: string): Promise<boolean> {
+  const deleted = await db
+    .delete(kpis)
+    .where(and(eq(kpis.id, id), isNotNull(kpis.deletedAt)))
+    .returning({ id: kpis.id });
+
+  return deleted.length > 0;
 }
 
 /**
@@ -368,4 +450,202 @@ export async function kpiIdsForDepartment(deptId: string): Promise<string[]> {
     .from(kpis)
     .where(eq(kpis.departmentId, deptId));
   return rows.map((r) => r.id);
+}
+
+/**
+ * Berapa penugasan aktif dari sekumpulan KPI.
+ *
+ * formerly dialog konfirmasi hapus di /dashboard/hr/kpi menghitung satu
+ * per satu dari browser dengan satu request per KPI. Kalau 20 KPI
+ * terpilih, jadi 20 request berjalan beruntun sebelum dialog muncul.
+ * Dan kalau salah satunya gagal, jumlahnya tetap dijumlahkan — user
+ * melihat angka yang lebih kecil dari kenyataan tanpa ada yang memberitahu.
+ */
+export async function countActiveAssignmentsForKpis(
+  ids: string[],
+): Promise<number> {
+  if (ids.length === 0) return 0;
+
+  const [row] = await db
+    .select({ n: sql<number>`count(*)` })
+    .from(kpiAssignments)
+    .where(
+      and(
+        inArray(kpiAssignments.kpiId, ids),
+        inArray(kpiAssignments.status, ["active", "hold"]),
+      ),
+    );
+
+  return Number(row?.n ?? 0);
+}
+
+/**
+ * Soft delete beberapa KPI sekaligus.
+ *
+ * formerly browser menjalankan dua update per KPI satu per satu, dalam
+ * `for` biasa. Kalau request ke-7 gagal, KPI 1-6 sudah dihapus dan
+ * penugasannya sudah dibatalkan, sementara UI masih menampilkan
+ * "berhasil dipindahkan ke sampah" untuk semuanya.
+ *
+ * Sekarang satu operasi, dan hasilnya dilaporkan apa adanya.
+ */
+export async function softDeleteKpis(
+  ids: string[],
+  actorId: string,
+): Promise<{ kpis: number; cancelledAssignments: number }> {
+  // Urutannya penting: tandai dulu, baru batalkan penugasannya.
+  //
+  // Kalau dibalik — batalkan dulu, baru tandai — maka penghitungan
+  // "berapa yang benar-benar terpengaruh" ikut memfilter
+  // `deleted_at IS NULL`, dan karena semuanya sudah ditandai di langkah
+  // pertama, hasilnya **selalu 0**. Aksi tetap berhasil, tapi UI
+  // melaporkan "0 dari 1 KPI dipindahkan" — kebohongan yang persis
+  // yang seharusnya dihilangkan.
+  const marked = await db
+    .update(kpis)
+    .set({ deletedAt: new Date(), updatedAt: new Date() })
+    .where(and(inArray(kpis.id, ids), isNull(kpis.deletedAt)))
+    .returning({ id: kpis.id });
+
+  if (marked.length === 0) return { kpis: 0, cancelledAssignments: 0 };
+
+  let cancelledAssignments = 0;
+  const { cancelAssignmentsForKpi } = await import("./assignments");
+  for (const m of marked) {
+    cancelledAssignments += await cancelAssignmentsForKpi(m.id, actorId);
+  }
+
+  return { kpis: marked.length, cancelledAssignments };
+}
+
+/** Kembalikan beberapa KPI dari sampah sekaligus. */
+export async function restoreKpis(
+  ids: string[],
+  actorId: string,
+): Promise<{ kpis: number; restoredAssignments: number }> {
+  // Sama seperti softDeleteKpis: kosongkan `deleted_at` dulu supaya
+  // hitungan tidak memfilter baris yang barusan dipulihkan.
+  const cleared = await db
+    .update(kpis)
+    .set({ deletedAt: null, updatedAt: new Date() })
+    .where(and(inArray(kpis.id, ids), isNotNull(kpis.deletedAt)))
+    .returning({ id: kpis.id });
+
+  if (cleared.length === 0) return { kpis: 0, restoredAssignments: 0 };
+
+  let restoredAssignments = 0;
+  for (const c of cleared) {
+    const r = await restoreCancelledAssignments(c.id, actorId);
+    restoredAssignments += r;
+  }
+
+  return { kpis: cleared.length, restoredAssignments };
+}
+
+/**
+ * Hapus permanen beberapa KPI sekaligus.
+ *
+ * Hanya yang sudah di-trash. Id yang tidak di-trash dilaporkan terpisah
+ * supaya UI bisa bilang "3 dihapus, 2 dilewati" alih-alih diam saja.
+ */
+export async function hardDeleteKpis(
+  ids: string[],
+): Promise<{ deleted: string[]; skipped: string[] }> {
+  const trashed = await db
+    .select({ id: kpis.id })
+    .from(kpis)
+    .where(and(inArray(kpis.id, ids), isNotNull(kpis.deletedAt)));
+
+  const trashedIds = trashed.map((r) => r.id);
+  if (trashedIds.length === 0) return { deleted: [], skipped: ids };
+
+  await db.delete(kpis).where(inArray(kpis.id, trashedIds));
+
+  const trashedSet = new Set(trashedIds);
+  return {
+    deleted: trashedIds,
+    skipped: ids.filter((id) => !trashedSet.has(id)),
+  };
+}
+
+/**
+ * Salin semua KPI dari satu bulan ke bulan lain, sebagai Draft.
+ *
+ * formerly halaman /dashboard/hr/kpi menyalinnya dari browser dengan
+ * `supabase.from("kpis").insert(...)`. Yang jadi acuan untuk
+ * "sudah ada atau belum" adalah `k.title + "|" + k.department`, tapi
+ * baris Supabase tidak punya kolom `department` — yang ada
+ * `department_id`. Jadi kuncinya selalu berakhir `"|undefined"` untuk
+ * kedua sisi, dan satu-satunya yang dibandingkan adalah judulnya.
+ *
+ * Duplikasi dengan judul sama tapi divisi berbeda lolos. Sekarang
+ * kuncinya benar-benar (judul, divisi), dan yang terlewat dikembalikan
+ * supaya UI bisa menyebutkannya — bukan diam-diam tidak disalin.
+ */
+export async function copyKpisFromMonth(
+  fromYear: number,
+  fromMonth: number,
+  toYear: number,
+  toMonth: number,
+  actorId: string,
+): Promise<{ copied: number; skipped: number }> {
+  const sources = await db
+    .select(baseSelect)
+    .from(kpis)
+    .leftJoin(departments, eq(kpis.departmentId, departments.id))
+    .where(
+      and(
+        eq(kpis.year, fromYear),
+        eq(kpis.month, fromMonth),
+        isNull(kpis.deletedAt),
+      ),
+    );
+
+  if (sources.length === 0) return { copied: 0, skipped: 0 };
+
+  const existing = await db
+    .select({
+      title: kpis.title,
+      departmentId: kpis.departmentId,
+    })
+    .from(kpis)
+    .where(
+      and(
+        eq(kpis.year, toYear),
+        eq(kpis.month, toMonth),
+        isNull(kpis.deletedAt),
+      ),
+    );
+
+  const key = (t: string, d: string | null) => `${t.trim()} ${d ?? ""}`;
+  const taken = new Set(existing.map((e) => key(e.title, e.departmentId)));
+
+  const toInsert = sources.filter((s) => {
+    const k = key(s.title, s.departmentId);
+    if (taken.has(k)) return false;
+    taken.add(k);
+    return true;
+  });
+
+  if (toInsert.length === 0) return { copied: 0, skipped: sources.length };
+
+  await db.insert(kpis).values(
+    toInsert.map((s) => ({
+      title: s.title,
+      description: s.description,
+      type: s.type as KpiType,
+      unit: s.unit as KpiUnit,
+      period: (s.period ?? "monthly") as KpiPeriod,
+      monthlyTarget: s.monthlyTarget,
+      year: toYear,
+      month: toMonth,
+      status: "draft" as const,
+      departmentId: s.departmentId,
+      brand: s.brand ?? "",
+      hideActual: s.hideActual,
+      createdBy: actorId,
+    })),
+  );
+
+  return { copied: toInsert.length, skipped: sources.length - toInsert.length };
 }

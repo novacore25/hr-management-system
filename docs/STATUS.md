@@ -1,7 +1,8 @@
 # STATUS MIGRASI — dibaca sebelum mengerjakan apa pun
 
-Terakhir diperbarui: setelah `hr/employees` + `head/kpi-setup` selesai
-(Phase 4c — 12 file tersisa di allowlist stub)
+Terakhir diperbarui: setelah `/dashboard/hr/kpi` selesai — seluruh
+halaman `/dashboard/**` sudah pindah. Sisa 11 file di allowlist stub
+(overtime, payroll, `KpiFormPage`, 3 komponen input harian).
 
 ---
 
@@ -77,22 +78,66 @@ overtime & payroll yang sengaja ditunda.
 
 ## Yang BELUM selesai
 
-### `/dashboard/**` — 1 halaman tersisa
+### `/dashboard/**` — semua halaman sudah pindah
 
-Ini Prioritas 1. Panggilannya masih ke stub sehingga tampil kosong,
-padahal fitur intinya sudah ada servernya.
+Halaman terakhir, `/dashboard/hr/kpi` (817 baris, 14 query), selesai
+pada batch ini. Allowlist stub: 14 → **11 file**.
 
-| Halaman | Query | Ukuran |
-|---|---|---|
-| `/dashboard/hr/kpi` | 14 | 817 baris — terbesar |
+Sisa 11 file: overtime (4), payroll (3),
+`components/hr/KpiFormPage.tsx` (form buat/edit KPI), dan 3 komponen
+input harian (`DailyInputForm`, `DailyActivityFeed`,
+`DailyReportsViewer`).
 
-Sudah jadi: 4 halaman kualitas, 4 halaman penugasan,
-`developer/feedbacks`, `tim/history`, `hr/employees`,
-`head/kpi-setup`.
+### `/dashboard/hr/kpi` — ✅ selesai, enam bug ditemukan
 
-Sisa allowlist di `scripts/verify-no-stub.ts`: **12 file** (overtime,
-payroll, `hr/kpi`, `components/hr/KpiFormPage.tsx`, 3 komponen KPI
-harian).
+Halaman terbesar, dengan tab Sampah, Restore, Hapus Permanen, dan
+"Copy dari Bulan Lalu".
+
+1. **Tab Sampah selalu kosong.** Halaman memakai `useKpis()`, yang
+   menyaring `deleted_at IS NULL` **di server**, lalu menghitung
+   `kpis.filter(k => k.deletedAt)` di browser. Polanya tidak pernah
+   menghasilkan apa pun — jadi Restore dan Hapus Permanen tidak pernah
+   bisa dipakai. Sekarang memakai `useKpisIncludingTrash()`
+   (`includeTrash=1`).
+2. **Restore tidak menghidupkan penugasannya.** Versi DAL hanya
+   mengosongkan `deleted_at`. KPI muncul kembali dengan **nol
+   penugasan**: tidak ada yang bisa mengisinya, dan tidak ada yang bisa
+   melihat bahwa ada yang salah. Sekarang assignment berstatus
+   `cancelled` dihidupkan lagi — `completed` sengaja tidak, supaya
+   skor final tidak berubah.
+3. **Hapus permanen = tiga delete dari browser** (`daily_reports` →
+   `kpi_assignments` → `kpis`). Kalau langkah pertama gagal, tersisa
+   laporan yatim tanpa KPI induknya. Sekarang satu delete; keduanya
+   `ON DELETE CASCADE`. Server juga **menolak** KPI yang belum di-trash
+   (409) — penghapusan permanen tidak bisa dibatalkan.
+4. **Feature parity: endpoint hapus permanen hanya boleh `executive`**,
+   padahal halamannya milik HR — jadi tidak ada yang bisa memakai
+   fitur itu. Sekarang `hr` juga boleh; `tim` dan `head` tetap tidak.
+5. **Operasi massal = satu request per KPI dalam `for` biasa.** Kalau
+   yang ketujuh gagal, enam pertama sudah terlanjur terhapus tapi UI
+   tetap menampilkan "berhasil" untuk semuanya. Sekarang `ids: []` ke
+   server, dan hasilnya dilaporkan apa adanya.
+6. **"Copy dari Bulan Lalu" menduplikasi.** Saringan "sudah ada"
+   memakai `k.title + "|" + k.department` — tapi baris Supabase tidak
+   punya kolom `department` (yang ada `department_id`), jadi kuncinya
+   selalu berakhir `"judul|undefined"` untuk kedua sisi dan yang
+   dibandingkan hanya judulnya. KPI dengan judul sama di divisi berbeda
+   tetap ikut tersalin. Sekarang kuncinya benar-benar (judul, divisi).
+
+**Bug yang hanya ketahuan karena dicek di browser** — bukan dari API:
+
+`softDeleteKpis` awalnya membatalkan penugasannya dulu, baru
+menandai `deleted_at`, lalu menghitung "berapa KPI yang terpengaruh"
+dengan filter `deleted_at IS NULL`. Karena penandaan sudah terjadi di
+langkah pertama, hasilnya **selalu 0** — dan UI menampilkan
+"0 dari 1 KPI dipindahkan, Sisanya tidak berubah" untuk aksi yang
+**berhasil**. Caller-nya memakai `?? 0`, jadi nilai yang hilang pun
+tidak terlihat. Jalur satu-id punya bug sama: `softDeleteKpi` tidak
+mengembalikan jumlah sama sekali.
+
+Pelajaran: **laporan hasil operasi adalah bagian dari functionality.**
+Kalau UI menampilkan angka, angka itu harus dihitung dari perubahan
+nyata — bukan dari nilai default.
 
 ### `hr/employees` + `head/kpi-setup` — ✅ selesai, empat bug ditemukan
 
@@ -136,6 +181,31 @@ halaman itu, tapi dari endpoint yang mereka panggil):
 - `?id=` / `?kpiId=` dengan nilai sampah → **500** "Terjadi kesalahan di
   server", karena kolomnya uuid dan formatnya dicek terlalu lambat.
   Sekarang 400 dengan pesan yang bisa dibaca.
+
+---
+
+## Verifikasi
+
+Tujuh skrip, **354 assert**, semuanya membaca isi respons dan isi
+database — bukan cuma status code.
+
+```powershell
+npm run verify:endpoints    # 24  amplop, status, isi data
+npm run verify:quality      # 32  scoping, penolakan, nilai tersimpan
+npm run verify:assignments  # 70  scoping, validasi, audit trail
+npm run verify:feedbacks    # 39  laporan benar-benar tersimpan
+npm run verify:reports      # 35  koreksi ikut mengubah total
+npm run verify:adminkpi     # 64  role, divisi, bobot, hapus KPI
+npm run verify:hrkpi        # 90  sampah, restore, cascade, bulk, copy
+```
+
+Semuanya membersihkan data ujinya sendiri dan bisa dijalankan berulang
+kali.
+
+`verify:hrkpi` lahir dari halaman yang sama — termasuk assert bahwa
+restore benar-benar menghidupkan penugasan, dan bahwa jalur satu-id juga
+melaporkan jumlah yang sebenarnya. Bug "0 dari 1 KPI dipindahkan" lolos
+dari 79 assert pertama dan hanya terlihat lewat toast di browser.
 
 ### `/dashboard/developer/import` — SUDAH DIHAPUS
 

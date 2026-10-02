@@ -293,6 +293,46 @@ Pelajaran generalize: **cek rentang dan bentuk, bukan cuma invariant
 yang kebetulan sudah ada.** Kalau sebuah angka harus berada dalam batas
 tertentu, itu batasnya adalah validasinya — bukan turunannya.
 
+### 3.11 Angka yang dilaporkan harus berasal dari perubahan nyata
+
+`softDeleteKpis` membatalkan penugasannya dulu, baru menandai
+`deleted_at`, lalu menghitung "berapa KPI terpengaruh" dengan filter
+`deleted_at IS NULL`. Karena penandaan sudah terjadi di langkah
+pertama, hasilnya **selalu 0**.
+
+UI menampilkan "0 dari 1 KPI dipindahkan. Sisanya tidak berubah" —
+untuk aksi yang **berhasil**. Caller memakai `res.data?.kpis ?? 0`, jadi
+nilai yang hilang pun tidak kelihatan.
+
+Yang membuatnya lolos 79 assert: semua assert memeriksa **efeknya**
+(`deleted_at` terisi, penugasan jadi `cancelled`) — bukan **laporannya**.
+Keduanya benar, dan efeknya benar. Yang salah justru laporannya.
+
+Aturan:
+
+- Kalau UI menampilkan jumlah, hitung dari `returning()` atau `affectedRows`.
+  Jangan dari `?? 0`.
+- Kalau sebuah nilai bisa `undefined` di tengah jalur, ada bug di jalur
+  itu — bukan di tampilan.
+- Uji **jalur berbeda** secara terpisah. Bug ini hanya ada di jalur
+  satu-id; jalur massal sudah benar. Satu test untuk keduanya menutup
+  keduanya.
+
+### 3.12 `next build` dan `next dev` tidak boleh berbagi folder output
+
+Keduanya menulis ke `.next`. Kalau `verify:build` dijalankan saat dev
+server hidup, build menimpa chunk yang sedang dipakai. Gejalanya jauh
+dari build: `/_next/static/css/*.css` dilayani sebagai `text/plain`,
+Route Handler membalas 500 (`Cannot find module './1331.js'`), overlay
+Next.js menampilkan `Runtime Error [object Event]`.
+
+Tidak ada satu pun jejak bahwa ini soal build — `tsc` bersih, log
+terlihat normal. Terlihat seperti bug aplikasi yang serius.
+
+`next.config.ts` membaca `NEXT_DIST_DIR`; `scripts/build-verify.mjs`
+menyetelnya ke `.next-verify`. Kalau salah satu gagal diam-diam, ganti
+folder di **kedua** file itu.
+
 ---
 
 ## 4. Environment
@@ -323,6 +363,7 @@ npm run verify:assignments  # 70 assert: scoping, validasi, audit trail
 npm run verify:feedbacks    # 39 assert: laporan benar-benar tersimpan
 npm run verify:reports      # 35 assert: koreksi ikut mengubah total
 npm run verify:adminkpi     # 64 assert: role, divisi, bobot, hapus KPI
+npm run verify:hrkpi        # 90 assert: sampah, restore, cascade, bulk, copy
 ```
 
 Semuanya membersihkan data ujinya sendiri, jadi bisa dijalankan berulang
