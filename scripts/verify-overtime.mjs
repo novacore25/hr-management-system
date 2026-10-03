@@ -78,17 +78,40 @@ function check(label, cond, detail = "") {
 }
 
 const pad = (n) => String(n).padStart(2, "0");
-const today = new Date();
-const TODAY = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
-const BESOK = (() => {
+const fmt = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+
+/**
+ * Hari kerja yang PASTI bukan akhir pekan.
+ *
+ * Versi lama memakai `TODAY` langsung. Itu asumsi yang salah: begitu
+ * tanggal berganti ke Sabtu atau Minggu, `isWeekend()` mengembalikan
+ * true, plafon durasi berubah dari 4 jam ke 12 jam, dan EMPAT assert
+ * gagal sekaligus -- padahal kodenya benar. Terlihat seperti
+ * regresi padahal cuma jamnya beda.
+ *
+ * Test yang hanya lulus di hari tertentu sama buruknya dengan tidak
+ * ada test: ia melaporkan bug yang tidak ada dan menyembunyikan bug
+ * yang ada. Lihat AGENTS.md 2.1.
+ */
+function workdayAhead() {
   const d = new Date();
   d.setDate(d.getDate() + 1);
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-})();
+  while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1);
+  return d;
+}
+
+const today = new Date();
+const TODAY = fmt(today);
+const HARI_KERJA = fmt(workdayAhead());
+// KEMARIN tetap relatif ke HARI INI, bukan ke HARI_KERJA. Ia dipakai
+// untuk dua hal: "tanggal lampau" (cukup asal sudah lewat) dan
+// "rentang terbalik" (butuh from > to). Kalau diturunkan dari
+// HARI_KERJA, pada hari Sabtu hasilnya bisa jadi AFTERNING, dan
+// rentangnya tidak lagi terbalik.
 const KEMARIN = (() => {
   const d = new Date();
   d.setDate(d.getDate() - 1);
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  return fmt(d);
 })();
 
 /** Bersihkan semua pengajuan uji. */
@@ -105,7 +128,7 @@ async function createRequest(overrides = {}) {
   const r = await api("u-staff-001", "/api/overtime", {
     method: "POST",
     body: JSON.stringify({
-      overtimeDate: TODAY,
+      overtimeDate: HARI_KERJA,
       startTime: "18:00",
       endTime: "21:00",
       tasks: [{ name: "rekap" }],
@@ -470,7 +493,7 @@ console.log("\n=== 8. Otorisasi ===");
   const stafHapus = await api("u-staff-001", `/api/overtime?id=${id}`, { method: "DELETE" });
   check(`staf tidak boleh hapus permanen (${stafHapus.status})`, stafHapus.status === 403, `status ${stafHapus.status}`);
 
-  const stafListSemua = await api("u-staff-001", `/api/overtime?from=${TODAY}&to=${TODAY}`);
+  const stafListSemua = await api("u-staff-001", `/api/overtime?from=${HARI_KERJA}&to=${HARI_KERJA}`);
   check(`staf tidak boleh melihat semua pengajuan (${stafListSemua.status})`,
     stafListSemua.status === 403, `status ${stafListSemua.status}`);
 
@@ -479,12 +502,12 @@ console.log("\n=== 8. Otorisasi ===");
   check("idget-nya milik dia sendiri",
     (stafMilik.body?.requests ?? []).every((x) => x.userId === "u-staff-001"));
 
-  const hrList = await api("u-hr-001", `/api/overtime?from=${TODAY}&to=${TODAY}`);
+  const hrList = await api("u-hr-001", `/api/overtime?from=${HARI_KERJA}&to=${HARI_KERJA}`);
   check(`HR boleh melihat semua (${hrList.status})`, hrList.status === 200, `status ${hrList.status}`);
   check("mengembalikan pengaturan gaji dasar",
     Array.isArray(hrList.body?.settings));
 
-  const headList = await api("u-head-001", `/api/overtime?from=${TODAY}&to=${TODAY}`);
+  const headList = await api("u-head-001", `/api/overtime?from=${HARI_KERJA}&to=${HARI_KERJA}`);
   check(`Head tidak boleh melihat semua pengajuan (${headList.status})`,
     headList.status === 403, `status ${headList.status}`);
 }
