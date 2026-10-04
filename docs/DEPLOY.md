@@ -175,7 +175,8 @@ Kalau tidak ada container yang jalan, build-nya gagal. Build di VPS cuma
 ## 4. Migrasi database
 
 Semua file di `drizzle/` **idempotent** (`IF EXISTS` / `IF NOT EXISTS`),
-jadi aman dijalankan berulang kali.
+jadi aman dijalankan berulang kali — **kecuali `0015`**, yang TRUNCATE lalu
+INSERT dan hanya boleh jalan sekali. Lihat §4.6.
 
 ### ⚠️ Dua aturan yang pernah jadi masalah
 
@@ -185,7 +186,7 @@ jadi aman dijalankan berulang kali.
    tidak masuk daftar di bawah, dia tidak akan pernah dijalankan — dan
    gejalanya adalah "kolom itu seharusnya ada tapi tidak ada".
 
-### Status migrasi di VPS (per 2026-10-02, sudah diverifikasi)
+### Status migrasi di VPS (per 2026-10-03, sudah diverifikasi)
 
 ```
 0000_init                  26 tabel                       ✅
@@ -200,7 +201,34 @@ jadi aman dijalankan berulang kali.
 0011_kpis_brand            kpis.brand ada                ✅
 0012_feedbacks             4 kolom + 2 CHECK + NOT NULL  ✅
 0013_payroll_columns       2 kolom baru                 ✅
+0014_supabase_parity       37 kolom + 2 FK + 2 enum,    ✅
+                           constraint KPI salah dihapus
+0016_widen_achievement_    achievement_percentage       ✅
+  percentage               numeric(15,2)
+
+0015_data_migration        14854 baris Supabase masuk    ✅
+                           23 dari 23 tabel, jumlah baris
+                           cocok persis, 0 FK menggantung
 ```
+
+**Urutan wajib: `0016` baru `0015`.** `0016` mellebarkan
+`achievement_percentage`; tanpa itu `0015` gagal dengan "numeric field
+overflow".
+
+### Data asli sudah ada di produksi
+
+Sejak 2026-10-03, database produksi berisi data Supabase sungguhan:
+66 user, 2024 KPI, 2707 assignment, 4992 laporan harian, 3430 absensi,
+71 slip gaji. Ini bukan data uji.
+
+Schema `_staging` masih ada di database yang sama, berisi salinan mentah
+Supabase. Jangan dihapus sebelum data produksi diverifikasi ulang dari
+sisi pengguna — kalau perlu, itu satu-satunya salinan lokal yang tidak
+bergantung pada Supabase.
+
+Backup sebelum migrasi data ada di
+`/root/backups/before-data-migration-20261003-103431.sql.gz` (26 tabel,
+1936 baris — hanya berisi data bootstrap).
 
 **Tidak ada yang tertunda.** Kalau menambah migrasi baru, tambahkan
 juga ke daftar ini **dan** ke `AGENTS.md` §5 — registri di sini manual,
@@ -355,6 +383,112 @@ ssh vps "cat /usr/local/bin/novacore-verify | sh"    # verifikasi pasca-migrasi
 `novacore-verify` termasuk mencoba insert divisi duplikat di dalam
 transaksi yang di-rollback — satu-satunya cara membuktikan constraint
 benar-benar bekerja, bukan cuma tercatat di katalog.
+
+### 4.6 `0015_data_migration` - SUDAH DIJALANKAN, hanya boleh sekali
+
+Memindahkan 14854 baris Supabase ke tabel aplikasi. **Tidak idempotent**:
+ia `TRUNCATE` 23 tabel lalu `INSERT`. Menjalankannya dua kali akan
+memotong data yang sudah ada.
+
+Kalau perlu menjalankan ulang, kembalikan dari backup lebih dulu.
+
+#### Kenapa ada schema `_staging`
+
+Data Supabase diturunkan ke schema `_staging` dulu, dengan struktur Supabase
+apa adanya dan tanpa PK/FK/UNIQUE. Alasannya, transformasi ke tabel
+aplikasi jadi bisa diperiksa terpisah:
+
+1. `_staging` dibandingkan dengan Supabase lebih dulu: **23 dari 23 tabel
+   identik**, 14854 baris, dihitung dengan md5 dari seluruh baris yang
+   sudah diurutkan.
+2. Baru setelah itu data dipindahkan ke tabel tujuan dengan transformasi
+   eksplisit.
+
+Tanpa langkah pertama, kegagalan transformasi akan tersamar sebagai
+"data hilang".
+
+`pg_dump` **harus** dijalankan lewat container (`pg_dump 18.6`), bukan
+yang ada di host (`14.24`). `pg_dump` hanya bisa dump server yang
+versinya sama atau lebih baru, dan Supabase ada di PG 17.6.
+
+#### Verifikasi tiga lapis
+
+| Lapis | Cara | Yang dibuktikan |
+|---|---|---|
+| staging | `novacore-verify-staging` | staging identik dengan Supabase (dengan retry, karena resolver kadang gagal) |
+| dry run | `novacore-dryrun` | INSERT berhasil, jumlah baris cocok, lalu ROLLBACK |
+| pasca | `verify-production-data.sql` | 23 tabel cocok, agregat cocok, 0 FK menggantung |
+
+`novacore-dryrun` adalah yang paling berharga. Dua bug nyata tertangkap
+di sana dan tidak akan terlihat dari pemeriksaan manual:
+
+- `kpi_assignments.achievement_percentage` meluap `numeric(7,2)` —
+  casting akan **memotong** nilai 891707.64 diam-diam. Diperbaiki `0016`.
+- `payrolls.payroll_overtime_minutes` NULL pada 36 dari 71 baris
+  melanggar `NOT NULL`. Diperbaiki `COALESCE` dengan default aplikasi.
+
+#### Kesalahan yang sudah diperbaiki di migrasi data ini
+
+1. `pg_dump` menulis `DEFAULT extensions.uuid_generate_v4()`, dan schema
+   `extensions` itu milik Supabase. Enam tabel gagal dibuat. Default itu
+   dihapus dari DDL staging.
+2. Ekspektasi "staging harus nol constraint" itu **salah** untuk PG 17+.
+   Sejak PG 17, `NOT NULL` disimpan sebagai baris `pg_constraint`. Yang
+   benar-benar harus nol adalah PK/FK/UNIQUE.
+3. `md5` dari `COPY (SELECT * FROM t) TO STDOUT` **bergantung urutan**,
+   dan urutan fisik dua database berbeda. Dua tabel sempat terbaca
+   berbeda padahal isinya sama. Hash harus dihitung dari baris yang sudah
+   diurutkan.
+4. Resolver `1.1.1.1` gagal sekitar 35 persen. Query yang gagal dibaca
+   sebagai nilai kosong lalu dibandingkan dengan nilai benar, dan
+   hasilnya "data berbeda" padahal tidak. Semua query ke Supabase harus
+   punya percobaan ulang.
+5. `numeric` ke `integer` di PostgreSQL **membulatkan**, bukan menolak.
+   Karena itu semua kolom `numeric -> integer` diperiksa dulu: 9 kolom,
+   nol nilai berpecahan.
+6. Pemetaan kolom hanya membandingkan TIPE, bukan NULLABILITY. 32 kolom
+   nullable di Supabase tapi `NOT NULL` di aplikasi lolos dari
+   pemeriksaan itu.
+
+#### Selisih yang tersisa dan disengaja
+
+`numeric(15,2)` membulatkan nilai yang punya lebih dari 2 desimal:
+
+| Kolom | Baris terpengaruh | Selisih maksimal |
+|---|---|---|
+| `daily_reports.value` | 5 dari 4992 | 0.005 |
+| `kpi_assignments.achievement_percentage` | 27 dari 2707 | 0.005 |
+| `kpi_assignments.actual_total` | 2 dari 2707 | 0.005 |
+| `monthly_scores.achievement_percentage` | 31 dari 502 | 0.005 |
+
+Contoh: `2.875` menjadi `2.88`. Total 65 dari 14854 baris (0.44 persen).
+
+Ini **bukan** kehilangan data — tidak ada baris, kolom, atau relasi yang
+hilang. Precision 2 desimal memang yang dideklarasikan aplikasi untuk
+kolom uang dan persentase. Kalau ini tidak diterima, kolomnya harus
+diubah ke `numeric` tanpa scale, dan itu keputusan produk: angkanya
+bakal tampil dengan panjang berbeda dari yang biasa dilihat.
+
+#### Verifikasi (READ-ONLY, aman)
+
+```powershell
+ssh vps "cat /root/migrations/verify-production-data.sql | docker exec -i vlu8rdt1abda7g69vbiwsk4p psql -U postgres -d db_hr_system"
+ssh vps "cat /root/migrations/check-rounding.sql | docker exec -i vlu8rdt1abda7g69vbiwsk4p psql -U postgres -d db_hr_system"
+```
+
+Hasil saat ini: 23 dari 23 jumlah baris sama, `kpi_type` cocok dengan
+`kpis.type` di 2707 dari 2707 baris, semua UUID di `managed_departments`
+dikenal, dan nol baris menggantung di lima pemeriksaan foreign key.
+
+#### Nilai yang perlu diwaspadai (dari data Supabase, bukan bug migrasi)
+
+- 3 dari 2707 assignment punya `achievement_percentage` lebih dari
+  100000 persen, maksimum 891707.64. Semuanya karena `expected_total`
+  nol, dan `expected_total` nol terjadi karena `working_days_elapsed`
+  tidak pernah diisi (AGENTS.md §3.6).
+- Semua 2707 assignment punya `working_days_elapsed = 0`.
+- 36 dari 71 slip gaji punya `payroll_overtime_minutes` NULL di
+  Supabase; sekarang jadi 0 sesuai default aplikasi.
 
 ---
 

@@ -704,10 +704,60 @@ Urutan apply: `0000_init`, `0004_auth_constraints`, `0005_seed`,
 `0006_kpi_settings_weights`, `0007_users_religion`,
 `0008_letter_numbering`, `0009_users_employment`,
 `0010_unique_constraints`, `0011_kpis_brand`, `0012_feedbacks`,
-`0013_payroll_columns`.
+`0013_payroll_columns`, `0014_supabase_parity`,
+`0015_data_migration`, `0016_widen_achievement_percentage`.
 
-**Semua sudah terpasang di VPS per 2026-10-02 dan diverifikasi.** Daftar
+**Semua sudah terpasang di VPS per 2026-10-03 dan diverifikasi.** Daftar
 lengkap + cara menjalankan ada di `docs/DEPLOY.md` §4.
+
+### 5.1 `0015` DIJALANKAN SEKALI, dan itu bukan idempotent
+
+`0015_data_migration.sql` memindahkan data Supabase ke tabel aplikasi.
+Ia **TRUNCATE lalu INSERT**, jadi tidak bisa dijalankan dua kali tanpa
+memotong data yang sudah ada. Berbeda dengan semua migrasi lain di
+folder ini yang idempotent.
+
+Kalau perlu menjalankan ulang, kembalikan dulu dari backup:
+
+```
+/root/backups/before-data-migration-<timestamp>.sql.gz
+```
+
+Yang perlu dijaga di migrasi ini:
+
+- Sumbernya schema `_staging`, bukan Supabase langsung. `_staging`
+  sudah dibuktikan identik dengan Supabase (23 dari 23 tabel, 14854
+  baris, dibandingkan dengan md5 dari seluruh baris yang sudah
+  diurutkan) sebelum 0015 dijalankan.
+- SQL-nya **dihasilkan** oleh `novacore-gen-migration` dari katalog
+  PostgreSQL, bukan ditulis tangan. Jangan diedit manual: daftar kolom
+  dan daftar nilai dibuat dari satu query, jadi tidak mungkin beda
+  panjang. Setelah mengubah skema, generate ulang.
+- Dua kolom dihitung, bukan disalin: `users.managed_departments`
+  (nama divisi -> UUID) dan `kpi_assignments.kpi_type` (dari
+  `kpis.type`). Keduanya punya penjelasan di kepala berkas.
+- 32 kolom dibungkus `COALESCE` dengan default milik aplikasi,
+  karena nullable di Supabase tapi `NOT NULL` di aplikasi. Hanya satu
+  yang benar-benar punya baris NULL: `payrolls.payroll_overtime_minutes`,
+  36 dari 71 baris.
+- **Jalankan dry run lebih dulu.** `novacore-dryrun` menjalankan 0015
+  lalu `ROLLBACK`, sambil membandingkan jumlah baris di dalam transaksi
+  yang sama. Dua bug nyata tertangkap begitu:
+  `kpi_assignments.achievement_percentage` meluap `numeric(7,2)`, dan
+  `payrolls.payroll_overtime_minutes` NULL melanggar `NOT NULL`.
+  Keduanya akan lolos dari pemeriksaan manual dan memotong data.
+
+### 5.2 `0016` harus dijalankan SEBELUM `0015`
+
+`0016` memperlebar `kpi_assignments.achievement_percentage` ke
+`numeric(15,2)`. Kalau `0015` jalan lebih dulu, INSERT gagal dengan
+"numeric field overflow" — bukan karena datanya salah, tapi karena
+kolomnya lebih sempit dari data.
+
+Data itu nyata: 3 dari 2707 assignment punya `expected_total = 0`,
+jadi pace rate meledak sampai 891707.64%. Akar masalahnya
+`working_days_elapsed` tidak pernah diisi (§3.6), dan itu **tidak**
+diperbaiki oleh 0016 — angka besarnya tetap sampai bug itu diperbaiki.
 
 ⚠️ Daftar ini **manual**, dan `0009` pernah terlewat karena tidak masuk
 sini — gejalanya "kolom itu seharusnya ada tapi tidak ada". Kalau menambah

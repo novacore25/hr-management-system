@@ -34,7 +34,7 @@ bagiannya sendiri; tidak ada yang dihapus.
 | 4c-i | Overtime — 4 halaman/komponen | ✅ |
 | 5 | Payroll — 3 halaman | ✅ |
 | 4d | Cloudflare R2 (foto bukti lembur) | ⬜ |
-| 6 | Migrasi data dari Supabase | ⬜ |
+| 6 | Migrasi data dari Supabase | ✅ |
 
 **Bug per fase:** cari `### Fase 4c-f` dst. **Katalog pola berulang:**
 lihat bagian "Pola yang terulang". **Status database produksi:**
@@ -44,16 +44,40 @@ lihat bagian "Produksi".
 
 ## Ringkasan
 
-Migrasi Supabase → VPS: **lapisan kode selesai**, data belum.
+Migrasi Supabase → VPS: **kode dan data sudah pindah**. Per 2026-10-03,
+14854 baris data Supabase sudah ada di database produksi.
 
-Semua 60 halaman kini membaca dan menulis lewat Route Handler + DAL di
-server. Yang tersisa bukan pemindahan kode, melainkan dua hal yang
-sengaja ditunda: **upload foto** (butuh Cloudflare R2, bukan Supabase
-Storage) dan **pemindahan data asli** (Fase 6).
-
-Allowlist stub di `scripts/verify-no-stub.ts` sengaja dibiarkan ada tapi
-**kosong**, dan `verify:stub` sekarang **gagal** kalau ada yang
+Semua 60 halaman membaca dan menulis lewat Route Handler + DAL di
+server. Allowlist stub di `scripts/verify-no-stub.ts` sengaja dibiarkan
+ada tapi **kosong**, dan `verify:stub` sekarang **gagal** kalau ada yang
 mengisinya.
+
+Yang tersisa tinggal **upload foto** (Fase 4d, butuh Cloudflare R2),
+dan pekerjaan **fitur** yang tertunda: persetujuan cuti dua lapis,
+GPS, multi-office, penghapusan plafon lembur, dan penyembunyian KPI.
+
+### Bukti bahwa data benar-benar pindah
+
+| Pemeriksaan | Hasil |
+|---|---|
+| Schema staging identik dengan Supabase | 23 dari 23 tabel, 14854 baris, md5 baris terurut |
+| Dry run migrasi data | 23 dari 23 INSERT, jumlah baris cocok, lalu ROLLBACK |
+| Jumlah baris di produksi | 23 dari 23 sama dengan staging |
+| `kpi_assignments.kpi_type` | 2707 dari 2707 sama dengan `kpis.type` |
+| `users.managed_departments` | semua UUID dikenal, urutan terjaga |
+| Foreign key | 0 baris menggantung di 5 pemeriksaan |
+| Aplikasi | `/api/health` ok, `db: connected`, 7 endpoint terproteksi 401 |
+
+### Dua hal yang perlu diputuskan
+
+1. **Pembulatan 0,005 pada 65 baris.** `numeric(15,2)` membulatkan nilai
+   yang punya lebih dari 2 desimal — `2.875` menjadi `2.88`. Tidak ada
+   baris, kolom, atau relasi yang hilang; ini soal presisi. Rinciannya di
+   `docs/DEPLOY.md` §4.6.
+2. **`/etc/resolv.conf` masih menunjuk `1.1.1.1`**, yang gagal sekitar 35
+   persen dari VPS ini. Tidak memengaruhi pengguna (browser mereka
+   pakai resolver sendiri), tapi sempat membuat verifikasi salah dibaca
+   dua kali. Belum diubah karena menyangkut seluruh mesin ini.
 
 ---
 

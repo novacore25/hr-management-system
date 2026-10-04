@@ -401,9 +401,15 @@ export const kpiAssignments = pgTable(
      *
      * UI harus menampilkan COMPLETION = actual_total / monthly_target * 100
      * (dihitung client-side), bukan kolom ini.
+     *
+     * Precision 15, bukan 7. Karena expectedTotal bisa 0 (workingDaysElapsed
+     * tidak pernah diisi, lihat AGENTS.md §3.6), pace rate meledak. Di data
+     * nyata ada 3 baris sebesar 891707.64% -- numeric(7,2) hanya muat sampai
+     * 99999.99. Mempersempit lagi akan memotong angka itu saat casting, dan
+     * pemotongan diam-diam adalah kehilangan data.
      */
     achievementPercentage: numeric("achievement_percentage", {
-      precision: 7,
+      precision: 15,
       scale: 2,
     })
       .notNull()
