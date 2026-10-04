@@ -121,6 +121,24 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
 # `curl` sebelumnya diunduh lewat `apk add` hanya untuk baris ini.
 # BusyBox sudah menyertakan wget, jadi health check tidak butuh
 # jaringan luar sama sekali -- hanya localhost.
-CMD wget -q -O - http://localhost:3000/api/health > /dev/null || exit 1
+# PENTING: 127.0.0.1, BUKAN localhost.
+#
+# Di Alpine, `getent localhost` mengembalikan ::1 -- IPv6 -- lebih dulu:
+#
+#   ::1               localhost
+#   127.0.0.1         localhost
+#
+# Next.js hanya mendengarkan di 0.0.0.0 (IPv4), jadi wget yang memakai
+# `localhost` mencoba IPv6 dan mendapat "Connection refused". Diuji
+# dengan server yang benar-benar mendengarkan di 0.0.0.0:3000:
+#
+#   localhost  : 0 berhasil, 10 gagal
+#   127.0.0.1  : 10 berhasil, 0 gagal
+#
+# Gejalanya sangat menyesatkan, karena aplikasi benar-benar hidup:
+# log build menunjukkan "Ready in 257ms", lalu health check gagal
+# dengan Connection refused, Coolify menyebut container tidak sehat,
+# dan seluruh deployment dibatalkan -- padahal kodenya jalan sempurna.
+CMD wget -q -O - http://127.0.0.1:3000/api/health > /dev/null || exit 1
 
 CMD ["node", "server.js"]

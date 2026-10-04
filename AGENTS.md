@@ -636,6 +636,49 @@ melaporkan constraint hilang padahal ada.
 
 ---
 
+### 3.20 `localhost` di Alpine berarti IPv6, dan health check akan mati
+
+Health check di `Dockerfile` memakai `127.0.0.1`, bukan `localhost`.
+Itu bukan pilihan gaya. Di Alpine:
+
+```
+$ getent hosts localhost
+::1               localhost  localhost        <-- lebih dulu
+127.0.0.1         localhost  localhost
+```
+
+Next.js hanya mendengarkan di `0.0.0.0`, jadi `wget http://localhost:3000`
+mencoba IPv6 dan mendapat `Connection refused`. Diuji dengan server yang
+benar-benar mendengarkan di `0.0.0.0:3000`:
+
+| Alamat | Berhasil |
+|---|---|
+| `localhost` | **0 dari 10** |
+| `127.0.0.1` | **10 dari 10** |
+
+Yang membuat ini berbahaya: gejalanya tidak menunjukkan aplikasi bermasalah.
+Log build menampilkan `Ready in 257ms`, lalu health check gagal dengan
+`Connection refused`, Coolify menyebut container tidak sehat, dan seluruh
+deployment dibatalkan. Build-nya sendiri **berhasil** -- `Rolling update
+completed` dan `Removing old containers` ada di log.
+
+Jadi menghapus `apk add` dari tahap runtime sudah berhasil, lalu saya
+merusaknya di langkah terakhir: mengganti `curl` ke `wget` tanpa
+mengujinya lebih dulu di Alpine.
+
+**Aturan: jangan mengganti perintah di `Dockerfile` tanpa menjalankannya di
+image yang akan dipakai.**
+
+```sh
+docker run --rm node:22-alpine sh -c '...'
+```
+
+Untuk health check, uji **dua arah**: harus LOLOS saat server hidup, dan
+harus GAGAL saat server mati. Check yang selalu LOLOS sama uselessnya
+dengan check yang tidak ada.
+
+---
+
 ## 4. Environment
 
 | | Lokal (dev) | VPS (produksi) |
