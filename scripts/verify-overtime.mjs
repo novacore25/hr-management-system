@@ -404,7 +404,9 @@ console.log("\n=== 5b. Override gaji wajib disertai alasan ===");
   check(`override dengan alasan diterima (${denganAlasan.status})`,
     denganAlasan.status === 200, JSON.stringify(denganAlasan.envelope).slice(0, 150));
   check("gaji mengikuti override",
-    psql(`SELECT total_overtime_pay FROM overtime_requests WHERE id='${id}';`) === "50000.00");
+    // Dibandingkan sebagai angka, bukan teks -- lihat catatan di
+    // verify-daily-reports.mjs: bentuk teks numeric mengikuti scale kolom.
+    Number(psql(`SELECT total_overtime_pay FROM overtime_requests WHERE id='${id}';`)) === 50000);
 
   const bd = psql(`SELECT calculation_breakdown::text FROM overtime_requests WHERE id='${id}';`);
   check("override tercatat di breakdown (isOverride true)",

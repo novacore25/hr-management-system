@@ -390,7 +390,12 @@ export const kpiAssignments = pgTable(
       .notNull()
       .default("0"),
 
-    actualTotal: numeric("actual_total", { precision: 15, scale: 2 })
+    // numeric(20,6), bukan numeric(15,2). Diperlebar di 0017.
+    // Data sebenarnya mencapai 2290286108 -- 10 digit sebelum titik
+    // dengan 4 desimal -- jadi numeric(15,2) membulatkan, dan
+    // numeric(15,6) gagal karena hanya muat 9 digit sebelum titik.
+    // Angkanya diukur dari data, bukan dikira-kira.
+    actualTotal: numeric("actual_total", { precision: 20, scale: 6 })
       .notNull()
       .default("0"),
 
@@ -494,7 +499,10 @@ export const dailyReports = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     date: date("date").notNull(),
-    value: numeric("value", { precision: 15, scale: 2 }).notNull().default("0"),
+    // numeric(20,6), bukan numeric(15,2). Diperlebar di 0017.
+    // Nilai seperti 0.9167 dan 2.875 -- hasil rata-rata yang
+    // disengaja -- ikut terpotong jadi 0.92 dan 2.88 saat migrasi.
+    value: numeric("value", { precision: 20, scale: 6 }).notNull().default("0"),
     notes: text("notes"),
     isHolidayRollover: boolean("is_holiday_rollover").notNull().default(false),
     originalDate: date("original_date"),

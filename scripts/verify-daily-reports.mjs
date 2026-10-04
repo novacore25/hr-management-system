@@ -550,8 +550,14 @@ console.log("\n=== 8. POST: tanggal & nilai divalidasi di server ===");
     body: JSON.stringify({ assignmentId: id, date: `${PREV_PREFIX}-08`, value: 9 }),
   });
   check(`tanggal & nilai valid diterima (${ok.status})`, ok.status === 200, JSON.stringify(ok.envelope).slice(0, 120));
+  // Dibandingkan sebagai ANGKA, bukan sebagai teks.
+  //
+  // Bentuk teks sebuah numeric ditentukan oleh scale kolomnya, jadi
+  // membandingkan dengan "9.00" akan gagal begitu scale-nya berubah --
+  // dan test itu akan menyimpulkan datanya salah padahal yang tersimpan
+  // benar. 0017 Thoroughly zmienia scale daily_reports.value ke 6.
   check("benar-benar tersimpan",
-    psql(`SELECT value FROM daily_reports WHERE assignment_id='${id}';`) === "9.00");
+    Number(psql(`SELECT value FROM daily_reports WHERE assignment_id='${id}';`)) === 9);
 
   psql(`
     DELETE FROM daily_reports WHERE assignment_id='${id}';

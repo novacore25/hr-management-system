@@ -705,7 +705,8 @@ Urutan apply: `0000_init`, `0004_auth_constraints`, `0005_seed`,
 `0008_letter_numbering`, `0009_users_employment`,
 `0010_unique_constraints`, `0011_kpis_brand`, `0012_feedbacks`,
 `0013_payroll_columns`, `0014_supabase_parity`,
-`0015_data_migration`, `0016_widen_achievement_percentage`.
+`0015_data_migration`, `0016_widen_achievement_percentage`,
+`0017_restore_exact_decimals`.
 
 **Semua sudah terpasang di VPS per 2026-10-03 dan diverifikasi.** Daftar
 lengkap + cara menjalankan ada di `docs/DEPLOY.md` §4.
@@ -747,6 +748,36 @@ Yang perlu dijaga di migrasi ini:
   `payrolls.payroll_overtime_minutes` NULL melanggar `NOT NULL`.
   Keduanya akan lolos dari pemeriksaan manual dan memotong data.
 
+### 5.3 `0017` memulihkan 7 nilai yang sempat dibulatkan
+
+`0017` melebarkan `daily_reports.value` dan
+`kpi_assignments.actual_total` ke `numeric(20,6)`, lalu mengembalikan
+nilai aslinya dari schema `_staging`.
+
+Empat pelajaran dari migrasi ini yang perlu diingat:
+
+1. **Presisi di `numeric(p,s)` itu p DAN s.**numeric(15,6) hanya
+   muat 9 digit sebelum titik, padahal datanya 10 digit
+   (2290286108). Versi pertama 0017 memakai numeric(15,6) dan gagal
+   dengan "numeric field overflow". Angka harus diukur dari data:
+   `digit_sebelum_maks`, `desimal_maks`, lalu dijumlahkan.
+
+2. **Penjaga `numeric_precision < 15` salah.**numeric(15,2) punya
+   precision 15, jadi penjaga itu selalu bilang "sudah cukup lebar"
+   dan kolomnya tidak pernah dilebarkan. Yang menentukan bulat atau
+   tidak adalah `numeric_scale`.
+
+3. **Counter yang dihitung setelah UPDATE selalu bernilai 0.**
+   "N baris dipulihkan" terlihat seperti "tidak ada yang dipulihkan",
+   padahal pemulihannya berhasil. Dihitung dari CTE yang sama dengan
+   UPDATE-nya.
+
+4. **Tidak semua pembulatan adalah kehilangan data.** Dari 65 baris,
+   hanya 7 yang punya desimal sungguhan (maks 4). Sisanya 17 desimal,
+   seperti `0.23866666666666667` -- itu sisa pembagian floating point,
+   bukan informasi. Memulihkannya berarti menyimpan kelalaian. Baris
+   itu sengaja dibiarkan di 2 desimal, dan alasannya ditulis di
+   migration.
 ### 5.2 `0016` harus dijalankan SEBELUM `0015`
 
 `0016` memperlebar `kpi_assignments.achievement_percentage` ke

@@ -61,11 +61,48 @@ ENV NODE_ENV=production \
     PORT=3000 \
     HOSTNAME=0.0.0.0
 
-RUN apk add --no-cache tzdata curl && \
-    cp /usr/share/zoneinfo/Asia/Jakarta /etc/localtime && \
-    echo "Asia/Jakarta" > /etc/timezone && \
-    addgroup --system --gid 1001 nodejs && \
+# TAHAP INI SENGAJA TIDAK MEMAKAI `apk add`.
+#
+# Sebelumnya: `apk add --no-cache tzdata curl`. Baris itu mengunduh
+# paket dari internet, jadi satu gangguan jaringan sesaat langsung
+# menggagalkan seluruh deployment. Enam kali berturut-turut terjadi
+# pada 3-4 Oktober 2026:
+#
+#   WARNING: fetching https://dl-cdn.alpinelinux.org/... DNS: transient error
+#   ERROR: unable to select packages: curl (no such package)
+#
+# Pesan "no such package" itu menyesatkan: curl dan tzdata pasti ada
+# di Alpine. Yang tidak ada adalah salinan indeks paket, jadi Alpine
+# menyimpulkan paketnya tidak ada.
+#
+# Mengganti resolver hanya memindahkan masalahnya ke tempat lain. Selama
+# build masih perlu mengunduh sesuatu, build masih bisa gagal karena
+# jaringan. Yang perlu dihilangkan adalah kebutuhannya:
+#
+#   addgroup / adduser   BusyBox, sudah ada di Alpine
+#   zona waktu           ENV TZ di atas sudah cukup; lihat catatan di bawah
+#   health check         BusyBox `wget` selalu ada, tidak perlu diunduh
+#
+# Kalau nanti memang butuh paket tambahan, taruh di tahap builder:
+# cache-nya sudah terpakai dan tidak terputus oleh perubahan argumen
+# Coolify. Tahap runtime dibangun ulang tiap kali ARG berubah, jadi tidak
+# pernah di-cache -- itulah sebabnya tahap runtime yang gagal, bukan builder.
+RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nextjs
+
+# Zona waktu.
+#
+# `ENV TZ=Asia/Jakarta` di atas sudah membuat Node.js memakai zona itu:
+# Node 22 membawa ICU penuh dan membaca TZ dari environment tanpa
+# bergantung pada berkas /usr/share/zoneinfo.
+#
+# /etc/localtime tetap dipasang kalau ada, karena `date` dari BusyBox dan
+# beberapa pustaka native membacanya langsung. Dipakai opsional supaya
+# build tidak gagal hanya karena berkasnya tidak ada.
+RUN if [ -f /usr/share/zoneinfo/Asia/Jakarta ]; then \
+      cp /usr/share/zoneinfo/Asia/Jakarta /etc/localtime && \
+      echo "Asia/Jakarta" > /etc/timezone; \
+    fi
 
 # node_modules sudah di-prune oleh Next.js standalone output
 COPY --from=builder /app/.next/standalone ./
@@ -79,6 +116,11 @@ USER nextjs
 EXPOSE 3000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-  CMD curl -fsS http://localhost:3000/api/health || exit 1
+  # BusyBox `wget`, bukan `curl`.
+#
+# `curl` sebelumnya diunduh lewat `apk add` hanya untuk baris ini.
+# BusyBox sudah menyertakan wget, jadi health check tidak butuh
+# jaringan luar sama sekali -- hanya localhost.
+CMD wget -q -O - http://localhost:3000/api/health > /dev/null || exit 1
 
 CMD ["node", "server.js"]
