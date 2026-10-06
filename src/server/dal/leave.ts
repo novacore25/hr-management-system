@@ -211,7 +211,7 @@ export type CreateLeaveInput = {
 
 export type CreateLeaveResult =
   | { ok: true; request: LeaveRequest }
-  | { ok: false; reason: string };
+  | { ok: false; reason: string; status?: 400 | 403 };
 
 export async function createLeaveRequest(
   input: CreateLeaveInput,
@@ -486,10 +486,70 @@ export type LeaveApprover = {
  * pengajuan akan berhenti di approved_executive. Halaman approvals
  * menampilkan peringatan kalau hal itu terjadi.
  */
-const STAGE_ROLE: Record<LeaveStage, string> = {
-  executive: "executive",
-  hr: "hr",
-};
+/**
+ * Apakah sebuah role berhak memutuskan sebuah tahap.
+ *
+ * Mengembalikan `{ boleh, cadangan, alasan? }`:
+ *
+ * - `boleh`   : boleh memutuskan tahap ini
+ * - `cadangan` : boleh, TETAPI lewat jalur cadangan, bukan hak biasanya
+ * - `alasan`   : kalau `boleh` false, pesan untuk ditampilkan ke user
+ *
+ * Tahap 1: hanya `kpi_role='executive'`.
+ *
+ * Tahap 2: `kpi_role='hr'`. DAN sebagai cadangan, `kpi_role='executive'`
+ * -- tapi HANYA kalau tidak ada HR aktif.
+ *
+ * Kenapa cadangan itu perlu: hanya 2 user punya `kpi_role='hr'`, dan di
+ * data terbaru salah satunya berstatus `deleted`. Kalau keduanya tidak
+ * aktif, semua pengajuan berhenti di `approved_executive` tanpa ada yang
+ * bisa menyelesaikannya. Menunggu HR bisa lama, sementara approve final
+ * memang hanya satu klik.
+ *
+ * Kenapa harus BERSYARAT dan bukan "executive boleh selalu": kalau
+ * begitu, tahap 2 tidak lagi menjadi keputusan HR sama sekali, dan 4
+ * executive bisa menutup pengajuan tanpa pernah HR involvement. Aturan
+ * dilonggarkan hanya pada saat aturan itu tidak bisa ditegakkan.
+ */
+async function hakPutuskan(
+  stage: LeaveStage,
+  kpiRole: string,
+): Promise<{ boleh: boolean; cadangan: boolean; alasan?: string }> {
+  if (stage === "executive") {
+    return kpiRole === "executive"
+      ? { boleh: true, cadangan: false }
+      : {
+          boleh: false,
+          cadangan: false,
+          alasan: `Tahap Executive hanya untuk role kpi_role='executive'. Role Anda: ${kpiRole}`,
+        };
+  }
+
+  // Tahap 2.
+  if (kpiRole === "hr") return { boleh: true, cadangan: false };
+
+  const hr = await hrRoleAvailability();
+
+  if (kpiRole === "executive" && hr.count === 0) {
+    return {
+      boleh: true,
+      cadangan: true,
+      alasan:
+        "Executive menutup tahap HR sebagai cadangan karena tidak ada HR aktif.",
+    };
+  }
+
+  const catatan =
+    kpiRole === "executive"
+      ? ` Executive baru boleh menutup tahap HR kalau tidak ada HR aktif -- saat ini masih ada ${hr.count}.`
+      : "";
+
+  return {
+    boleh: false,
+    cadangan: false,
+    alasan: `Tahap HR hanya untuk role kpi_role='hr'. Role Anda: ${kpiRole}.${catatan}`,
+  };
+}
 
 /**
  * Apakah ada HR aktif yang bisa menyetujui tahap 2?
@@ -561,17 +621,27 @@ export async function decideLeaveStage(
     }
   }
 
-  // ── Role pemohon ────────────────────────────────────────────
+  // Hak menentukan.
   //
   // Persetujuan sendiri diizinkan, asalkan role-nya sesuai -- sesuai
   // keputusan pemilik sistem. Yang dilarang adalah menyetujui di tahap
   // yang bukan haknya.
-  const butuh = STAGE_ROLE[stage];
-  if (approver.kpiRole !== butuh) {
-    return {
-      ok: false,
-      reason: `Tahap ${STAGE_LABEL[stage]} hanya untuk role kpi_role='${butuh}'. Role Anda: ${approver.kpiRole}`,
-    };
+  const hak = await hakPutuskan(stage, approver.kpiRole);
+  if (!hak.boleh) {
+    return { ok: false, status: 403, reason: hak.alasan! };
+  }
+
+  // Tahap 2 ditutup executive sebagai cadangan. Dicatat supaya jejaknya
+  // terlihat di riwayat dan bukan hilang tanpa tanda. Tabel pengajuan
+  // tidak punya kolom "cadangan", jadi minimal pesannya menjelaskan
+  // kenapa ini boleh terjadi.
+  if (hak.cadangan) {
+    await writeLog({
+      actorId: approver.name,
+      action: "leave_approved_hr_by_executive_fallback",
+      targetUserId: req.userId,
+      details: `${approver.name} menutup tahap HR sebagai cadangan: tidak ada HR aktif`,
+    });
   }
 
   // ── TOLAK ───────────────────────────────────────────────────

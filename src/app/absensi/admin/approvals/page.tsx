@@ -542,9 +542,14 @@ const fetchOvertime = useCallback(async () => {
   // HR akan melihat pengajuan executive, lalu ditolak server dengan
   // 400. Tombolnya harus disembunyikan, bukan hanya ditolak.
   const kpiRole = user?.kpiRole ?? null;
-  const tahapSaya = kpiRole === "executive" ? "executive" : kpiRole === "hr" ? "hr" : null;
-
-  const bisaPutuskan = (tahap: "executive" | "hr") => tahapSaya === tahap;
+  // Jalur cadangan: executive boleh menutup tahap akhir HANYA kalau
+  // tidak ada HR aktif. hrAvailable datang dari server
+  // (hrRoleAvailability), jadi ini tidak bisa stale -- kalau ada HR yang
+  // baru diaktifkan, tombolnya langsung hilang.
+  const bisaPutuskan = (tahap: "executive" | "hr") => {
+    if (tahap === "executive") return kpiRole === "executive";
+    return kpiRole === "hr" || (kpiRole === "executive" && !hrAvailable);
+  };
 
   const groupedWaitingHr = waitingHrReqs.reduce((acc, req) => {
     const dept = req.departmentName || "Umum";
@@ -737,12 +742,14 @@ const fetchOvertime = useCallback(async () => {
                   <AlertCircle size={18} className="text-red-500 shrink-0 mt-0.5" />
                   <div>
                     <p className="text-xs font-black text-red-700 dark:text-red-400 uppercase tracking-wide">
-                      Tidak ada HR aktif yang bisa menyetujui tahap akhir
+                      Tidak ada HR aktif -- mode cadangan
                     </p>
                     <p className="text-[11px] text-red-600 dark:text-red-300 mt-1 leading-relaxed">
-                      Tahap persetujuan ini butuh user dengan kpi_role=&apos;hr&apos;. Pengajuan di
-                      bawah ini akan tertahan sampai ada HR yang bisa menyetujui --
-                      executive tidak bisa menyelesaikannya, karena tahapnya bukan haknya.
+                      Tidak ada user dengan kpi_role=&apos;hr&apos; yang aktif, jadi pengajuan di
+                      bawah akan tertahan tanpa ada yang menutupnya. Executive boleh menutup
+                      tahap akhir selama kondisi ini berjalan, dan setiap pentupan seperti
+                      itu tercatat di log sebagai cadangan. Aktifkan kembali HR-nya untuk
+                      mengembalikan aturan normal.
                     </p>
                   </div>
                 </div>

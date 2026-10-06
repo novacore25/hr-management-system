@@ -81,7 +81,7 @@ GPS, multi-office, penghapusan plafon lembur, dan penyembunyian KPI.
 
 ---
 
-### Persetujuan cuti 2 tahap -- SUDAH, dibuktikan 70 assert
+### Persetujuan cuti 2 tahap -- SUDAH, dibuktikan 84 assert
 
 Alur: `pending` -> executive -> `approved_executive` -> HR -> `approved`.
 
@@ -119,17 +119,59 @@ Yang diperiksa test, termasuk yang harus DITOLAK:
 - Nama dan waktu persetujuan ikut terkirim ke klien
 - Halaman approvals benar-benar mengembalikan HTML untuk executive,
   HR, dan head -- tanpa teks error server
+- Jalur cadangan berbalik dua arah (lihat di bawah)
 
-Dua perbedaan sengaja antara kode 403 dan 400:
+### Jalur cadangan: executive menutup tahap akhir saat tidak ada HR
+
+Hanya **Marcella Dian Mutiara** yang aktif dengan `kpi_role='hr'`; yang
+satu lagi berstatus `deleted`. Kalau keduanya tidak aktif, semua
+pengajuan akan berhenti di `approved_executive`.
+
+**Keputusan pemilik sistem:** executive boleh menutup tahap akhir
+**hanya selama tidak ada HR aktif**. Bukan executive boleh selalu --
+kalau begitu, tahap 2 tidak lagi menjadi keputusan HR sama sekali, dan
+4 executive bisa menutup pengajuan tanpa pernah HR involvement. Aturan
+dilepaskan hanya pada saat aturan itu tidak bisa ditegakkan.
+
+Halaman approvals menampilkan peringatan **mode cadangan** selama
+kondisi itu berjalan, diambil dari `hrRoleAvailability()` di server.
+Setiap pentupan cadangan juga ditulis ke `absensi_logs` dengan action
+`leave_approved_hr_by_executive_fallback`, supaya jejaknya terlihat
+dan bukan hilang tanpa tanda.
+
+Yang diuji (section 13, 12 assert):
+
+| Keadaan | Executive di tahap 2 |
+|---|---|
+| HR aktif | **403** |
+| HR tidak aktif | **200**, kuota dipotong, tercatat sebagai cadangan |
+| HR aktif lagi | **403** lagi |
+
+Test mengubah `absensi_status` HR sementara dan memulihkannya di
+`finally`, jadi satu assert yang gagal tidak meninggalkan database
+dalam kondisi yang salah untuk run berikutnya.
+
+### Tahap diturunkan dari STATUS, bukan dari ROLE
+
+Ini perubahan struktur yang wajib diketahui. Sebelumnya route memetakan
+role ke tahap (`executive` → tahap 1, `hr` → tahap 2). Pola itu
+**tidak bisa** mendukung jalur cadangan, karena executive akan selalu
+diarahkan ke tahap 1 dan tidak pernah sampai ke tahap 2.
+
+Sekarang tahapnya dari `nextStageFor(req.status)` -- status pengajuan
+adalah satu-satunya sumber kebenaran. Role menentukan boleh atau tidak,
+dan itu diperiksa DAL lewat `hakPutuskan()`.
+
+Konsekuensinya, batas 403 dan 400 juga bergeser:
 
 | Kasus | Kode | Alasannya |
 |---|---|---|
-| Role tidak punya tahap sama sekali (`head`, `tim`) | **403** | permission tidak ada, tahapnya tidak diperiksa |
-| Role punya tahap, tapi pengajuannya belum di tahapnya | **400** | penolakan *state*: HR memang berhak menyetujui, tapi pengajuan ini belum di gilirannya |
+| Role tidak berhak di tahap ini (mis. HR di tahap 1, atau executive di tahap 2 saat HR masih ada) | **403** | permission tidak ada |
+| Pengajuan sudah tidak menunggu apa pun (`approved`, `rejected`, `cancelled`) | **400** | penolakan state |
 
-Memakai 403 untuk kasus kedua justru lebih tidak informatif: pesannya
-menyiratkan "Anda tidak berhak", padahal yang sebenarnya adalah
-"menunggu executive".
+Versi lama memberi 400 untuk keduanya, dan pesannya menyiratkan
+"Anda tidak berhak" padahal yang sebenarnya "menunggu executive" --
+petunjuk yang mengarah ke masalah yang salah.
 
 ### Sisi UI: gating tombol per tahap
 
@@ -165,12 +207,14 @@ pekerjaan ini. Kalau dibiarkan, setiap penambahan kolom di masa depan
 akan tercatat sebagai "typecheck gagal" -- persis seperti yang terjadi
 pada `rowToLeaveRequest`.
 
-**RISIKO YANG HARUS Anda tahu:** hanya `Marcella Dian Mutiara` yang
-aktif dengan `kpi_role='hr'`; yang satu lagi berstatus `deleted`.
-Kalau dia tidak aktif atau sedang cuti, semua pengajuan berhenti di
-`approved_executive`. Halaman approvals menampilkan peringatan
-kalau tidak ada HR aktif -- diambil dari `hrRoleAvailability()`, bukan
-ditulis manual.
+**RISIKO YANG MASIH ADA:** hanya `Marcella Dian Mutiara` yang aktif
+dengan `kpi_role='hr'`. Jalur cadangan sudah menutup risiko "semua
+pengajuan menumpuk selamanya" -- executive bisa menutup tahap akhir
+selama tidak ada HR aktif. Yang tersisa adalah risiko yang lebih kecil:
+selama dia aktif, **tidak ada substitute** -- kalau dia cuti, semua
+pengajuan masuk mode cadangan dan executive jadi penyetuju akhir. Itu
+bukan macet, tapi berbeda dengan aturan normal, dan halaman approvals
+menampilkan peringatan selama mode itu berjalan.
 
 Persetujuan sendiri diizinkan, asalkan role-nya sesuai (keputusan
 pemilik sistem). Yang dilarang adalah menyetujui di tahap yang bukan
@@ -455,7 +499,7 @@ halaman itu, tapi dari endpoint yang mereka panggil):
 
 ## Verifikasi
 
-12 skrip, **689 assert**. Semuanya membaca isi respons, isi
+12 skrip, **750 assert**. Semuanya membaca isi respons, isi
 database, atau isi file — bukan cuma status code.
 
 ```powershell
@@ -467,13 +511,13 @@ npm run verify:reports      # 65  koreksi, kepemilikan, tanggal
 npm run verify:adminkpi     # 64  role, divisi, bobot, hapus KPI
 npm run verify:hrkpi        # 123 sampah, restore, cascade, bulk, copy, form
 npm run verify:overtime     # 76  tahap lembur, transisi, gaji di server
-npm run verify:leave2layer   # 70  persetujuan 2 tahap, kuota, penolakan, halaman
+npm run verify:leave2layer   # 84  2 tahap, kuota, penolakan, jalur cadangan, halaman
 npm run verify:payroll      # 84  otorisasi, angka negatif, slip terkunci
 npm run verify:stubguard    # 10  guard stub-nya benar-benar gagal
 npm run verify:docs        # 79  dokumentasi + skrip vps tidak berbohong
 ```
 
-Total **736 assert**, 12 skrip.
+Total **750 assert**, 12 skrip.
 
 Semuanya membersihkan data ujinya sendiri dan bisa dijalankan berulang
 kali.
@@ -491,6 +535,16 @@ per berkas. Tambah satu skrip VPS = tambah satu assert. Jadi kalau
 angka ini terlihat meleset tanpa ada yang mengubah kode apa pun,
 penyebabnya hampir selalu skrip baru di `scripts/vps/` — bukan
 kerusakan guard.
+
+⚠️ **Prosa "Total N assert" tidak dijaga sama sekali.** `verify:docs`
+hanya membaca pola `verify:x   # N`, jadi tiga angka prosa (ringkasan
+di atas, "Total ... assert", dan jumlah per-skrip) bisa saling
+simpang tanpa terdeteksi. Dan itu **sudah terjadi**: saat klaim
+per-skrip dinaikkan ke 736, ringkasan masih tertinggal di 689.
+
+Tiga angka itu harus **dihitung dari klaim**, bukan ditulis sendiri.
+Kalau tidak, dokumennya berbohong tentang dirinya sendiri — dan tidak
+ada guard yang akan memberi tahu.
 
 `verify:hrkpi` lahir dari halaman yang sama — termasuk assert bahwa
 restore benar-benar menghidupkan penugasan, dan bahwa jalur satu-id juga

@@ -191,26 +191,31 @@ export async function PATCH(request: Request) {
 
     let result;
     if (action === "approve" || action === "reject") {
-      // Tahap ditentukan dari role, bukan dari kiriman klien:
-      // executive menyetujui tahap 1, HR menyetujui tahap 2.
-      // DAL akan menolak kalau tahap dan status tidak cocok, jadi
-      // executive tidak bisa menyetujui di tahap 2 dan sebaliknya.
-      const stage: LeaveStage | null =
-        me.kpiRole === "executive"
-          ? "executive"
-          : me.kpiRole === "hr"
-            ? "hr"
-            : null;
+      // Tahap ditentukan dari status pengajuan, bukan dari role.
+      //
+      // Versi sebelumnya memetakannya dari role (executive -> tahap 1,
+      // HR -> tahap 2). Itu salah begitu ada jalur cadangan: executive
+      // selalu diarahkan ke tahap 1, jadi tidak akan pernah sampai ke
+      // tahap 2 -- persis yang dibutuhkan saat tidak ada HR aktif.
+      //
+      // Status pengajuan adalah satu-satunya sumber kebenaran. Role
+      // menentukan boleh atau tidak, dan itu уже ditangani DAL.
+      const req = await findLeaveRequest(id);
+      if (!req) {
+        return Response.json(
+          { ok: false, error: "Pengajuan tidak ditemukan." },
+          { status: 404 },
+        );
+      }
 
+      const stage = nextStageFor(req.status);
       if (!stage) {
         return Response.json(
           {
             ok: false,
-            error:
-              "Persetujuan cuti 2 tahap hanya untuk role kpi_role='executive' (tahap 1) atau 'hr' (tahap 2). Role Anda: " +
-              me.kpiRole,
+            error: `Pengajuan ini sudah berstatus ${req.status} -- tidak ada tahap yang menunggu keputusan.`,
           },
-          { status: 403 },
+          { status: 400 },
         );
       }
 
@@ -238,7 +243,14 @@ export async function PATCH(request: Request) {
     }
 
     if (!result.ok) {
-      return Response.json({ ok: false, error: result.reason }, { status: 400 });
+      // DAL sudah membedakan penolakan permission (403) dari penolakan
+      // state (400). Tanpa itu, HR yang membuka pengajuan tahap 1 akan
+      // diberi pesan "Anda tidak berhak" -- yang mengarah ke masalah
+      // yang salah, karena yang sebenarnya adalah "menunggu executive".
+      return Response.json(
+        { ok: false, error: result.reason },
+        { status: result.status ?? 400 },
+      );
     }
     return { request: result.request };
   });

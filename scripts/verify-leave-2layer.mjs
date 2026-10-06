@@ -143,15 +143,19 @@ const hrSalah = await api("u-hr-001", "/api/absensi/leave", {
   method: "PATCH",
   body: JSON.stringify({ id: id1, action: "approve" }),
 });
-// 400, bukan 403. Route memetakan role -> tahap, jadi HR dipetakan ke
-// tahap 'hr', lalu DAL menolak karena statusnya masih 'pending'. Itu
-// penolakan STATE, bukan permission -- dan pesannya lebih berguna:
-// 'menunggu executive', bukan 'Anda tidak berhak'. 403 tetap dipakai
-// untuk orang yang role-nya tidak punya tahap sama sekali (bagian 3).
-check("HR mencoba approve tahap 1 DITOLAK (400)", hrSalah.status === 400, `status ${hrSalah.status}`);
-check("pesan menyebut pengajuan masih di tahap executive",
-  typeof hrSalah.envelope?.error === "string" && hrSalah.envelope.error.includes("approved_executive"),
-  JSON.stringify(hrSalah.envelope).slice(0, 160));
+// 403, bukan 400. Tahap sekarang berasal dari STATUS pengajuan
+// (pending -> tahap 1), lalu hak diperiksa terpisah. Jadi HR yang
+// membuka pengajuan tahap 1 diberi "Tahap Executive hanya untuk
+// kpi_role='executive'" -- itu jujur, karena yang memang tidak boleh
+// adalah HR. Pesan lama ("menunggu executive") menyiratkan pengajuannya
+// yang salah tahap, padahal pengajuan itu benar dan memang giliran
+// executive.
+check("HR mencoba approve tahap 1 DITOLAK (403)", hrSalah.status === 403, `status ${hrSalah.status}`);
+check("pesan menyebut tahap executive dan role yang dibutuhkan",
+  typeof hrSalah.envelope?.error === "string"
+  && hrSalah.envelope.error.includes("Executive")
+  && hrSalah.envelope.error.includes("executive"),
+  JSON.stringify(hrSalah.envelope).slice(0, 200));
 check("status tetap pending setelah percobaan HR", rowOf(id1).startsWith("pending|"), rowOf(id1));
 
 // ═══════════════════════════════════════════════════════════════
@@ -199,10 +203,16 @@ const exec2 = await api("u-exec-001", "/api/absensi/leave", {
   method: "PATCH",
   body: JSON.stringify({ id: id1, action: "approve" }),
 });
-check("approve kedua ditolak (400)", exec2.status === 400, `status ${exec2.status}`);
-check("pesan menyebut approved_executive",
-  typeof exec2.envelope?.error === "string" && exec2.envelope.error.includes("approved_executive"),
-  JSON.stringify(exec2.envelope).slice(0, 160));
+// Pengajuan sudah di approved_executive, jadi tahapnya sekarang tahap 2
+// -- yang bukan hak executive selama masih ada HR aktif. Karena itu
+// 403, bukan 400: yang menolak adalah permission, bukan state.
+check("approve kedua ditolak (403)", exec2.status === 403, `status ${exec2.status}`);
+check("pesan menjelaskan executive baru boleh kalau HR tidak ada",
+  typeof exec2.envelope?.error === "string"
+  && exec2.envelope.error.includes("tidak ada HR aktif"),
+  JSON.stringify(exec2.envelope).slice(0, 200));
+check("kuota belum tersentuh oleh percobaan gagal",
+  quotaOf("u-staff-001") === quotaSebelum, quotaOf("u-staff-001"));
 
 // ═══════════════════════════════════════════════════════════════
 section("6. Executive TIDAK boleh menyetujui tahap 2");
@@ -212,7 +222,7 @@ const execHr = await api("u-exec-001", "/api/absensi/leave", {
   method: "PATCH",
   body: JSON.stringify({ id: id1, action: "approve" }),
 });
-check("executive mencoba approve lagi di tahap HR DITOLAK", execHr.status === 400 || execHr.status === 403,
+check("executive mencoba approve lagi di tahap HR DITOLAK (403)", execHr.status === 403,
   `status ${execHr.status}`);
 check("status belum jadi approved", rowOf(id1).split("|")[0] === "approved_executive", rowOf(id1));
 
@@ -371,7 +381,114 @@ if (c1) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-section("13. Kebersihan");
+section("13. Jalur cadangan: executive menutup tahap akhir tanpa HR");
+// ═══════════════════════════════════════════════════════════════
+//
+// Ini yang paling mudah breakage diam-diam: kalau HR aktif, executive
+// harus DITOLAK di tahap 2 (bagian 6 sudah membuktikannya). Kalau
+// tidak ada HR, executive HARUS boleh -- kalau tidak, semua pengajuan
+// menumpuk di approved_executive selamanya.
+//
+// Rules yang diuji:
+//   HR aktif     -> executive 403 (aturan normal berlaku)
+//   HR tidak aktif -> executive boleh, dan tercatat sebagai cadangan
+//   HR aktif lagi -> executive 403 lagi (aturan kembali normal)
+//
+// absensi_status u-hr-001 diubah sementara lalu dipulihkan. Sesi sudah
+// di-mint di awal, jadi mengubah status tidak membatalkan sesi -- itu
+// yang membuat test ini bisa jalan tanpa minting ulang token.
+//
+// try/finally dipakai supaya status HR dipulihkan walaupun ada assert
+// yang gagal di tengah. Kalau tidak, satu assert yang gagal akan
+// meninggalkan u-hr-001 tidak aktif -- dan run berikutnya mulai dari
+// kondisi yang salah, lalu melaporkan kegagalan yang tidak ada
+// hubungannya.
+//
+// Fixture TIDAK dibersihkan di sini. Section 14 (Kebersihan) berada
+// setelah section ini, jadi dia yang menyapu semuanya. Kalau section
+// ini ikut membersihkan, Kebersihan akan selalu menemukan nol dan
+// assert-nya tidak memeriksa apa pun lagi -- persis guard yang selalu
+// hijau di §3.15.
+
+const HR_AWAL = psql(`SELECT absensi_status FROM users WHERE id='u-hr-001';`);
+console.log(`  absensi_status HR di awal: ${HR_AWAL}`);
+
+async function keTahap2() {
+  const s = await submit("u-staff-001", workingDay(60 + Math.floor(Math.random() * 20)));
+  const id = payload(s).request?.id;
+  await api("u-exec-001", "/api/absensi/leave", {
+    method: "PATCH",
+    body: JSON.stringify({ id, action: "approve" }),
+  });
+  return id;
+}
+
+try {
+  // ── A. HR aktif: executive belum boleh ──
+  const idA = await keTahap2();
+  check("fixture A sudah di tahap HR", rowOf(idA).split("|")[0] === "approved_executive", rowOf(idA));
+  const tolakA = await api("u-exec-001", "/api/absensi/leave", {
+    method: "PATCH",
+    body: JSON.stringify({ id: idA, action: "approve" }),
+  });
+  check("A: HR masih aktif -> executive DITOLAK (403)", tolakA.status === 403, `status ${tolakA.status}`);
+
+  // ── B. HR tidak aktif: executive boleh ──
+  psql(`UPDATE users SET absensi_status='deleted' WHERE id='u-hr-001';`);
+  const availB = payload(await api("u-hr-001", "/api/absensi/leave?view=approvals"));
+  check("B: hrAvailable jadi false", availB.hrAvailable === false, `hrCount=${availB.hrCount}`);
+  check("B: hrCount 0", Number(availB.hrCount) === 0, `hrCount=${availB.hrCount}`);
+
+  const idB = await keTahap2();
+  check("fixture B sudah di tahap HR", rowOf(idB).split("|")[0] === "approved_executive", rowOf(idB));
+
+  const qSebelumB = quotaOf("u-staff-001");
+  const [leaveSB] = qSebelumB.split("|").map(Number);
+  const iyaB = await api("u-exec-001", "/api/absensi/leave", {
+    method: "PATCH",
+    body: JSON.stringify({ id: idB, action: "approve", notes: "cadangan" }),
+  });
+  check("B: executive boleh menutup tahap HR (200)", iyaB.status === 200,
+    JSON.stringify(iyaB.envelope).slice(0, 200));
+  check("B: status jadi approved", rowOf(idB).split("|")[0] === "approved", rowOf(idB));
+  const [leaveAS] = quotaOf("u-staff-001").split("|").map(Number);
+  check("B: kuota dipotong saat cadangan menutup", leaveAS === leaveSB - 1, `${leaveSB} -> ${leaveAS}`);
+
+  // Tabelnya absensi_logs (lihat writeLog di dal/absensi.ts), bukan
+  // activity_logs. Nama tabel yang salah di sini akan mengembalikan 0
+  // baris -- dan 0 baris akan terbaca sebagai "log tidak pernah ditulis",
+  // kesimpulan yang salah.
+  const jejak = psql(
+    `SELECT count(*) FROM absensi_logs
+      WHERE action='leave_approved_hr_by_executive_fallback'
+        AND created_at > now() - interval '5 minutes';`,
+  );
+  check("B: pentupan tercatat sebagai cadangan di log", Number(jejak) >= 1, `baris log=${jejak}`);
+
+  // ── C. HR aktif lagi: aturan normal kembali ──
+  psql(`UPDATE users SET absensi_status='${HR_AWAL}' WHERE id='u-hr-001';`);
+  const availC = payload(await api("u-hr-001", "/api/absensi/leave?view=approvals"));
+  check("C: hrAvailable kembali true", availC.hrAvailable === true, `hrCount=${availC.hrCount}`);
+
+  const idC = await keTahap2();
+  const tolakC = await api("u-exec-001", "/api/absensi/leave", {
+    method: "PATCH",
+    body: JSON.stringify({ id: idC, action: "approve" }),
+  });
+  check("C: HR aktif lagi -> executive DITOLAK (403)", tolakC.status === 403, `status ${tolakC.status}`);
+
+  // Pengajuan yang ditutup sebagai cadangan tetap bisa ditolak HR? Tidak
+  // diuji: statusnya sudah `approved`, jadi tidak ada tahap tersisa.
+  check("C: fixture C masih di tahap HR (tidak terpengaruh)",
+    rowOf(idC).split("|")[0] === "approved_executive", rowOf(idC));
+} finally {
+  psql(`UPDATE users SET absensi_status='${HR_AWAL}' WHERE id='u-hr-001';`);
+  const kembali = psql(`SELECT absensi_status FROM users WHERE id='u-hr-001';`);
+  check("absensi_status HR dipulihkan", kembali === HR_AWAL, `${HR_AWAL} -> ${kembali}`);
+}
+
+// ═══════════════════════════════════════════════════════════════
+section("14. Kebersihan");
 //
 // Bagian ini HARUS menghapus, bukan hanya menghitung. Versi pertama
 // cuma menghitung sisa fixture dan membandingkan kuota -- jadi test
@@ -395,7 +512,7 @@ check("kuota staff kembali seperti semula", kuotaAkhir === quotaSebelum,
   `${quotaSebelum} -> ${kuotaAkhir}`);
 
 // ===============================================================
-section("14. Halaman approvals benar-benar merender");
+section("15. Halaman approvals benar-benar merender");
 // ===============================================================
 //
 // Halaman ini 91 KB JSX, dan perubahan terakhirnya menambah seksi
@@ -407,7 +524,7 @@ section("14. Halaman approvals benar-benar merender");
 // tidak ada teks error di dalamnya. Isi funnel tidak diperiksa lewat
 // HTML karena halaman ini client-side -- datanya diambil setelah
 // mount, jadi tidak ada di HTML awal. Yang diprogram ulang di
-// server sudah diperiksa di bagian 1-12.
+// server sudah diperiksa di bagian 1-13.
 
 async function halaman(userId) {
   const res = await fetch(`${BASE}/absensi/admin/approvals`, {
