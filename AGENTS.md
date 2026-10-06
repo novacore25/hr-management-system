@@ -692,6 +692,23 @@ Untuk health check, uji **dua arah**: harus LOLOS saat server hidup, dan
 harus GAGAL saat server mati. Check yang selalu LOLOS sama uselessnya
 dengan check yang tidak ada.
 
+### 3.21 `OAuthAccountNotLinked` karena email sudah ada di database dari migrasi
+
+Saat user mengklik "Masuk dengan Google", Auth.js membaca email Google
+dan mencari apakah user dengan email tersebut sudah ada di tabel `users`.
+Karena seluruh 67 user sudah dimigrasikan dari Supabase (0015), email-nya
+**sudah ada** di tabel `users`, namun belum memiliki baris terkait di
+tabel `accounts`.
+
+Secara default, Auth.js menolak login dengan error `OAuthAccountNotLinked`:
+`"Email ini sudah terdaftar dengan metode login lain. Hubungi admin."`
+Padahal sistem ini hanya memiliki satu metode login (Google OAuth).
+
+Solusi: pasang `allowDangerousEmailAccountLinking: true` pada provider
+Google di `src/server/auth.ts`. Opsi ini memberitahu Auth.js bahwa email
+yang diverifikasi oleh Google aman untuk ditautkan secara otomatis ke
+baris user yang sudah ada.
+
 ---
 
 ## 4. Environment

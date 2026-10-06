@@ -69,6 +69,7 @@ function buildInstance() {
       Google({
         clientId: process.env.AUTH_GOOGLE_ID ?? "",
         clientSecret: process.env.AUTH_GOOGLE_SECRET ?? "",
+        allowDangerousEmailAccountLinking: true,
       }),
     ],
     // Sengaja TIDAK menimpa `session` di sini.

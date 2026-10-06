@@ -110,7 +110,7 @@ COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
 
 # Folder upload (foto bukti lembur) - fallback lokal sebelum R2 siap
-RUN mkdir -p /app/data/uploads && chown -R nextjs:nodejs /app/data
+RUN mkdir -p /app/data/uploads /app/.next/cache && chown -R nextjs:nodejs /app/data /app/.next
 
 USER nextjs
 EXPOSE 3000
