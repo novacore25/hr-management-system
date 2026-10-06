@@ -286,6 +286,15 @@ scp scripts/vps/vps-verify-migrations.sh vps:/usr/local/bin/novacore-verify
 scp scripts/vps/vps-health.sh            vps:/usr/local/bin/novacore-health
 scp scripts/vps/vps-public-check.sh      vps:/usr/local/bin/novacore-public-check
 scp scripts/vps/vps-apply-migrations.sh  vps:/usr/local/bin/novacore-apply-migrations
+scp scripts/vps/vps-final-check.sh        vps:/root/
+```
+
+`vps-final-check.sh` berbeda: dia tidak di-`install`, tapi dikirim ke
+`/root/` lalu dijalankan sekali setelah deploy, karena isinya soal
+container yang **baru** dan tidak berguna di hari berikutnya.
+
+```powershell
+ssh vps "cat /root/vps-final-check.sh | sh"
 ```
 
 Menjalankannya:
