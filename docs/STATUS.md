@@ -66,6 +66,7 @@ Sudah beres dan terbukti dengan skrip verifikasi:
 | Streak kehadiran dashboard staf | `verify:attstats` |
 | Jarak kantor di kolom DETAIL | `verify:detail` |
 | Foto bukti: kode siap, storage belum | `verify:storage` |
+| Cegah KPI kembar di server | `verify:kpikembar` |
 
 **Multi-office ternyata sudah benar** dan tidak perlu diperbaiki.
 Dilverifikasi langsung ke produksi: 2 kantor, **10 dari 10 divisi**
@@ -641,40 +642,58 @@ Catatan: `npm run verify:stubguard` sengaja memanipulasi allowlist dan
 membuat file uji. Kalau menjalankannya saat dev server sedang kompilasi,
 restart dev server setelahnya.
 
-### Berikutnya: migrasi data (Phase 6)
+### ✅ Migrasi data (Phase 6) — SUDAH SELESAI, jangan diulang
 
-Server layer sudah lengkap untuk semua tabel yang dipakai aplikasi.
-Yang tersisa adalah memindahkan data nyata dari Supabase lewat
-`pg_dump`.
+Bagian ini sebelumnya berbunyi "Berikutnya: migrasi data (Phase 6)", jadi
+pembaca berikutnya mengira masih ada pekerjaan data yang besar. **Itu
+sudah basi.** Data sudah pindah: 14854 baris, 23 dari 23 tabel,
+dibandingkan dengan md5 dari seluruh baris yang sudah diurutkan. Lihat
+bagian "Bukti bahwa data benar-benar pindah" di atas.
 
-**Migrasi 0010–0013 sudah terpasang di VPS** (2026-10-02) dan
-diverifikasi — termasuk uji bahwa constraint-nya benar-benar bekerja,
-bukan cuma tercatat di katalog. Detail di `docs/DEPLOY.md` §4.
+Tidak ada lagi yang perlu dipindahkan. Kalau suatu saat perlu mengulang,
+**kembalikan dulu dari backup**:
 
-Yang perlu diingat saat memindahkan data:
+```
+/root/backups/before-data-migration-<timestamp>.sql.gz
+```
+
+`0015` melakukan `TRUNCATE` lalu `INSERT`, jadi **tidak idempotent**. Semua
+migrasi lain di `drizzle/` aman dijalankan berulang; `0015` tidak.
+
+Yang tetap berlaku kalau prosedurnya diulang nanti:
 
 1. Saat memindahkan `payrolls`, perhatikan kolom `deduction_notes` dan
    `system_overtime_days` — keduanya baru ada di tabel kita lewat 0013.
-   Kalau Supabase ternyata sudah punya, nilainya ikut terbawa; kalau
-   tidak, kolomnya kosong (dan memang tidak pernah tersimpan
-   sebelumnya, jadi tidak ada yang hilang).
 2. `users.managed_departments` harus ditulis sebagai **UUID**, bukan nama
    divisi. Alasannya ada di bagian "Produksi" di bawah.
-3. `kpis` sekarang punya UNIQUE di `(title, year, month)`, sama seperti
-   `departments.name`, `office_locations.name`, dan `letter_types.code`.
-   Kalau Supabase punya duplikat di salah satu, `pg_dump` akan gagal
-   **setelah** tabel dibuat — jadi cek duplikat dulu, jangan setelahnya.
+3. **`kpis` TIDAK punya UNIQUE** di `(title, year, month)`, dan itu
+   disengaja — 0014 melepasnya justru supaya 962 baris duplikat dari
+   Supabase bisa masuk tanpa ada yang hilang. Tiga tabel lainnya punya
+   UNIQUE: `departments.name`, `office_locations.name`,
+   `letter_types.code`. Jangan pasang UNIQUE di `kpis` tanpa memutuskan
+   dulu apa yang harus dilakukan dengan 962 baris itu.
 
 ### Urutan yang disarankan
 
-1. ~~Terapkan migrasi 0010–0013 di VPS~~ — ✅ selesai 2026-10-02
-2. ~~Deploy aplikasi versi sekarang~~ — ✅ **sudah otomatis**; Coolify
-   auto-deploy tiap push (`docs/DEPLOY.md` §1.0), dan health check
-   produksi sudah hijau
-3. ~~Cek `/api/health` dan buka beberapa halaman~~ — ✅ sudah dicek 2026-10-02
-4. **Migrasi data Supabase (`pg_dump`).** ← ini yang tersisa
-5. Perbaiki `managed_departments` ke format UUID kalau perlu.
-6. Naikkan role akun pemilik ke `hr`, lalu buat user lain.
+Semua langkah migrasi sudah lewat. Daftar ini disimpan sebagai riwayatnya,
+bukan sebagai tugas yang masih terbuka.
+
+1. ~~Terapkan migrasi 0000–0017 di VPS~~ — ✅ selesai, diverifikasi 2026-10-03
+2. ~~Deploy aplikasi~~ — ✅ **otomatis**; Coolify auto-deploy tiap push
+   (`docs/DEPLOY.md` §1.0)
+3. ~~Cek `/api/health` dan buka beberapa halaman~~ — ✅ sudah dicek
+4. ~~Migrasi data Supabase (`pg_dump`)~~ — ✅ selesai: 14854 baris
+5. ~~Perbaiki `managed_departments` ke format UUID~~ — ✅ `0015` menuliskannya
+   sebagai UUID; 67 dari 67 user terisi
+6. ~~Naikkan role akun pemilik~~ — ✅ ada (`Marcella Dian Mutiara`, `kpi_role='hr'`)
+
+**Yang benar-benar tersisa** hanya dua hal, keduanya fitur dan bukan
+pemindahan data:
+
+| Sisa | Status |
+|---|---|
+| Cloudflare R2 untuk foto bukti lembur | kode siap, storage belum aktif |
+| Tipe KPI `hr` tampil di halaman penugasan Head | belum |
 
 ### Fase 4c-h — Komponen KPI harian ✅ selesai, enam bug ditemukan
 
@@ -838,7 +857,7 @@ halaman itu, tapi dari endpoint yang mereka panggil):
 
 ## Verifikasi
 
-16 skrip, **898 assert**. Semuanya membaca isi respons, isi
+17 skrip, **927 assert**. Semuanya membaca isi respons, isi
 database, atau isi file — bukan cuma status code.
 
 ```powershell
@@ -855,12 +874,13 @@ npm run verify:leave2layer   # 85  2 tahap, kuota, penolakan, jalur cadangan, ha
 npm run verify:attstats     # 41  streak kehadiran, null vs 0, celah hari kerja
 npm run verify:detail       # 41  jarak kantor, radius terdekat, koordinat rusak
 npm run verify:storage      # 21  status storage, foto lama, URL arbitrer
+npm run verify:kpikembar    # 29  satu aturan, di server, kunci title+brand+divisi
 npm run verify:payroll      # 84  otorisasi, angka negatif, slip terkunci
 npm run verify:stubguard    # 10  guard stub-nya benar-benar gagal
-npm run verify:docs        # 84  dokumentasi + skrip vps tidak berbohong
+npm run verify:docs        # 85  dokumentasi + skrip vps tidak berbohong
 ```
 
-Total **898 assert**, 16 skrip.
+Total **927 assert**, 17 skrip.
 
 Semuanya membersihkan data ujinya sendiri dan bisa dijalankan berulang
 kali.
@@ -869,7 +889,7 @@ kali.
 tidak dijaga. `verify:docs` memanggil semua skrip `verify:*` untuk
 membandingkan angka di dokumen dengan yang benar-benar jalan — tapi
 memakai dirinya sendiri akan bercabang terus, jadi skrip itu
-**mengecualikan dirinya sendiri** (§3.17). Akibatnya angka 84 di atas
+**mengecualikan dirinya sendiri** (§3.17). Akibatnya angka 85 di atas
 harus **diperbarui tangan**.
 
 Dan angka itu **ikut tumbuh** setiap kali ada skrip `.sh` baru di
@@ -1359,6 +1379,33 @@ migrasi 0011, yaitu **setelah** constraint-nya dibuat. Bahkan dengan
 kembar, jadi constraint-nya dilepas. Yang dipasang hanya index
 non-unique.
 
+**Pencegahan kembar sekarang ditegakkan di server** --
+`assertTidakKembar()` di `src/server/dal/kpi.ts`, dipanggil dari
+`createKpi` **dan** `updateKpi`.
+
+Dulu tidak ada penjaga di server sama sekali. Satu-satunya ada di
+`KpiFormPage` sebagai `useMemo` yang membandingkan `title + brand`
+dengan daftar dari browser:
+
+1. **Bisa dilewati** dengan POST langsung ke `/api/kpis` (AGENTS.md 3.4)
+2. **Kuncinya tidak cocok dengan data** -- masih ada 19 kelompok kembar
+   pada `(title, year, month, brand)`, dan 3 kalau `department_id` ikut
+   dihitung. Jadi pesan "sudah ada" bisa lolos untuk KPI yang benar-benar
+   kembar.
+
+Kunci yang dipakai sekarang: **title + brand + divisi, case-insensitive**.
+Kenapa divisi ikut: pada `(title, year, month, brand)` masih ada 19
+kelompok kembar, sedangkan begitu `department_id` ikut dihitung tersisa
+3. Tiga kelompok itu **dibiarkan** -- menghapus data adalah keputusan
+bisnis, bukan tugas kode. Yang dicegah hanya yang baru.
+
+`copyKpisFromMonth` sebelumnya punya dedup sendiri dengan kunci
+`(title, department)` yang **case-sensitive** dan tanpa brand -- jadi dua
+aturan berbeda untuk hal yang sama. Sekarang memakai kunci yang sama
+persis.
+
+Verifikasi: `npm run verify:kpikembar` (29 assert).
+
 #### Cuti `urgent`: diterima, tidak dibangun
 
 Fiturnya pernah ada, lalu kebijakan HR menghapusnya. `urgent_quota`
@@ -1369,7 +1416,7 @@ terbaca, tapi form tetap 3 pilihan.
 
 ---
 
-## Migrasi 0014 — SUDAH DIJALANKAN di lokal
+## Migrasi 0014 — SUDAH DIJALANKAN di lokal **dan di VPS**
 
 File: `drizzle/0014_supabase_parity.sql`. Idempotent, sudah dijalankan
 beberapa kali di database uji lokal.
@@ -1379,18 +1426,33 @@ yang salah. Verifikasi independen ada di `scripts/verify-0014.sql`,
 dipisah dari file migrasi supaya hasilnya tidak bergantung pada apa
 yang skrip migrasi laporkan.
 
-**Belum di VPS.** Jalankan setelah Fase B selesai, supaya database
-produksi tidak pernah punya skema yang setengah jalan.
+**Sudah terpasang di produksi** (diverifikasi 2026-10-03, dicek ulang
+2026-10-06). Status lengkap 0000–0017 ada di `docs/DEPLOY.md` §4.
 
 ---
 
-## Status migrasi di VPS — OK 0000 s/d 0013 lengkap (2026-10-02)
+## Status migrasi di VPS — OK 0000 s/d 0017 lengkap (dicek ulang 2026-10-06)
 
 Semuanya sudah terpasang dan diverifikasi. Yang membedakan catatan ini
 dari sekadar "kolomnya ada": **constraint-nya benar-benar bekerja.**
 Mencoba insert divisi "TNT" kedua ditolak dengan `duplicate key value
 violates unique constraint "departments_name_unique"`, transaksi
 di-rollback, data tetap 3 divisi.
+
+Pengecekan 2026-10-06 -- hasil query langsung ke produksi, bukan catatan
+lama:
+
+| Yang dicek | Hasil |
+|---|---|
+| users / attendance / leave_requests | 67 / 3430 / 346 |
+| kpi_assignments / daily_reports / payrolls | 2707 / 4992 / 71 |
+| `kpis_title_period_unique` | **dilepas 0014**, lihat catatan 0010 |
+| 0014 -- kolom `kpis.brand` | ada |
+| 0016 -- `achievement_percentage` | `numeric(15,2)` |
+| 0017 -- `daily_reports.value` | `numeric(20,6)` |
+| 0017 -- `kpi_assignments.actual_total` | `numeric(20,6)` |
+| 0015 -- `managed_departments` terisi | 67 dari 67 |
+| Tabel `_staging` | 23 tabel (bukti sumber migrasi) |
 
 Cara menjalankan + skrip verifikasi: `docs/DEPLOY.md` §4.
 
@@ -1410,7 +1472,7 @@ Alasan kedua kolom ini ada ada di bagian Fase 5 di atas. Kalau ternyata
 Supabase sudah punya keduanya, `ADD COLUMN IF NOT EXISTS` tidak
 melakukan apa-apa dan data yang ada tetap utuh.
 
-### 0010 — 4 constraint UNIQUE
+### 0010 — 4 constraint UNIQUE, dan satu yang kemudian dilepas
 
 File `drizzle/0010_unique_constraints.sql`.
 
@@ -1421,14 +1483,25 @@ File `drizzle/0010_unique_constraints.sql`.
 Dampak: dua admin bisa membuat divisi "TNT" dua kali. Dropdown filter
 KPI jadi ambigu, `department_locations` bisa menunjuk divisi yang salah.
 
-`kpis.title` sengaja **tidak** di-unique-kan: judul KPI memang boleh
-sama antar bulan ("Kualitas Absensi" muncul tiap bulan). Yang unik
-adalah kombinasi dengan periode.
+Hasil saat 0010 dijalankan: **0 baris duplikat** di keempat query, jadi
+aman untuk bagian 2.
 
-Hasil di produksi: **0 baris duplikat** di keempat query, jadi aman
-untuk bagian 2.
+⚠️ **Kondisi produksi per 2026-10-06: hanya 3 dari 4 yang masih ada.**
+Diverifikasi langsung ke produksi, bukan dari catatan lama.
 
-WARN: nama constraint KPI adalah `kpis_title_period_unique`, **bukan**
+| Constraint | Status |
+|---|---|
+| `departments_name_unique` | terpasang |
+| `office_locations_name_unique` | terpasang |
+| `letter_types_code_unique` | terpasang |
+| `kpis_title_period_unique` | **dilepas oleh 0014, dengan alasan** |
+
+Kalau kamu membaca "tidak punya UNIQUE padahal seharusnya" untuk
+`kpis.title` di catatan lama — itu **salah**. Memasang constraint itu
+kembali akan memaksa menghapus 962 baris. Pencegahan duplikat KPI
+sekarang ditegakkan di kode, bukan di database.
+
+⚠️ Nama constraint KPI adalah `kpis_title_period_unique`, **bukan**
 `kpis_title_year_month_unique` seperti yang pernah tertulis di catatan.
 Query verifikasi yang mencari nama salah melaporkan "constraint hilang"
 padahal ada -- itu benar-benar terjadi saat migrate.

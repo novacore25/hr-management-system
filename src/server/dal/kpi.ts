@@ -2,6 +2,7 @@ import "server-only";
 import { db } from "@/db";
 import { and, eq, inArray, isNull, isNotNull, desc, sql } from "drizzle-orm";
 import { kpis, departments, kpiAssignments, kpiHistories } from "@/db/schema";
+import { ValidationError } from "@/server/dal/guards";
 import type { KPI, KpiStatus, KpiType, KpiUnit, KpiPeriod } from "@/types";
 
 type KpiRow = typeof kpis.$inferSelect & { departmentName: string | null };
@@ -179,7 +180,101 @@ export type NewKpiInput = {
   hideActual?: boolean;
 };
 
+/**
+ * Tolak KPI yang kembar.
+ *
+ * formerly constraint `kpis_title_period_unique` ada di database,
+ * lalu **dilepas oleh 0014 dengan sengaja** -- data Supabase punya
+ * 962 baris duplikat dan memasangnya lagi akan memaksa menghapus
+ * data, melanggar syarat "tidak ada data hilang". Jadi tidak ada
+ * Constraint yang bisa diandalkan di sini.
+ *
+ * Penggantinya tinggal satu: `useMemo` di `KpiFormPage` yang
+ * membandingkan title + brand dengan daftar dari browser. Dua
+ * masalah, keduanya nyata:
+ *
+ *   1. Hanya di browser. POST langsung ke `/api/kpis` melewatinya
+ *      sepenuhnya (AGENTS.md 3.4).
+ *   2. Kuncinya tidak cocok dengan data. Pada `(title, brand)`
+ *      masih ada 19 grup duplikat di produksi; tambah
+ *      `department_id` baru tersisa 3 grup.
+ *
+ * Kunci yang dipakai di sini: **title + brand + divisi**, case-insensitive.
+ * Itu definisi "kembar" yang paling sempit dan paling masuk akal:
+ * nama sama, brand sama, divisi sama = KPI yang sama persis.
+ * `title + brand` saja akan menolak KPI di divisi berbeda yang
+ * kebetulan sama nama -- itu bukan duplikat.
+ *
+ * KPI yang sudah soft-deleted (`deleted_at` terisi) tidak dihitung:
+ * mengulang KPI yang sengaja diarchived itu sah, dan `restoreKpi`
+ * harus tetap bisa mengembalikannya.
+ *
+ * KPI yang sudah kembar di produksi **tidak disentuh**. Fungsi ini
+ * hanya mencegah yang baru. Menghapus 3 grup itu keputusan data,
+ * bukan keputusan kode.
+ */
+async function assertTidakKembar(params: {
+  title: string;
+  brand: string | null;
+  departmentId: string | null;
+  year: number;
+  month: number;
+  /** id yang boleh sama -- dipakai saat edit KPI itu sendiri. */
+  kecualiId?: string;
+}): Promise<void> {
+  const conditions = [
+    sql`lower(${kpis.title}) = lower(${params.title.trim()})`,
+    sql`coalesce(lower(${kpis.brand}), '') = coalesce(lower(${params.brand?.trim() ?? ""}), '')`,
+    eq(kpis.year, params.year),
+    eq(kpis.month, params.month),
+    isNull(kpis.deletedAt),
+  ];
+
+  // Divisi NULL memakai NULL, bukan `=`. `department_id = NULL`
+  // tidak pernah true, jadi KPI tanpa divisi akan lolos tanpa cek.
+  conditions.push(
+    params.departmentId === null
+      ? isNull(kpis.departmentId)
+      : eq(kpis.departmentId, params.departmentId),
+  );
+
+  if (params.kecualiId) {
+    conditions.push(sql`${kpis.id} <> ${params.kecualiId}`);
+  }
+
+  const kembar = await db
+    .select({
+      id: kpis.id,
+      brand: kpis.brand,
+      departmentId: kpis.departmentId,
+    })
+    .from(kpis)
+    .where(and(...conditions))
+    .limit(5);
+
+  if (kembar.length === 0) return;
+
+  const namaBrand = params.brand?.trim() ? `brand "${params.brand.trim()}"` : "tanpa brand";
+  const namaDivisi = params.departmentId
+    ? "divisi yang sama"
+    : "tanpa divisi";
+
+  throw new ValidationError(
+    `Sudah ada KPI bernama "${params.title.trim()}" dengan ${namaBrand} ` +
+      `di ${namaDivisi}, periode ${params.year}-${String(params.month).padStart(2, "0")}. ` +
+      `Ganti judul, brand, atau divisinya -- atau edit KPI yang sudah ada itu.`,
+  );
+}
+
 export async function createKpi(input: NewKpiInput): Promise<KpiInternal> {
+  await assertTidakKembar({
+    title: input.title,
+    brand: input.brand ?? null,
+    departmentId: input.departmentId,
+    year: input.year,
+    month: input.month,
+  });
+
   const [row] = await db
     .insert(kpis)
     .values({
@@ -209,6 +304,27 @@ export async function updateKpi(
   id: string,
   patch: Partial<Omit<NewKpiInput, "createdBy" | "year" | "month">>,
 ): Promise<KpiInternal | null> {
+  // Edit bisa memunculkan kembar kalau judul, brand, atau divisi
+  // diubah menabrak KPI lain. `updateKpi` tidak menerima year/month,
+  // jadi keduanya diambil dari baris yang ada -- kalau tidak, satu
+  // KPI bisa disamarkan sebagai berada di periode lain supaya lolos
+  // dari cek.
+  //
+  // Edit judul jadi sama persis dengan dirinya sendiri harus tetap
+  // boleh, jadi id-nya dikecualikan.
+  const sekarang = await findKpiById(id);
+  if (!sekarang) return null;
+
+  await assertTidakKembar({
+    title: patch.title ?? sekarang.title,
+    brand: patch.brand !== undefined ? patch.brand : (sekarang.brand ?? null),
+    departmentId:
+      patch.departmentId !== undefined ? patch.departmentId : sekarang.departmentId,
+    year: sekarang.year,
+    month: sekarang.month,
+    kecualiId: id,
+  });
+
   const values: Record<string, unknown> = { updatedAt: new Date() };
   if (patch.title !== undefined) values.title = patch.title;
   if (patch.description !== undefined) values.description = patch.description;
@@ -628,6 +744,7 @@ export async function copyKpisFromMonth(
     .select({
       title: kpis.title,
       departmentId: kpis.departmentId,
+      brand: kpis.brand,
     })
     .from(kpis)
     .where(
@@ -638,11 +755,13 @@ export async function copyKpisFromMonth(
       ),
     );
 
-  const key = (t: string, d: string | null) => `${t.trim()} ${d ?? ""}`;
-  const taken = new Set(existing.map((e) => key(e.title, e.departmentId)));
+  const key = (t: string, b: string | null, d: string | null) => `${t.trim().toLowerCase()} ${(b ?? "").trim().toLowerCase()} ${d ?? ""}`;
+  const taken = new Set(
+    existing.map((e) => key(e.title, e.brand, e.departmentId)),
+  );
 
   const toInsert = sources.filter((s) => {
-    const k = key(s.title, s.departmentId);
+    const k = key(s.title, s.brand, s.departmentId);
     if (taken.has(k)) return false;
     taken.add(k);
     return true;

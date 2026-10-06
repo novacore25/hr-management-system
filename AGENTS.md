@@ -26,8 +26,10 @@ NovaCore HR Management System. Next.js 15 (App Router) + Drizzle ORM +
 PostgreSQL + Auth.js v5 (Google OAuth). Dhabi Supabase, sekarang
 self-hosted di VPS Hostinger (Coolify + Docker).
 
-Migrasi dari Supabase ke VPS **belum selesai** — data asli belum
-dipindahkan. Lihat `docs/STATUS.md`.
+Migrasi dari Supabase ke VPS **sudah selesai** — kode dan data (14854
+baris, terverifikasi identik). Yang tersisa hanya **Cloudflare R2** untuk
+foto bukti lembur: kodenya sudah siap, storage-nya belum diaktifkan.
+Lihat `docs/STATUS.md`.
 
 ---
 
@@ -375,9 +377,22 @@ Kalau tidak ada constraint yang cocok, tiap insert berhasil. Seed saya
 jalankan 7× karena error → 15 baris `departments` dari 5 yang
 seharusnya.
 
-Schema yang **tidak punya UNIQUE padahal seharusnya**: `departments.name`,
-`office_locations.name`, `kpis.title`, `letter_types.code`.
-Lihat `docs/STATUS.md` → migrasi 0010.
+Schema yang **tidak punya UNIQUE** waktu itu: `departments.name`,
+`office_locations.name`, `letter_types.code` — ketiganya sudah
+dipasang di 0010 dan **masih terpasang di produksi**.
+
+⚠️ **`kpis.title` BUKAN salah satu dari mereka, dan tidak pernah dipakai
+sebagai UNIQUE.** 0010 sempat memasangnya, lalu **0014 melepasnya dengan
+sengaja**: data Supabase punya 962 baris duplikat, jadi memasangnya lagi
+akan memaksa menghapus data — melanggar syarat "tidak ada data hilang".
+Diganti index NON-unique.
+
+Pencegahan duplikat KPI ditegakkan di `assertTidakKembar()`
+(`src/server/dal/kpi.ts`), kunci **title + brand + divisi**,
+case-insensitive. Penting karena tidak ada constraint yang bisa
+menolong: jangan "memperbaiki" dengan memasang constraint UNIQUE — itu
+persis yang membuat 0014 melepasnya. Lihat `docs/STATUS.md` → 0010 dan
+bagian "Constraint KPI: dilepas, bukan diperbaiki".
 
 ### 3.9 Tidak semua kolom id bertipe UUID
 
@@ -714,9 +729,10 @@ npm run verify:leave2layer  # 85 assert: persetujuan cuti 2 tahap, kuota, jalur 
 npm run verify:attstats    # 41 assert: streak kehadiran, null vs 0, celah hari kerja
 npm run verify:detail      # 41 assert: jarak kantor, radius terdekat, koordinat rusak
 npm run verify:storage     # 21 assert: status storage, foto lama, URL arbitrer
+npm run verify:kpikembar   # 29 assert: cegah KPI kembar ditegakkan di server
 npm run verify:payroll      # 84 assert: otorisasi gaji, angka negatif, slip terkunci
 npm run verify:stubguard    # 10 assert: guard stub benar-benar gagal
-npm run verify:docs        # 84 assert: dokumentasi + skrip vps tidak berbohong
+npm run verify:docs        # 85 assert: dokumentasi + skrip vps tidak berbohong
 ```
 
 Semuanya membersihkan data ujinya sendiri, jadi bisa dijalankan berulang
