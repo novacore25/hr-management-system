@@ -248,7 +248,12 @@ export default function HeadPenugasanPage() {
               ? calcWeightedScore(activeAssignments, getWeights(userId)).total
               : 0;
 
-            const byType: Record<string, KpiAssignment[]> = { result: [], activity: [], quality: [], lead_tim: [] };
+            // `hr` ikut karena KPI tipe HR juga punya penugasan, dan Head
+            // perlu melihatnya. formerly tipe ini tidak ada di daftar awal
+            // maupun di yang diiterasi di bawah -- jadi assignment `hr`
+            // yang sudah ada di database tidak pernah tampil di halaman
+            // ini sama sekali.
+            const byType: Record<string, KpiAssignment[]> = { result: [], activity: [], quality: [], lead_tim: [], hr: [] };
             userAssignments.forEach((a) => {
               const t = a.kpiType ?? "result";
               if (!byType[t]) byType[t] = [];
@@ -272,7 +277,7 @@ export default function HeadPenugasanPage() {
                 </div>
 
                 <div className="divide-y divide-border">
-                  {(["result", "activity", "quality", "lead_tim"] as const).map((type) => {
+                  {(["result", "activity", "quality", "lead_tim", "hr"] as const).map((type) => {
                     const typeAssignments = byType[type];
                     if (!typeAssignments || typeAssignments.length === 0) return null;
                     return typeAssignments.map((a) => {

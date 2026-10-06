@@ -67,6 +67,7 @@ Sudah beres dan terbukti dengan skrip verifikasi:
 | Jarak kantor di kolom DETAIL | `verify:detail` |
 | Foto bukti: kode siap, storage belum | `verify:storage` |
 | Cegah KPI kembar di server | `verify:kpikembar` |
+| Notes KPI read-only + tipe `hr` | `verify:kpitampil` |
 
 **Multi-office ternyata sudah benar** dan tidak perlu diperbaiki.
 Dilverifikasi langsung ke produksi: 2 kantor, **10 dari 10 divisi**
@@ -693,7 +694,54 @@ pemindahan data:
 | Sisa | Status |
 |---|---|
 | Cloudflare R2 untuk foto bukti lembur | kode siap, storage belum aktif |
-| Tipe KPI `hr` tampil di halaman penugasan Head | belum |
+| Tipe KPI `hr` tampil di halaman penugasan Head | ✅ selesai |
+
+### KPI `lead_tim` / `hr`: tampil notes, bukan cuma label
+
+Keputusan: KPI read-only **tetap tampil** di halaman staf, tapi yang
+ditunjukkan adalah **apa yang akan dinilai** — bukan sekadar
+"Akan diinput oleh HR".
+
+#### Dua bug yang ditemukan sambil mengerjakan
+
+1. **Tipe `hr` tidak pernah tampil di halaman penugasan Head.** Bukan
+   disembunyikan — `byType` dan daftar yang diiterasi sama-sama tidak
+   memuat `hr`, jadi assignment `hr` yang sudah ada di database tidak
+   pernah sampai ke render. `typeLabel` dan `typeColor` sudah punya
+   `hr`, jadi kelihatannya selesai padahal tidak.
+
+2. **Tiga halaman, tiga kalimat berbeda.** `tim/page` menulis
+   "Akan diinput oleh HR", `tim/input` menulis "Diinput HR",
+   `tim/kpi` menulis ulang yang pertama. Semuanya hard-coded.
+
+#### Kenapa harus ada fallback
+
+Kalau notes ditampilkan tanpa cadangan, kotak kosong akan muncul dan
+**terlihat normal** -- tidak ada yang melaporkannya. Data produksi
+per 2026-10-06:
+
+| Tipe | Punya description |
+|---|---|
+| `hr` | 30 dari 33 (91%) |
+| `lead_tim` | **3 dari 38 (8%)** |
+
+Jadi **35 dari 38** KPI `lead_tim` akan kosong. Karena itu
+`pesanKpiReadonly()` di `src/lib/utils.ts` mengembalikan kalimat
+pendek kalau deskripsi kosong, dan ketiga halaman memanggil satu
+fungsi itu — bukan punya kalimat sendiri.
+
+Verifikasi: `npm run verify:kpitampil` (26 assert).
+
+Dua dari assert itu lahir dari **bug di test-nya sendiri**, yang
+lebih berbahaya karena test hijau berarti tidak ada yang dicek:
+
+1. Assertion "deskripsi menampilkan deskripsi" sempat gagal karena
+   yang diharapkan adalah deskripsi produksi, tapi yang dikirim string
+   lain. Kodenya benar, testnya yang salah.
+2. Regex `typeLabel[^=]*=\{[^}]*hr:` gagal pada kode yang **benar**,
+   karena mengira `typeColor` ditulis satu baris padahal multi-baris.
+   Test yang menunjuk kode benar sebagai salah bisa jadi dorongan
+   untuk "memperbaiki" yang justru merusak. Diganti jadi cek isi blok.
 
 ### Fase 4c-h — Komponen KPI harian ✅ selesai, enam bug ditemukan
 
@@ -857,7 +905,7 @@ halaman itu, tapi dari endpoint yang mereka panggil):
 
 ## Verifikasi
 
-17 skrip, **927 assert**. Semuanya membaca isi respons, isi
+18 skrip, **953 assert**. Semuanya membaca isi respons, isi
 database, atau isi file — bukan cuma status code.
 
 ```powershell
@@ -875,12 +923,13 @@ npm run verify:attstats     # 41  streak kehadiran, null vs 0, celah hari kerja
 npm run verify:detail       # 41  jarak kantor, radius terdekat, koordinat rusak
 npm run verify:storage      # 21  status storage, foto lama, URL arbitrer
 npm run verify:kpikembar    # 29  satu aturan, di server, kunci title+brand+divisi
+npm run verify:kpitampil    # 26  notes di KPI read-only, tipe hr di penugasan Head
 npm run verify:payroll      # 84  otorisasi, angka negatif, slip terkunci
 npm run verify:stubguard    # 10  guard stub-nya benar-benar gagal
 npm run verify:docs        # 85  dokumentasi + skrip vps tidak berbohong
 ```
 
-Total **927 assert**, 17 skrip.
+Total **953 assert**, 18 skrip.
 
 Semuanya membersihkan data ujinya sendiri dan bisa dijalankan berulang
 kali.

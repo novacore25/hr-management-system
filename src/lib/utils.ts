@@ -218,6 +218,43 @@ export function calcWeightedScore(
   };
 }
 
+/**
+ * Alasan kenapa KPI ini tidak bisa diinput staf, plus keterangan
+ * apa yang akan dinilai.
+ *
+ * Dulu tiap halaman menulis sendiri: `"Akan diinput oleh HR"` di satu
+ * tempat, `"Diinput HR"` di tempat lain, dan tiap kali menambah
+ * kalimat baru harus ingat mengedit ketiganya.
+ *
+ * Sekarang satu fungsi. Urutannya penting: **deskripsi lebih dulu**,
+ * karena staf perlu tahu apa yang sebenarnya dinilai -- "Akan
+ * diinput oleh HR" saja tidak memberi tahu apa pun.
+ *
+ * Tapi deskripsi sering kosong, jadi harus ada fallback. Di produksi
+ * per 2026-10-06: `hr` 30 dari 33 punya deskripsi (91%), `lead_tim`
+ * cuma **3 dari 38** (8%). Kalau tidak ada fallback, 35 dari 38 KPI
+ * `lead_tim` akan tampil sebagai kotak kosong -- dan kotak kosong
+ * selalu terlihat normal, tidak ada yang melaporkannya.
+ *
+ * `null` berarti KPI ini boleh diinput staf.
+ */
+export function pesanKpiReadonly(
+  kpi: { type?: string | null; description?: string | null } | null | undefined,
+  penilai: "Head" | "HR",
+): string | null {
+  if (!kpi) return null;
+  if (kpi.type !== "quality" && kpi.type !== "lead_tim" && kpi.type !== "hr") {
+    return null;
+  }
+
+  const deskripsi = (kpi.description ?? "").trim();
+  if (deskripsi !== "") {
+    return `Diinput ${penilai} · ${deskripsi}`;
+  }
+
+  return `Akan diinput oleh ${penilai}`;
+}
+
 export function getBrandColor(brand: string | undefined): string {
   if (!brand || brand.toLowerCase() === "umum") {
     return "text-slate-600 bg-slate-100 border-slate-200";

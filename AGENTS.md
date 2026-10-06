@@ -730,6 +730,7 @@ npm run verify:attstats    # 41 assert: streak kehadiran, null vs 0, celah hari 
 npm run verify:detail      # 41 assert: jarak kantor, radius terdekat, koordinat rusak
 npm run verify:storage     # 21 assert: status storage, foto lama, URL arbitrer
 npm run verify:kpikembar   # 29 assert: cegah KPI kembar ditegakkan di server
+npm run verify:kpitampil   # 26 assert: notes KPI read-only, tipe hr di penugasan Head
 npm run verify:payroll      # 84 assert: otorisasi gaji, angka negatif, slip terkunci
 npm run verify:stubguard    # 10 assert: guard stub benar-benar gagal
 npm run verify:docs        # 85 assert: dokumentasi + skrip vps tidak berbohong

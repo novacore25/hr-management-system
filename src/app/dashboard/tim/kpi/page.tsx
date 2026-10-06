@@ -7,7 +7,7 @@ import { KpiCard } from "@/components/kpi/KpiCard";
 import { DailyInputForm } from "@/components/kpi/DailyInputForm";
 import { useKpiSettings } from "@/hooks/useKpiSettings";
 import { PeriodPicker, type Period } from "@/components/kpi/PeriodPicker";
-import { monthName, todayISODate } from "@/lib/utils";
+import { monthName, todayISODate, pesanKpiReadonly } from "@/lib/utils";
 import type { KpiAssignmentWithDetails } from "@/types";
 
 export default function TimKpiPage() {
@@ -116,9 +116,10 @@ export default function TimKpiPage() {
               onClick={() => setSelected(a)}
               period={period}
               readonlyMessage={
-                a.kpi?.type === "quality" ? "Akan diinput oleh Head" :
-                (a.kpi?.type === "hr" || a.kpi?.type === "lead_tim") ? "Akan diinput oleh HR" :
-                undefined
+                pesanKpiReadonly(
+                  a.kpi,
+                  a.kpi?.type === "quality" ? "Head" : "HR",
+                ) ?? undefined
               }
             />
           ))}

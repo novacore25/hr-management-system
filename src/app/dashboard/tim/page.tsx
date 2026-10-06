@@ -14,7 +14,7 @@ import { StaffTour } from "@/components/kpi/StaffTour";
 import { AttendanceWidget } from "@/components/absensi/AttendanceWidget";
 import { Input } from "@/components/ui/input";
 import { Search, HelpCircle, Umbrella, Stethoscope } from "lucide-react";
-import { formatDateDisplay, calcWeightedScore, monthName, todayISODate } from "@/lib/utils";
+import { formatDateDisplay, calcWeightedScore, monthName, todayISODate, pesanKpiReadonly } from "@/lib/utils";
 import type { KpiAssignmentWithDetails } from "@/types";
 
 export default function TimDashboard() {
@@ -296,10 +296,15 @@ export default function TimDashboard() {
                     assignment={a}
                     onClick={() => setSelected(a)}
                     period={period}
+                    // formerly dua string hard-coded di sini, dan tiap halaman punya
+                    // kalimatnya sendiri. Sekarang satu aturan di
+                    // `pesanKpiReadonly`, dan isinya ikut membawa
+                    // deskripsi KPI -- jadi staf tahu apa yang dinilai.
                     readonlyMessage={
-                      a.kpi?.type === "quality" ? "Akan diinput oleh Head" :
-                      (a.kpi?.type === "hr" || a.kpi?.type === "lead_tim") ? "Akan diinput oleh HR" :
-                      undefined
+                      pesanKpiReadonly(
+                        a.kpi,
+                        a.kpi?.type === "quality" ? "Head" : "HR",
+                      ) ?? undefined
                     }
                   />
                 </div>

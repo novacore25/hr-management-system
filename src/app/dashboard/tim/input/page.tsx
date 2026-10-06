@@ -7,7 +7,7 @@ import { DailyInputForm } from "@/components/kpi/DailyInputForm";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PerformanceBadge } from "@/components/ui/badge";
-import { formatNumber, formatCurrency, formatPercentage, getLiveWorkingDaysRemaining } from "@/lib/utils";
+import { formatNumber, formatCurrency, formatPercentage, getLiveWorkingDaysRemaining, pesanKpiReadonly } from "@/lib/utils";
 import type { KpiAssignmentWithDetails } from "@/types";
 import { Search } from "lucide-react";
 
@@ -92,10 +92,17 @@ export default function TimInputPage() {
                   </div>
                   <div className="ml-4 flex items-center gap-3">
                     <PerformanceBadge category={a.performanceCategory} />
-                    {a.kpi?.type === "quality" ? (
-                      <span className="text-[10px] uppercase font-bold text-slate-400 bg-slate-100 px-2 py-1.5 rounded-md">Diinput Head</span>
-                    ) : (a.kpi?.type === "hr" || a.kpi?.type === "lead_tim") ? (
-                      <span className="text-[10px] uppercase font-bold text-slate-400 bg-slate-100 px-2 py-1.5 rounded-md">Diinput HR</span>
+                    {pesanKpiReadonly(a.kpi, a.kpi?.type === "quality" ? "Head" : "HR") ? (
+                      // Badge ini menampilkan deskripsi KPI kalau ada, supaya
+                      // staf tahu apa yang sebenarnya dinilai HR. Kalau
+                      // deskripsinya kosong, jatuh ke kalimat pendek -- bukan
+                      // badge kosong yang terlihat normal.
+                      <span
+                        title={pesanKpiReadonly(a.kpi, a.kpi?.type === "quality" ? "Head" : "HR") ?? undefined}
+                        className="text-[10px] uppercase font-bold text-slate-500 bg-slate-100 px-2 py-1.5 rounded-md max-w-[22rem] truncate"
+                      >
+                        {pesanKpiReadonly(a.kpi, a.kpi?.type === "quality" ? "Head" : "HR")}
+                      </span>
                     ) : (
                       <Button size="sm" onClick={() => setSelected(a)}>
                         Input
