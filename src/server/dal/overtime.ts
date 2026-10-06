@@ -160,7 +160,17 @@ function toOvertime(row: Row): OvertimeWithUser {
   return {
     ...row,
     requestedStartTime: row.requestedStartTime,
-    proofImages: row.proofImages ?? [],
+    // `?? []` hanya menutup array yang NULL. Elemen di dalamnya belum
+    // disentuh -- dan `text[]` di PostgreSQL boleh berisi NULL maupun
+    // string kosong. Dua-duanya sampai ke UI sebagai `<img src="">`,
+    // yang tampil sebagai kotak rusak tanpa penjelasan.
+    //
+    // Dipilah di SINI, di satu tempat, supaya setiap pembaca -- UI
+    // staf, UI HR, modal detail -- mendapat daftar yang bersih tanpa
+    // harus ingat memfilter sendiri.
+    proofImages: (row.proofImages ?? []).filter(
+      (u): u is string => typeof u === "string" && u.trim() !== "",
+    ),
     // Kolomnya `numeric` — drizzle mengembalikannya sebagai string.
     hourlyBaseRate: String(Number(row.hourlyBaseRate)),
     totalOvertimePay: String(Number(row.totalOvertimePay)),
@@ -477,6 +487,27 @@ export async function submitOvertimeReport(
     );
   }
 
+  /**
+   * Foto bukti: HANYA boleh mengurangi, tidak boleh menambah.
+   *
+   * formerly `proofImages: input.proofImages ?? []` — daftar URL diambil
+   * utuh dari browser tanpa pemeriksaan apa pun. Siapa pun yang punya
+   * sesi bisa menempelkan URL apa saja ke `proof_images`, termasuk
+   * domain miliknya sendiri, lalu HR membukanya dan melihat gambar
+   * dari luar. Kolomnya jadi catatan yang isinya sepenuhnya dikendalikan
+   * pengirim, bukan bukti.
+   *
+   * Sekarang upload foto baru memang belum tersedia, jadi aturannya
+   * hanya satu arah: URL yang sudah tersimpan boleh dipertahankan atau
+   * dihapus, tapi URL BARU tidak boleh masuk.
+   *
+   * Setelah R2 aktif, aturan ini berubah arah -- daftar dari server
+   * digabung dengan yang baru diunggah, bukan diganti.
+   */
+  const tersimpan = Array.isArray(current.proofImages) ? current.proofImages : [];
+  const dikirim = Array.isArray(input.proofImages) ? input.proofImages : [];
+  const proofImagesFinal = tersimpan.filter((u) => typeof u === "string" && dikirim.includes(u));
+
   await db
     .update(overtimeRequests)
     .set({
@@ -487,7 +518,7 @@ export async function submitOvertimeReport(
       reportSubmittedAt: new Date(),
       taskReports: input.taskReports ?? [],
       staffReportNotes: input.staffReportNotes ?? null,
-      proofImages: input.proofImages ?? [],
+      proofImages: proofImagesFinal,
       updatedAt: new Date(),
     })
     .where(eq(overtimeRequests.id, id));

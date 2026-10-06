@@ -67,6 +67,21 @@ export function OvertimeStaffSection() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   /**
+   * Apakah penyimpanan foto sudah siap.
+   *
+   * `null` = belum diketahui (permintaan GET belum selesai). Perlakukan
+   * sebagai tidak siap, supaya tombol unggah tidak bisa diklik dulu
+   * lalu ditolak belakangan.
+   *
+   * Default-nya "tidak siap" dengan sengaja. Kalau servernya gagal
+   * menjawab,perlakukan sebagai tidak siap: kalau servernya gagal menjawab,
+   * staf melihat foto tidak bisa diunggah -- bukan diklik dulu lalu
+   * ditolak belakangan.
+   */
+  const [storageAktif, setStorageAktif] = useState<boolean | null>(null);
+  const [storageAlasan, setStorageAlasan] = useState<string>("");
+
+  /**
  * Bentuk dasar untuk "rekan tim lembur hari ini".
  *
  * Endpoint `?scope=today` sengaja hanya mengembalikan nama, jam, dan
@@ -158,15 +173,29 @@ const EMPTY_OVERTIME = {
       });
       const json = (await res.json()) as {
         ok: boolean;
-        data?: { requests?: OvertimeRequest[] };
+        data?: {
+          requests?: OvertimeRequest[];
+          storage?: { aktif: boolean; alasan?: string };
+        };
         error?: string;
       };
 
       if (!res.ok) {
         setOvertimeRequests([]);
+        // Jangan sampai `storage` tetap null setelah request gagal --
+        // tombol unggah sudah nonaktif, tapi pesannya belum muncul
+        // karena tidak ada yang mengisinya.
+        setStorageAktif(false);
+        setStorageAlasan("Tidak bisa menghubungi server.");
         console.error("Gagal memuat pengajuan lembur:", json.error);
         return;
       }
+
+      // Status storage dibaca dari server, bukan ditebak di sini.
+      // Server yang tahu apakah R2 sudah dikonfigurasi.
+      const st = json.data?.storage;
+      setStorageAktif(st?.aktif === true);
+      setStorageAlasan(st?.aktif === true ? "" : st?.alasan ?? "");
 
       // Server sudah mengirim camelCase, jadi tidak ada pemetaan lagi.
       setOvertimeRequests(
@@ -476,6 +505,27 @@ const EMPTY_OVERTIME = {
     if (!reportingReq) return;
     if (!actualEndTime) { toast.error("Isi jam selesai aktual."); return; }
 
+    /*
+     * Foto baru yang dipilih tidak ikut dikirim.
+     *
+     * formerly ada UI yang menerima pilihan file dan menampilkannya
+     * sebagai thumbnail, tapi `body` hanya mengirim
+     * `existingProofImages` -- foto baru yang baru saja dipilih
+     * DIBUANG TANPA PEMBERITAHUAN. Staf melihat pratinjau foto di
+     * layar, menekan kirim, dan bukti kerjanya hilang begitu saja.
+     *
+     * Tidak ada jalur upload yang bisa menerima file itu sekarang
+     * (storage belum siap), jadi lebih baik menolak dengan jelas
+     * daripada mengirim laporan yang terlihat lengkap padahal
+     * buktinya tidak tersimpan.
+     */
+    if (newProofFiles.length > 0) {
+      toast.error(
+        "Foto yang dipilih belum bisa diunggah. Hapus dulu, atau kirim laporan tanpa foto baru.",
+      );
+      return;
+    }
+
     const actualStart = reportingReq.approvedStartTime || reportingReq.requestedStartTime;
 
     setIsSubmittingReport(true);
@@ -493,9 +543,11 @@ const EMPTY_OVERTIME = {
      *      Kalau HR menyetujui 4 jam dan staf melaporkan 10, angkanya
      *      diterima begitu saja.
      *
-     * Upload foto belum ada: Supabase Storage sudah dilepas dan
-     * penggantinya (Cloudflare R2) masih Phase 4d. Foto yang sudah
-     * tersimpan tidak hilang; untuk sementara tidak bisa ditambah.
+     * Foto yang sudah tersimpan tidak hilang dan tetap dikirim apa
+     * adanya -- bucket Supabase masih hidup, jadi tautannya masih bisa
+     * dibuka. Foto BARU belum bisa ditambahkan: storage penggantinya
+     * belum disiapkan, dan jalurnya menolak dengan pesan, bukan
+     * menyimpan diam-diam di tempat yang tidak di-backup.
      */
     const res = await fetch("/api/overtime", {
       method: "PATCH",
@@ -1376,8 +1428,17 @@ const EMPTY_OVERTIME = {
                   </div>
                 ))}
 
-                {/* Upload Trigger Button (jika belum mencapai 2 gambar) */}
-                {existingProofImages.length + newProofFiles.length < 2 && (
+                {/*
+                  Upload Trigger Button (jika belum mencapai 2 gambar)
+
+                  Nonaktif kalau storage belum siap. formerly tombolnya
+                  selalu aktif: staf memotret foto, memilih file,
+                  menunggu kompresi -- baru ditolak saat dikirim.
+                  Sekarang kegagalan diketahui sebelum pekerjaan itu
+                  dilakukan, bukan sesudah.
+                */}
+                {existingProofImages.length + newProofFiles.length < 2 &&
+                  storageAktif === true && (
                   <button
                     type="button"
                     disabled={isCompressing}
@@ -1404,13 +1465,31 @@ const EMPTY_OVERTIME = {
                     )}
                   </button>
                 )}
+
+                {/*
+                  Foto yang sudah tersimpan tetap tampil di atas --
+                  tidak ada yang disembunyikan. Yang tidak bisa
+                  dilakukan hanya menambah yang baru.
+                */}
+                {storageAktif !== true && (
+                  <div className="col-span-2 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4">
+                    <p className="text-[10px] font-black uppercase text-amber-600 dark:text-amber-400 tracking-widest mb-1">
+                      Foto belum bisa diunggah
+                    </p>
+                    <p className="text-[11px] text-[var(--ab-text-dim)] leading-relaxed">
+                      {storageAlasan ||
+                        "Penyimpanan foto belum disiapkan oleh admin."}{" "}
+                      Laporan tetap bisa dikirim tanpa foto bukti.
+                    </p>
+                  </div>
+                )}
               </div>
 
               <input
                 type="file"
                 ref={fileInputRef}
                 onChange={handleSelectProofImages}
-                accept="image/*"
+                accept="image/jpeg,image/png,image/webp"
                 multiple
                 className="hidden"
               />

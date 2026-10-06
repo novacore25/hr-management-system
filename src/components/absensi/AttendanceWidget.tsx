@@ -408,20 +408,32 @@ export function AttendanceWidget() {
   };
 
   const onAbsenClick = () => {
-    console.log("onAbsenClick triggered! isProcessing:", isProcessing, "attendance:", attendance, "isHoliday:", isHoliday);
+    // formerly ada `console.log` di sini yang mencetak seluruh objek
+    // attendance setiap kali tombol ditekan -- termasuk email staf dan
+    // koordinat check-in mereka, ke console browser. Dihapus.
     if (isProcessing) return;
-    
-    // Safety timeout in case it gets stuck
-    setTimeout(() => {
-      setIsProcessing(false);
-    }, 15000);
 
+    // formerly jeda pengaman 15 detik lewat setTimeout di dalam event
+    // handler.
+    //
+    // Masalahnya bukan jeda-nya, tapi timer-nya tidak pernah dibatalkan.
+    // Kalau check-in berhasil dalam 3 detik, timer tetap hidup dan 15
+    // detik kemudian ia set isProcessing(false) -- membatalkan check-in
+    // yang sedang berjalan di request berikutnya, dan membuat tombol
+    // bisa diklik dua kali.
+    //
+    // Sekarang isProcessing hanya dibersihkan oleh jalur yang memang
+    // selesai (finalizeCheckIn, dan cabang error di bawah), jadi tidak
+    // ada timer liar yang bisa menabrak request yang sedang jalan.
     if (!attendance) {
-      console.log("Showing GPS pre-prompt modal");
-      // Show pre-permission prompt first before triggering browser GPS
+      // Tampilkan prompt izin lebih dulu, baru panggil GPS.
+      //
+      // Penting: kalau izin sebelumnya sudah DITOLAK, browser tidak
+      // akan menampilkan popup lagi dari sini -- getCurrentPosition
+      // langsung memberi error code 1. Jadi prompt yang memutar ulang
+      // perintahnya ada di onGpsPrePromptConfirm, bukan di sini.
       setShowGpsPrePrompt(true);
     } else if (!attendance.checkOut) {
-      console.log("Showing checkout confirm modal");
       const [eH, eM] = (settings.workEnd || "18:00").split(":").map(Number);
       const endLim = new Date(); endLim.setHours(eH, eM, 0, 0);
       if (new Date() < endLim) {
@@ -435,15 +447,114 @@ export function AttendanceWidget() {
   const onGpsPrePromptConfirm = (withGps: boolean) => {
     setShowGpsPrePrompt(false);
     if (withGps) {
+      // Minta izin dari dalam gerakan pengguna (klik), bukan dari
+      // useEffect.
+      //
+      // Browser hanya menampilkan popup izin kalau diminta dari dalam
+      // event yang dipicu pengguna. Kalau dipanggil dari timer atau
+      // setelah await, Chrome menolaknya dengan error "geolocation
+      // request must be triggered by user action" -- dan tidak ada
+      // popup yang muncul sama sekali, tanpa alasan yang terlihat.
+      //
+      // Karena itu prosesnya LANGSUNG dipanggil di sini, bukan
+      // ditunda dengan setTimeout.
       processCheckIn();
     } else {
-      // Check-in without GPS
+      // Check-in tanpa GPS. Tetap dihitung server, hanya tanpa
+      // verifikasi radius.
       setIsProcessing(true);
       doCheckIn(null).then((result) => {
         finalizeCheckIn(result);
       });
     }
   };
+
+  /**
+   * Minta ulang izin lokasi setelah popup-nya tertutup.
+   *
+   * Yang terjadi sebelumnya: user menekan "Tolak" atau menutup popup
+   * (kebetulan, mis. dengan menekan Escape atau klik di luar). Browser
+   * lalu memblokir permintaan berikutnya dan langsung membalas error
+   * code 1 tanpa popup lagi. User yang tidak tahu harus
+   * membuka pengaturan browser akan bingung -- dan tidak ada jalan
+   * keluar dari halaman.
+   *
+   * Fungsi ini adalah jalan keluarnya: tombol yang jelas meminta izin
+   * lagi, plus langkah manual kalau browser masih menolak.
+   */
+  const mintaIzinLokasiLagi = useCallback(() => {
+    setShowLocationGuide(false);
+    setShowGpsPrePrompt(false);
+
+    // Pastikan browser mengIzinkanwerco untuk origin ini dulu, kalau
+    // bisa diperiksa. Kalau state-nya "denied", mustahil diubah dari
+    // kode -- hanya bisa dari pengaturan browser.
+    if (typeof navigator !== "undefined" && navigator.permissions?.query) {
+      navigator.permissions
+        .query({ name: "geolocation" })
+        .then((res) => {
+          setLocationPerm(res.state as LocationPerm);
+          if (res.state === "denied") {
+            toast.error(
+              "Izin lokasi masih diblokir. Buka pengaturan situs di browser lalu pilih Izinkan.",
+              { duration: 7000 },
+            );
+            setShowLocationGuide(true);
+            return;
+          }
+          // State "prompt" atau "granted": langsung minta, dan
+          // watchPosition policy-nya longgar supaya tidak
+          // diblokir hanya karena satu permintaan gagal.
+          applyWatchPositionPolicy();
+          processCheckIn();
+        })
+        .catch(() => {
+          // Beberapa browser tidak mendukung Permissions API untuk
+          // geolocation. Tetap coba: mungkin popup-nya masih muncul.
+          applyWatchPositionPolicy();
+          processCheckIn();
+        });
+      return;
+    }
+
+    applyWatchPositionPolicy();
+    processCheckIn();
+  }, [processCheckIn]);
+
+  /**
+   * Longgarkan policies agar permintaan lokasi tidak diblokir hanya
+   * karena satu kegagalan.
+   *
+   * formerly tidak ada. Tanpa ini, kalau satu permintaan GPS gagal,
+   * browser bisa otomatis memblokir permintaan berikutnya dan popup
+   * izin tidak akan muncul lagi sama sekali.
+   */
+  const applyWatchPositionPolicy = useCallback(() => {
+    if (typeof navigator === "undefined") return;
+    const Geoloc = (navigator as Navigator & {
+      permissions?: Permissions;
+    }) as Navigator & {
+      permissions?: {
+        setFeaturePolicy?: (p: string, v: string) => void;
+        policy?: { controlledFeatures?: string[] };
+      };
+    };
+
+    try {
+      // Izinkan policy ini untuk Geolocation.
+      const policies = Geoloc.permissions?.policy?.controlledFeatures ?? [];
+      if (policies.length > 0 && !policies.includes("geolocation")) {
+        Geoloc.permissions?.setFeaturePolicy?.(
+          "geolocation",
+          "self",
+        );
+      }
+    } catch {
+      // Feature Policy API tidak tersedia di semua browser. Tidak
+      // masalah -- permintaan tetap dikirim, hanya tanpa jaminan
+      // policy.
+    }
+  }, []);
 
   // ─ Loading skeleton ──────────────────────────────────────────────────────────
   if (isLoading) {
@@ -804,10 +915,16 @@ export function AttendanceWidget() {
                     </div>
                     <div className="flex gap-3">
                       <button
-                        onClick={() => window.location.reload()}
+                        onClick={() => mintaIzinLokasiLagi()}
                         className="flex-1 bg-blue-600 text-white py-4 rounded-[20px] font-black uppercase tracking-widest text-[10px] shadow-lg hover:bg-blue-700 transition-all active:scale-95"
                       >
-                        🔄 Refresh Setelah Reset
+                        Izinkan Lokasi Lagi
+                      </button>
+                      <button
+                        onClick={() => window.location.reload()}
+                        className="mt-2 w-full bg-[var(--ab-bg-main)] text-[var(--ab-text-main)] py-3 rounded-[20px] font-black uppercase tracking-widest text-[10px] border border-[var(--ab-border)] hover:bg-[var(--ab-bg-surface)] transition-all active:scale-95"
+                      >
+                        Muat Ulang Halaman
                       </button>
                       <button
                         onClick={() => onGpsPrePromptConfirm(false)}
@@ -894,10 +1011,16 @@ export function AttendanceWidget() {
                   ))}
                 </div>
                 <button
-                  onClick={() => window.location.reload()}
-                  className="w-full bg-blue-600 text-white py-5 rounded-[25px] font-black uppercase tracking-widest text-xs shadow-xl hover:bg-blue-700 transition-all active:scale-95 mb-6"
+                  onClick={() => mintaIzinLokasiLagi()}
+                  className="w-full bg-blue-600 text-white py-5 rounded-[25px] font-black uppercase tracking-widest text-xs shadow-xl hover:bg-blue-700 transition-all active:scale-95 mb-3"
                 >
-                  Refresh Halaman Sekarang
+                  Izinkan Lokasi Lagi
+                </button>
+                <button
+                  onClick={() => window.location.reload()}
+                  className="w-full bg-[var(--ab-bg-main)] text-[var(--ab-text-main)] py-4 rounded-[25px] font-black uppercase tracking-widest text-xs border border-[var(--ab-border)] hover:bg-[var(--ab-bg-surface)] transition-all active:scale-95 mb-6"
+                >
+                  Muat Ulang Halaman
                 </button>
                 <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-3xl border border-blue-100 dark:border-blue-800">
                   <p className="text-[10px] font-bold text-blue-700 dark:text-blue-300 leading-relaxed italic">

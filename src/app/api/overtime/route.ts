@@ -22,6 +22,7 @@ import {
   listPayrollStaffSettings,
   getBaseSalary,
 } from "@/server/dal/overtime";
+import { cekStorage, fotoBisaDibuka } from "@/server/storage/overtimeProofs";
 
 export const dynamic = "force-dynamic";
 
@@ -69,10 +70,17 @@ export async function GET(request: Request) {
       return { overtime: row, baseSalary: String(await getBaseSalary(row.userId)) };
     }
 
+    // `storage` dikirim supaya UI bisa menampilkan peringatan lebih awal.
+    // formerly UI hanya mencoba mengunggah lalu baru tahu dari toast --
+    // staf sudah menyelesaikan laporan, memotret foto, memilih file,
+    // baru ditolak. Memindahkan pengecekan ke GET membuat kegagalan
+    // diketahui SEBELUM pekerjaan itu dilakukan.
+    const storage = cekStorage();
+
     const scope = searchParams.get("scope");
 
     if (scope === "mine") {
-      return { requests: await listOvertimeForUser(me.id) };
+      return { requests: await listOvertimeForUser(me.id), storage };
     }
 
     /**
@@ -227,11 +235,14 @@ export async function PATCH(request: Request) {
               actualEndTime: b.actualEndTime,
               taskReports: Array.isArray(b.taskReports) ? b.taskReports : [],
               staffReportNotes: b.staffReportNotes ?? null,
-              // Upload foto bukti belum ada — Supabase Storage sudah
-              // dilepas dan penggantinya (Cloudflare R2) masih Phase 4d.
-              // URL yang sudah tersimpan tetap diteruskan supaya tidak
-              // hilang, tapi klien tidak bisa menambah yang baru.
-              proofImages: Array.isArray(b.proofImages) ? b.proofImages : [],
+              // URL foto yang sudah tersimpan (dari pengajuan lama) tetap
+              // diteruskan supaya tidak hilang -- bucket Supabase masih
+              // hidup, dan foto itu tidak ikut terhapus saat migrasi.
+              //
+              // Foto BARU tidak bisa ditambah: storage R2 belum
+              // disiapkan. Jalur itu menolak dengan pesan, bukan
+              // menyimpan diam-diam di tempat yang tidak di-backup.
+              proofImages: fotoBisaDibuka(b.proofImages),
             },
             me.id,
           ),

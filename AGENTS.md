@@ -713,9 +713,10 @@ npm run verify:otmidnight   # 35 assert: lembur tengah malam, tanpa plafon duras
 npm run verify:leave2layer  # 85 assert: persetujuan cuti 2 tahap, kuota, jalur cadangan
 npm run verify:attstats    # 41 assert: streak kehadiran, null vs 0, celah hari kerja
 npm run verify:detail      # 41 assert: jarak kantor, radius terdekat, koordinat rusak
+npm run verify:storage     # 19 assert: status storage, foto lama, URL arbitrer
 npm run verify:payroll      # 84 assert: otorisasi gaji, angka negatif, slip terkunci
 npm run verify:stubguard    # 10 assert: guard stub benar-benar gagal
-npm run verify:docs        # 32 assert: dokumentasi + skrip vps tidak berbohong
+npm run verify:docs        # 84 assert: dokumentasi + skrip vps tidak berbohong
 ```
 
 Semuanya membersihkan data ujinya sendiri, jadi bisa dijalankan berulang

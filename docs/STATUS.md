@@ -33,7 +33,7 @@ bagiannya sendiri; tidak ada yang dihapus.
 | 4c-h | 3 komponen KPI harian (dipakai 7 halaman) | ✅ |
 | 4c-i | Overtime — 4 halaman/komponen | ✅ |
 | 5 | Payroll — 3 halaman | ✅ |
-| 4d | Cloudflare R2 (foto bukti lembur) | ⬜ |
+| 4d | Cloudflare R2 (foto bukti lembur) | 🟡 kode siap, storage belum aktif |
 | 6 | Migrasi data dari Supabase | ✅ |
 
 **Bug per fase:** cari `### Fase 4c-f` dst. **Katalog pola berulang:**
@@ -52,9 +52,35 @@ server. Allowlist stub di `scripts/verify-no-stub.ts` sengaja dibiarkan
 ada tapi **kosong**, dan `verify:stub` sekarang **gagal** kalau ada yang
 mengisinya.
 
-Yang tersisa tinggal **upload foto** (Fase 4d, butuh Cloudflare R2),
-dan pekerjaan **fitur** yang tertunda: persetujuan cuti dua lapis,
-GPS, multi-office, penghapusan plafon lembur, dan penyembunyian KPI.
+Yang tersisa tinggal **upload foto** (Fase 4d — kodenya sudah siap,
+hanya menunggu bucket R2), dan pekerjaan **fitur** yang tertunda:
+**penyembunyian KPI** untuk `lead_tim`/`hr`.
+
+Sudah beres dan terbukti dengan skrip verifikasi:
+
+| Yang | Bukti |
+|---|---|
+| Persetujuan cuti dua lapis | `verify:leave2layer` |
+| Jalur cadangan executive | `verify:leave2layer` |
+| Plafon durasi lembur dihapus | `verify:otmidnight` |
+| Streak kehadiran dashboard staf | `verify:attstats` |
+| Jarak kantor di kolom DETAIL | `verify:detail` |
+| Foto bukti: kode siap, storage belum | `verify:storage` |
+
+**Multi-office ternyata sudah benar** dan tidak perlu diperbaiki.
+Dilverifikasi langsung ke produksi: 2 kantor, **10 dari 10 divisi**
+sudah dipetakan, radius seragam 500 m, dan
+`verifyCheckInLocation` sudah memilih kantor terdekat di server
+(AGENTS.md §3.4 — geofence dihitung ulang di server, koordinat dari
+browser tidak dipercaya).
+
+**Izin lokasi yang popup-nya tertutup** bisa dipancing ulang. Dulu
+tidak ada jalan keluar dari halaman: user menekan "Tolak", browser
+memblokir permintaan berikutnya dan membalas error code 1 tanpa popup
+lagi, dan widget hanya menampilkan tombol "Absen Tanpa GPS".
+Sekarang ada tombol **Izinkan Lokasi Lagi** yang memanggil
+`permissions.query` lebih dulu dan, kalau statusnya masih `denied`,
+menyuruh user membuka pengaturan situs.
 
 ### Bukti bahwa data benar-benar pindah
 
@@ -450,6 +476,89 @@ jadi perintah `date` dari BusyBox menampilkan UTC. Tidak berpengaruh ke
 aplikasi — Node membaca `TZ` dari environment — tapi akan menyesatkan
 siapa pun yang menjalankan `docker exec ... date`.
 
+### Izin lokasi yang popup-nya tertutup — SUDAH ada jalan keluar
+
+**Yang terjadi sebelumnya:** user menekan "Tolak" (atau popup-nya
+kebetulan tertutup — Escape, klik di luar). Browser lalu memblokir
+permintaan lokasi berikutnya dan membalas **error code 1 tanpa popup
+lagi**, seumur sesi. Widget hanya menampilkan tombol "Absen Tanpa
+GPS". Tidak ada cara meminta izin lagi dari halaman — user yang tidak
+tahu harus masuk pengaturan browser akan bingung, dan tidak ada jalan
+keluar.
+
+**Sekarang:** tombol **"Izinkan Lokasi Lagi"** di dua tempat (prompt
+pra-check-in dan panduan lokasi).
+
+| State izin | Yang terjadi |
+|---|---|
+| `prompt` / `granted` | langsung minta lagi |
+| `denied` | disuruh buka pengaturan situs — mustahil diubah dari kode |
+| Permissions API tidak ada | tetap mencoba, mungkin popup-nya muncul |
+
+Dua detail yang menentukan berhasil atau tidak:
+
+1. **Permintaan harus dari dalam gerakan pengguna (klik).** Kalau
+   dipanggil dari `useEffect` atau setelah `await`, Chrome menolaknya
+   dengan "geolocation request must be triggered by user action" —
+   **tanpa popup sama sekali dan tanpa alasan yang terlihat**. Prosesnya
+   dipanggil langsung di dalam handler klik.
+
+2. `applyWatchPositionPolicy()` melonggarkan Feature Policy untuk
+   geolocation, supaya satu kegagalan tidak membuat browser
+   memblokir permintaan berikutnya.
+
+Sekalian dibersihkan di widget yang sama:
+
+- **`setTimeout` 15 detik yang tidak pernah dibatalkan.** Dihapus.
+  Timer-nya tetap hidup walaupun check-in selesai dalam 3 detik, lalu
+  15 detik kemudian men-set `isProcessing(false)` di tengah request
+  berikutnya — membatalkan check-in yang sedang jalan dan membuat
+  tombol bisa diklik dua kali.
+- **`console.log` yang mencetak seluruh objek attendance** setiap kali
+  tombol ditekan — termasuk email staf dan koordinat check-in mereka,
+  ke console browser.
+
+### `proof_images` menerima URL apa pun dari browser — ditemukan saat menyiapkan R2
+
+Tidak ada hubungannya dengan Cloudflare R2; ini ada **sebelum** R2
+tidak ada.
+
+`submitOvertimeReport` memakai `proofImages: input.proofImages ?? []` —
+daftar URL diambil **utuh dari browser tanpa pemeriksaan apa pun**.
+Siapa pun yang punya sesi bisa menempelkan URL apa saja, termasuk
+domain miliknya sendiri, lalu HR membukanya dan melihat gambar dari
+luar. Kolom `proof_images` jadi catatan yang isinya sepenuhnya
+dikendalikan pengirim, padahal kolom itu bukti kerja.
+
+**Sekarang aturannya satu arah:** URL yang sudah tersimpan boleh
+dipertahankan atau dihapus, URL **baru** tidak boleh masuk — karena
+memang belum ada jalur upload. Setelah R2 aktif, aturan ini berubah
+arah: daftar dari server digabung dengan yang baru diunggah.
+
+**Jalur baca juga rapuh.** `toOvertime` memakai `row.proofImages ?? []`
+— itu hanya menutup array yang `NULL`. Elemen di dalamnya belum
+disentuh, dan `text[]` di PostgreSQL **boleh** berisi `NULL` maupun
+string kosong. Dua-duanya sampai ke UI sebagai `<img src="">`, yang
+tampil sebagai kotak rusak tanpa penjelasan. Dipilah di `toOvertime`
+supaya setiap pembaca — UI staf, UI HR, modal detail — mendapat
+daftar bersih tanpa harus ingat memfilter sendiri.
+
+Foto yang sudah ada di produksi: **1 dari 4** pengajuan lembur punya
+foto, URL-nya `…supabase.co/storage/v1/object/public/overtime_proofs/…`.
+Bucket itu masih hidup, jadi tautannya masih bisa dibuka.
+
+### Foto yang dipilih dibuang diam-diam saat kirim laporan
+
+`handleSelectProofImages` masih menerima pilihan file dan
+menampilkannya sebagai thumbnail, tapi `handleSubmitReport` hanya
+mengirim `existingProofImages` — **foto baru yang baru saja dipilih
+tidak masuk ke body request sama sekali**. Staf melihat pratinjau di
+layar, menekan kirim, dan bukti kerjanya hilang tanpa pemberitahuan.
+
+Sekarang `handleSubmitReport` menolak dengan pesan kalau
+`newProofFiles` masih berisi file yang belum terunggah. Setelah R2
+aktif, jalur ini berubah jadi benar-benar mengunggah.
+
 ---
 
 ## Yang SUDAH selesai
@@ -729,7 +838,7 @@ halaman itu, tapi dari endpoint yang mereka panggil):
 
 ## Verifikasi
 
-15 skrip, **872 assert**. Semuanya membaca isi respons, isi
+16 skrip, **896 assert**. Semuanya membaca isi respons, isi
 database, atau isi file — bukan cuma status code.
 
 ```powershell
@@ -745,12 +854,13 @@ npm run verify:otmidnight   # 35  lembur tengah malam, penghapusan plafon durasi
 npm run verify:leave2layer   # 85  2 tahap, kuota, penolakan, jalur cadangan, halaman
 npm run verify:attstats     # 41  streak kehadiran, null vs 0, celah hari kerja
 npm run verify:detail       # 41  jarak kantor, radius terdekat, koordinat rusak
+npm run verify:storage      # 19  status storage, foto lama, URL arbitrer
 npm run verify:payroll      # 84  otorisasi, angka negatif, slip terkunci
 npm run verify:stubguard    # 10  guard stub-nya benar-benar gagal
-npm run verify:docs        # 79  dokumentasi + skrip vps tidak berbohong
+npm run verify:docs        # 84  dokumentasi + skrip vps tidak berbohong
 ```
 
-Total **872 assert**, 15 skrip.
+Total **896 assert**, 16 skrip.
 
 Semuanya membersihkan data ujinya sendiri dan bisa dijalankan berulang
 kali.
@@ -759,7 +869,7 @@ kali.
 tidak dijaga. `verify:docs` memanggil semua skrip `verify:*` untuk
 membandingkan angka di dokumen dengan yang benar-benar jalan — tapi
 memakai dirinya sendiri akan bercabang terus, jadi skrip itu
-**mengecualikan dirinya sendiri** (§3.17). Akibatnya angka 79 di atas
+**mengecualikan dirinya sendiri** (§3.17). Akibatnya angka 84 di atas
 harus **diperbarui tangan**.
 
 Dan angka itu **ikut tumbuh** setiap kali ada skrip `.sh` baru di
@@ -865,11 +975,63 @@ tapi wajib disertai alasan dan tercatat di `calculation_breakdown`.
 
 Verifikasi: `verify:overtime`, 76 assert.
 
-### Fase 4d — Cloudflare R2 (belum mulai)
+### Fase 4d — Cloudflare R2: kode sudah siap, storage belum diaktifkan
 
-Menunggu: upload bukti lembur (`overtime_proofs`), template & berkas
-surat.Dampak: saat ini `fileUrl` selalu `null` dan link "Unduh"
-disembunyikan.
+Menunggu: pembuatan bucket + kredensial R2. Setelah itu cukup isi
+`R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`
+di environment Coolify — **tanpa deploy kode lagi**, karena
+`providerAktif()` membaca dari environment.
+
+Dampak sementara: foto **baru** tidak bisa diunggah, foto **lama**
+tidak hilang. Kode: `src/server/storage/overtimeProofs.ts`.
+
+| Yang | Status |
+|---|---|
+| Upload foto bukti lembur | ❌ ditolak dengan pesan jelas |
+| Foto lama (URL Supabase) | ✅ tetap tampil, bucket masih hidup |
+| Berkas surat (`fileUrl`) | ❌ belum ada, tidak berubah |
+
+**Kenapa menolak, bukan fallback ke Supabase atau ke disk:** bukti kerja
+staf yang tersimpan di tempat yang tidak diaudit dan tidak di-backup
+lebih berbahaya daripada tidak ada sama sekali. Disimpan diam-diam juga
+berarti tidak ada yang tahu letaknya.
+
+Foto yang sudah tersimpan **tidak ikut terhapus** saat migrasi — yang
+dipindah cuma isi database, dan URL-nya masih menunjuk ke bucket
+Supabase yang belum dihapus.
+
+#### Tiga keputusan yang membuat kegagalan ini terlihat, bukan diam-diam
+
+1. **Pengecekan dipindah ke GET, bukan nanti saat upload.** Dulu UI
+   baru tahu setelah mencoba: staf sudah menyelesaikan laporan,
+   memotret foto, memilih file, memproses kompresi — baru ditolak.
+   Sekarang `GET /api/overtime` mengirim `storage: { aktif, alasan,
+   kurang }`, dan tombol unggah hanya tampil kalau `aktif === true`.
+   Kegagalan diketahui **sebelum** pekerjaannya dilakukan.
+
+2. **`default "tidak siap"`, bukan optimistic.** `storageAktif` mulai
+   dari `null` dan baru diisi setelah GET selesai. Kalau request gagal,
+   nilainya di-set `false` secara eksplisit — bukan dibiarkan `null`
+   yang bisa dibaca sebagai "belum tahu, jadi boleh".
+
+3. **Foto baru yang dipilih tidak lagi dibuang diam-diam.** Path
+   `handleSelectProofImages` masih bisa menghasilkan `newProofFiles`,
+   tapi `handleSubmitReport` **menolak mengirim** kalau isinya belum
+   terunggah. Formerly foto yang baru saja dipilih tidak masuk ke
+   body request sama sekali — staf melihat pratinjau
+   di layar, menekan kirim, dan bukti kerjanya hilang tanpa
+   pemberitahuan. Sekarang ditolak dengan pesan.
+
+#### Verifikasi: `verify:storage`
+
+`scripts/verify-storage-bukti.mjs` menguji yang tidak terlihat dari
+`tsc`: status storage benar-benar sampai ke payload, URL foto lama
+tetap diteruskan, URL kosong/`null` dibuang, URL server luar tidak
+bisa tersimpan, dan kode storage tidak punya jalur yang menulis ke
+disk atau mengembalikan URL kosong sebagai sukses.
+
+Foto yang sudah ada di produksi: **1 dari 4** pengajuan lembur punya
+foto, URL-nya `…supabase.co/storage/v1/object/public/overtime_proofs/…`.
 
 ### Fase 5 — Payroll ✅ selesai
 
