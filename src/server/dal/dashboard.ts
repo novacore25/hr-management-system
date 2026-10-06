@@ -612,3 +612,199 @@ export async function presenceSummary(date: string): Promise<{
     missed: { count: missedIds.length, names: names(missedIds) },
   };
 }
+
+/**
+ * Statistik kehadiran pribadi untuk bulan berjalan.
+ *
+ * Kartu "Attendance Streak" di dashboard staf sebelumnya menulis
+ * "100%" dan "Great Consistency!" sebagai TEKS LITERAL, tanpa query
+ * apa pun. Di produksi bulan ini: 9 dari 31 staf aktif belum punya
+ * absensi sama sekali, 6 orang persentasenya 0%, dan hanya 10 orang
+ * yang benar-benar 100%. Jadi angka itu salah untuk lebih dari
+ * separuh tim -- dan terlihat benar karena rapih.
+ *
+ * Bentuk yang dikembalikan sengaja memakai `null` untuk "tidak ada
+ * data", bukan 0. Keduanya berbeda: 0 berarti hadir tapi tidak tepat
+ * waktu, `null` berarti belum absen sama sekali. Kalau keduanya
+ * dibulatkan jadi 0, kartu akan menuduh orang yang belum absen
+ * sebagai tidak disiplin.
+ *
+ * `month` ada supaya test bisa menguji bulan tertentu. Tanpa itu,
+ * streak hanya bisa diuji terhadap bulan berjalan, yang isinya
+ * berubah setiap hari -- jadi test akan lulus atau gagal tergantung
+ * tanggal dijalankan, bukan tergantung kode.
+ */
+export async function myAttendanceMonth(
+  userId: string,
+  month?: { year: number; month: number },
+): Promise<{
+  /** Hari kerja yang tercatat bulan ini (bukan kalender). */
+  daysRecorded: number;
+  /** Hari dengan status on_time. */
+  daysOnTime: number;
+  /**
+   * Persentase tepat waktu bulan ini, atau `null` kalau belum absen.
+   * Angka bulat 0-100.
+   */
+  onTimePercent: number | null;
+  /**
+   * Beruntunnya hari on_time, dihitung dari hari terakhir yang tercatat.
+   *
+   * Dihitung dari hari kerja saja -- akhir pekan dan hari libur tidak
+   * memutus streak, karena tidak ada yang bisa absen di hari itu.
+   * Kalau ikut dihitung, streak semua orang akan putus setiap Jumat.
+   */
+  streak: number;
+  /** Hari terakhir yang tercatat, `YYYY-MM-DD`. Null kalau belum absen. */
+  lastRecordedOn: string | null;
+}> {
+  // Default ke bulan berjalan, dihitung dari zona waktu server --
+  // yang sudah di-set Asia/Jakarta lewat ENV TZ di Dockerfile.
+  //
+  // Rentang bulan disusun di sini, bukan lewat
+  // date_trunc('month', CURRENT_DATE), supaya `month` yang diberikan
+  // benar-benar dipakai. Kalau filternya tetap date_trunc, parameter
+  // itu diabaikan, dan test hanya bisa menguji bulan berjalan -- yang
+  // isinya berubah setiap hari. Hasilnya test lulus atau gagal
+  // tergantung tanggal dijalankan, bukan tergantung kode.
+  //
+  // Perhatikan: route wajib meneruskan `month`. Kalau tidak, parameter
+  // ini jadi tidak terjangkau dan test tidak bisa memverifikasi
+  // perhitungan streak sama sekali.
+  const now = new Date();
+  const target = month ?? { year: now.getFullYear(), month: now.getMonth() + 1 };
+  const from = `${target.year}-${String(target.month).padStart(2, "0")}-01`;
+  const nextYear = target.month === 12 ? target.year + 1 : target.year;
+  const nextMonth = target.month === 12 ? 1 : target.month + 1;
+  const to = `${nextYear}-${String(nextMonth).padStart(2, "0")}-01`;
+
+  const rows = await db
+    .select({
+      date: attendance.date,
+      status: attendance.status,
+    })
+    .from(attendance)
+    .where(
+      and(
+        eq(attendance.userId, userId),
+        sql`${attendance.checkIn} IS NOT NULL`,
+        gte(attendance.date, from),
+        sql`${attendance.date} < ${to}`,
+      ),
+    )
+    .orderBy(desc(attendance.date));
+
+  if (rows.length === 0) {
+    return {
+      daysRecorded: 0,
+      daysOnTime: 0,
+      onTimePercent: null,
+      streak: 0,
+      lastRecordedOn: null,
+    };
+  }
+
+  const isOnTime = (s: unknown) => s === "on_time";
+
+  const daysOnTime = rows.filter((r) => isOnTime(r.status)).length;
+
+  // Kolom `date` bertipe date dan Drizzle membacanya sebagai string
+  // "YYYY-MM-DD", bukan Date. new Date("2026-10-02") di Node parses
+  // sebagai UTC tengah malam; kalau lalu dipakai getFullYear() di
+  // zona WIB, hasilnya jadi TANGGAL SEBELUMNYA. Jadi semua tanggal
+  // di sini dipecah manual, tanpa Date sama sekali.
+  const toParts = (s: string) => ({
+    y: Number(s.slice(0, 4)),
+    m: Number(s.slice(5, 7)),
+    d: Number(s.slice(8, 10)),
+  });
+
+  // Streak menghitung dari baris terbaru yang ADA, bukan dari "hari ini".
+  //
+  // Alasannya: myAttendanceMonth() bisa dipanggil untuk bulan lampau,
+  // dan untuk bulan itu semua baris sudah lewat. Kalau acuannya hari
+  // ini, setiap baris akan dianggap "lebih lama dari hari ini" dan
+  // terbuang -- streak selalu 1, berapa pun isinya.
+  //
+  // Untuk bulan berjalan, baris pertama adalah hari kerja terakhir yang
+  // sudah lewat, jadi hasilnya sama dengan yang diharapkan.
+  let streak = 0;
+  let prev: { y: number; m: number; d: number } | null = null;
+
+  for (const r of rows) {
+    if (!isOnTime(r.status)) break;
+
+    // Baris diurutkan DESC, jadi `prev` lebih BARU dan `cur` lebih lama.
+    //
+    // Yang dicek: ada HARI KERJA di antara keduanya yang tidak punya
+    // baris absensi. Kalau tidak ada, keduanya berurutan dan streak
+    // lanjut. Kalau ada -- cuti di tengah-tengah, atau hari kerja yang
+    // terlewat -- streak putus.
+    //
+    // Dua kesalahan sebelumnya, keduanya membuat streak berhenti di 1:
+    //
+    //   a) Hitungan INKLUSIF kedua ujung, lalu `> 1`. Untuk dua hari
+    //      berurutan hasilnya 2 (keduanya dihitung), jadi 2 > 1 dan
+    //      streak putus padahal tidak ada yang terlewat.
+    //   b) Membalik urutan argumen (cur, prev), sehingga guard
+    //      `akhir < mulai` mengembalikan 0 dan celah TIDAK PERNAH
+    //      terdeteksi.
+    //
+    // Sekarang: hitungan workdays DI TENGAH (exclusive kedua ujung),
+    // dan threshold `> 0`.
+    if (prev && hariKerjaDiAntara(prev, toParts(r.date)) > 0) break;
+
+    streak++;
+    prev = toParts(r.date);
+  }
+
+  const percent = Math.round((daysOnTime / rows.length) * 100);
+
+  return {
+    daysRecorded: rows.length,
+    daysOnTime,
+    onTimePercent: percent,
+    streak,
+    lastRecordedOn: rows[0].date,
+  };
+}
+
+/**
+ * Berapa hari kerja (Sen-Jum) yang ada DI ANTARA dua tanggal.
+ *
+ * Kedua ujung TIDAK dihitung. Yang dihitung hanya hari kerja yang jatuh
+ * di antaranya, karena itu yang menentukan "ada yang terlewat atau
+ * tidak":
+ *
+ *   Senin lalu Selasa  -> 0 (berurutan, tidak ada yang terlewat)
+ *   Jumat lalu Senin   -> 0 (akhir pekan bukan hari kerja)
+ *   Senin lalu 2 minggu lalu -> 10 (cuti atau hari kerja terlewat)
+ *
+ * Parameter `lebihBaru` harus lebih baru dari `lebihLama`, sesuai
+ * urutan DESC baris. Kalau dibalik, hasilnya negatif.
+ *
+ * Dua kesalahan versi sebelumnya, dan keduanya membuat streak berhenti
+ * di 1 -- persis gejalanya di test:
+ *
+ *   a) Inklusif kedua ujung dengan ambang `> 1`. Dua hari berurutan
+ *      menghasilkan 2, jadi `2 > 1` memutus streak padahal tidak ada
+ *      yang terlewat.
+ *   b) Argumen terbalik (cur, prev), sehingga guard `akhir < mulai`
+ *      mengembalikan 0 -- celah tidak pernah terdeteksi, dan hari yang
+ *      sudah 2 minggu berlalu dianggap masih beruntun.
+ */
+function hariKerjaDiAntara(
+  lebihBaru: { y: number; m: number; d: number },
+  lebihLama: { y: number; m: number; d: number },
+): number {
+  const mulai = Date.UTC(lebihLama.y, lebihLama.m - 1, lebihLama.d) + 86_400_000;
+  const akhir = Date.UTC(lebihBaru.y, lebihBaru.m - 1, lebihBaru.d) - 86_400_000;
+  if (akhir < mulai) return 0;
+
+  let count = 0;
+  for (let t = mulai; t <= akhir; t += 86_400_000) {
+    const dow = new Date(t).getUTCDay();
+    if (dow !== 0 && dow !== 6) count++;
+  }
+  return count;
+}

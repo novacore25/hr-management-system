@@ -171,11 +171,23 @@ export function AttendanceWidget() {
   // (setelahnya juga saat tab/browser regain focus).
   const { data: summaryData } = useApiQuery<{
     summary: Summary;
-  }>(() => withQuery("/api/absensi/summary", { date: today }), [today], 30_000);
+    mine?: {
+      daysRecorded: number;
+      daysOnTime: number;
+      onTimePercent: number | null;
+      streak: number;
+      lastRecordedOn: string | null;
+    };
+  }>(() => withQuery("/api/absensi/summary", { date: today, mine: "1" }), [today], 30_000);
 
   useEffect(() => {
     if (summaryData?.summary) setSummary(summaryData.summary);
   }, [summaryData]);
+
+  // Statistik pribadi. Nilai null berarti belum ada absensi bulan ini --
+  // itu BUKAN 0, dan menampilkan 0 akan menuduh orang yang belum absen
+  // sebagai tidak disiplin.
+  const mine = summaryData?.mine ?? null;
 
   // ─ Check-in ─────────────────────────────────────────────────────────────────
   const doCheckIn = useCallback(async (
@@ -692,6 +704,68 @@ export function AttendanceWidget() {
       </div>
 
       {/* Quota Cards removed from widget to be placed globally */}
+
+      {/* Statistik kehadiran pribadi.
+
+          Angkanya dari myAttendanceMonth() di server. Sebelumnya kartu
+          ini menulis "100%" dan "Great Consistency!" sebagai TEKS
+          LITERAL tanpa query apa pun -- sementara di produksi hanya 10
+          dari 31 staf aktif yang benar-benar 100% bulan ini, 9 orang
+          belum absen sama sekali, dan 6 orang persentasenya 0%.
+
+          Tiga keadaan yang dibedakan di sini: belum absen (null),
+          hadir tapi terlambat (0), dan tepat waktu (100). Kalau
+          ketiganya diratakan, kartu akan menampilkan angka yang benar
+          hanya untuk orang yang kebetulan kondisinya, dan salah untuk
+          semua orang lain. */}
+      {mine && (
+        <div className="ab-card-tactile">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-[10px] font-black text-[var(--ab-text-dim)] uppercase tracking-[0.2em]">
+              Kehadiran Bulan Ini
+            </h3>
+            {mine.lastRecordedOn && (
+              <span className="text-[8px] font-bold text-[var(--ab-text-dim)] uppercase tracking-widest">
+                Terakhir {mine.lastRecordedOn}
+              </span>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="bg-[var(--ab-bg-main)] p-3 rounded-[24px] border border-[var(--ab-border)]">
+              <p className="text-[7px] font-black text-[var(--ab-text-dim)] uppercase tracking-widest mb-1">
+                Tepat Waktu
+              </p>
+              <p className="text-2xl font-black text-[var(--ab-text-main)] font-mono leading-none">
+                {mine.onTimePercent === null ? "--" : `${mine.onTimePercent}%`}
+              </p>
+              <p className="text-[9px] text-[var(--ab-text-dim)] mt-1">
+                {mine.daysRecorded === 0
+                  ? "Belum ada absensi"
+                  : `${mine.daysOnTime} dari ${mine.daysRecorded} hari`}
+              </p>
+            </div>
+            <div className="bg-[var(--ab-bg-main)] p-3 rounded-[24px] border border-[var(--ab-border)]">
+              <p className="text-[7px] font-black text-[var(--ab-text-dim)] uppercase tracking-widest mb-1">
+                Beruntun
+              </p>
+              <p className="text-2xl font-black text-[var(--ab-text-main)] font-mono leading-none">
+                {mine.daysRecorded === 0 ? "--" : mine.streak}
+                {mine.daysRecorded > 0 && mine.streak > 0 && (
+                  <span className="text-[10px] text-[var(--ab-text-dim)] ml-0.5">hari</span>
+                )}
+              </p>
+              <p className="text-[9px] text-[var(--ab-text-dim)] mt-1">
+                {mine.daysRecorded === 0
+                  ? "Belum ada absensi"
+                  : mine.streak === 0
+                    ? "Belum tepat waktu"
+                    : "Hari berturut-turut"}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* GPS Pre-Permission Modal */}
       {showGpsPrePrompt && (

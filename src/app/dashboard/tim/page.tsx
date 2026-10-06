@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
+import { useApiQuery } from "@/hooks/useApi";
+import { withQuery } from "@/lib/api-client";
 import { useMyAssignments } from "@/hooks/useAssignments";
 import { useKpiSettings } from "@/hooks/useKpiSettings";
 import { KpiCard } from "@/components/kpi/KpiCard";
@@ -35,6 +37,28 @@ export default function TimDashboard() {
   const filteredAssignments = assignments.filter((a) =>
     a.kpi && a.kpi.title?.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  // Statistik kehadiran pribadi, dari server.
+  //
+  // Diambil dari API yang sama dengan widget absensi supaya tidak ada
+  // dua sumber angka untuk hal yang sama -- kalau widget memakai satu
+  // perhitungan dan kartu ini menghitung ulang, keduanya bisa berbeda
+  // dan tidak ada yang mengetahuinya.
+  const { data: summaryData } = useApiQuery<{
+    mine?: {
+      daysRecorded: number;
+      daysOnTime: number;
+      onTimePercent: number | null;
+      streak: number;
+      lastRecordedOn: string | null;
+    };
+  }>(
+    () => withQuery("/api/absensi/summary", { mine: "1" }),
+    [],
+    60_000,
+  );
+
+  const attendanceStats = summaryData?.mine ?? null;
 
   if (isLoading) {
     return (
@@ -150,20 +174,62 @@ export default function TimDashboard() {
             </div>
           </div>
 
-          <div className="ab-glass rounded-[30px] !p-6 relative overflow-hidden transition-all duration-300 hover:-translate-y-1 hover:shadow-md border border-[var(--ab-border)] col-span-2 lg:col-span-1 hidden lg:block">
-            <div className="absolute top-0 left-0 w-2 h-full bg-emerald-500" />
-            <p className="text-xs font-black text-[var(--ab-text-dim)] uppercase tracking-widest mb-1 leading-none">
-              Attendance Streak
-            </p>
-            <div className="flex items-center gap-3 mt-4">
-              <span className="text-4xl font-black text-[var(--ab-text-main)] font-mono tracking-tighter">
-                100%
-              </span>
-              <span className="text-[10px] font-bold text-emerald-500 bg-emerald-500/10 px-2 py-1 rounded-md">
-                Great Consistency!
-              </span>
-            </div>
-          </div>
+          {/* Angka kehadiran yang SEBELUMNYA ditulis sebagai teks
+              literal "100%" dan "Great Consistency!" tanpa query apa
+              pun.
+
+              Di produksi bulan ini, dari 31 staf aktif: hanya 10 orang
+              yang benar-benar 100%, 6 orang persentasenya 0%, dan 9
+              orang belum punya absensi sama sekali. Jadi kartu itu
+              menampilkan angka yang salah untuk lebih dari separuh tim
+              -- dan kelihatan benar karena rapih.
+
+              Sekarang diambil dari widget absensi, yang menghitungnya
+              di server. Kalau widget belum termuat, kartu disembunyikan
+              -- lebih baik tidak tampil daripada menampilkan angka
+              yang tidak diketahui asalnya. */}
+          {attendanceStats && (() => {
+            // Persentase diambil ke variabel supaya TypeScript bisa
+            // mempersempit null di dalam JSX. Menulisnya inline di
+            // beberapa tempat akan membuat tiap pemakaian perlu cek
+            // ulang, dan satu yang lupa akan jadi "NaN%".
+            const persen = attendanceStats.onTimePercent;
+            return (
+              <div className="ab-glass rounded-[30px] !p-6 relative overflow-hidden transition-all duration-300 hover:-translate-y-1 hover:shadow-md border border-[var(--ab-border)] col-span-2 lg:col-span-1 hidden lg:block">
+                <div className="absolute top-0 left-0 w-2 h-full bg-emerald-500" />
+                <p className="text-xs font-black text-[var(--ab-text-dim)] uppercase tracking-widest mb-1 leading-none">
+                  Attendance Streak
+                </p>
+                <div className="flex items-center gap-3 mt-4">
+                  <span className="text-4xl font-black text-[var(--ab-text-main)] font-mono tracking-tighter">
+                    {persen === null ? "--" : `${persen}%`}
+                  </span>
+                  {attendanceStats.daysRecorded > 0 && persen !== null && (
+                    <span
+                      className={`text-[10px] font-bold px-2 py-1 rounded-md ${
+                        persen === 100
+                          ? "text-emerald-500 bg-emerald-500/10"
+                          : persen >= 80
+                            ? "text-amber-600 bg-amber-500/10"
+                            : "text-rose-500 bg-rose-500/10"
+                      }`}
+                    >
+                      {attendanceStats.streak > 0
+                        ? `${attendanceStats.streak} hari beruntun`
+                        : persen >= 80
+                          ? "Consistent"
+                          : "Perlu improve"}
+                    </span>
+                  )}
+                </div>
+                <p className="text-[9px] text-[var(--ab-text-dim)] mt-2">
+                  {attendanceStats.daysRecorded === 0
+                    ? "Belum ada absensi bulan ini"
+                    : `${attendanceStats.daysOnTime} dari ${attendanceStats.daysRecorded} hari tepat waktu`}
+                </p>
+              </div>
+            );
+          })()}
         </div>
 
         {/* RIGHT COLUMN: KPI Assignments & Stats */}

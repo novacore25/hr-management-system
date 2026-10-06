@@ -63,7 +63,19 @@ export function useHolidays() {
  */
 export function useAttendanceToday(userId?: string | null) {
   void userId;
-  const today = new Date().toISOString().slice(0, 10);
+
+  // Tanggal dihitung dari jam lokal browser, bukan toISOString().
+  //
+  // toISOString() selalu UTC. Untuk staf di WIB, setelah pukul 07:00
+  // UTC (14:00 WIB) tanggalnya sudah "besok" -- jadi widget akan
+  // menampilkan absensi kosong sepanjang sore, dan check-in sore hari
+  // akan ditolak "Check-in hanya bisa untuk hari ini".
+  //
+  // Browser tahu zona waktu staf; server tidak perlu ikut tahu.
+  const now = new Date();
+  const today =
+    `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-` +
+    `${String(now.getDate()).padStart(2, "0")}`;
 
   const build = useCallback(
     () => withQuery("/api/absensi/attendance", { mine: "1", date: today }),

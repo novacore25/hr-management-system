@@ -243,6 +243,84 @@ Persetujuan sendiri diizinkan, asalkan role-nya sesuai (keputusan
 pemilik sistem). Yang dilarang adalah menyetujui di tahap yang bukan
 haknya.
 
+### Angka dashboard staf yang sebelumnya salah — SUDAH
+
+Kartu "Attendance Streak" di `/dashboard/tim` menulis **"100%" dan
+"Great Consistency!" sebagai teks literal**, tanpa satu pun query. Di
+produksi pada bulan itu:
+
+| Keadaan | Jumlah (31 staf aktif) |
+|---|---|
+| Benar-benar 100% tepat waktu | 10 |
+| Persentasenya 0% | 6 |
+| **Belum punya absensi sama sekali** | **9** |
+
+Jadi kartu itu menampilkan angka yang salah untuk lebih dari separuh
+tim — dan kelihatan benar karena rapih. Kelas bug yang sama seperti
+§3.11: yang salah justru laporannya.
+
+Dua tempat sekarang membaca dari server lewat
+`myAttendanceMonth()` (`src/server/dal/dashboard.ts`), tersedia di
+`/api/absensi/summary?mine=1`:
+
+- `onTimePercent` — **atau `null` kalau belum absen**
+- `streak` — hari tepat waktu beruntun
+- `daysRecorded`, `daysOnTime`, `lastRecordedOn`
+
+`null` dan `0` sengaja dibedakan. `0` berarti hadir tapi terlambat;
+`null` berarti belum absen. Kalau diratakan, kartu akan menuduh orang
+yang belum absen sebagai tidak disiplin.
+
+**Streak menghitung hari kerja, bukan hari kalender.** Akhir pekan dan
+hari libur tidak memutus streak — kalau ikut dihitung, streak semua
+orang akan putus setiap Jumat.
+
+Tiga bug yang ketahuan hanya lewat test, bukan lewat `tsc`:
+
+1. **Inclusive + `> 1`.** Menghitung hari kerja inklusif kedua ujung
+   membuat dua hari berurutan bernilai 2, jadi `2 > 1` memutus streak
+   padahal tidak ada yang terlewat. Gejalanya: streak tidak pernah
+   lebih dari 1.
+2. **Argumen terbalik.** `(cur, prev)` padahal baris terurut DESC, jadi
+   guard `akhir < mulai` mengembalikan 0 dan celah tidak pernah
+   terdeteksi — hari yang sudah 2 minggu berlalu dianggap beruntun.
+3. **Rentang inklusif, bukan *di antara*.** Jawaban yang benar:
+   berapa hari kerja yang jatuh **di tengah** dua tanggal. Nol berarti
+   berurutan.
+
+`verify:attstats` 41 assert mengujinya, termasuk yang harus bernilai
+`null`, selisih akhir pekan, dan celah yang memutus.
+
+Parameter `month=YYYY-MM` ada supaya test bisa memakai bulan lampau.
+Tanpa itu, streak hanya bisa diuji terhadap bulan berjalan — isinya
+berubah setiap tanggal, jadi test lulus atau gagal tergantung tanggal
+dijalankan, bukan tergantung kode.
+
+### Zona waktu: sudah dipastikan benar, tapi rapuh
+
+Check-in memakai `new Date().getHours()` di server, tanpa
+`Intl.DateTimeFormat` — jadi hasilnya mengikuti `TZ` environment.
+
+Diverifikasi langsung di container: `TZ=Asia/Jakarta`,
+`getHours()` = 10:24, `Intl` Jakarta = 10:24, UTC = 03:24. **Benar.**
+Data produksi juga mengonfirmasi: `check_in` tersimpan 08:02 sementara
+`created_at` UTC-nya 01:02 — jadi jam WIB, 7 jam lebih lambat.
+
+Dua tempat yang masih rapuh, keduanya mudah dilupakan di kemudian hari:
+
+1. `/api/absensi/summary` memakai `toISOString()` untuk tanggal default,
+   yang selalu UTC. Setelah pukul 17:00 WIB tanggalnya sudah "besok".
+2. `useAttendanceToday` (hook di `AttendanceWidget`) juga memakai
+   `toISOString()`.
+
+Keduanya sudah diganti ke tanggal dari jam lokal. Kalau hook itu
+dihapus karena deprecated, jangan pulihkan `toISOString()`-nya.
+
+`/etc/localtime` **tidak ada** di container (tzdata tidak dipasang),
+jadi perintah `date` dari BusyBox menampilkan UTC. Tidak berpengaruh ke
+aplikasi — Node membaca `TZ` dari environment — tapi akan menyesatkan
+siapa pun yang menjalankan `docker exec ... date`.
+
 ---
 
 ## Yang SUDAH selesai
@@ -522,7 +600,7 @@ halaman itu, tapi dari endpoint yang mereka panggil):
 
 ## Verifikasi
 
-12 skrip, **750 assert**. Semuanya membaca isi respons, isi
+13 skrip, **791 assert**. Semuanya membaca isi respons, isi
 database, atau isi file — bukan cuma status code.
 
 ```powershell
@@ -535,12 +613,13 @@ npm run verify:adminkpi     # 64  role, divisi, bobot, hapus KPI
 npm run verify:hrkpi        # 123 sampah, restore, cascade, bulk, copy, form
 npm run verify:overtime     # 76  tahap lembur, transisi, gaji di server
 npm run verify:leave2layer   # 84  2 tahap, kuota, penolakan, jalur cadangan, halaman
+npm run verify:attstats     # 41  streak kehadiran, null vs 0, celah hari kerja
 npm run verify:payroll      # 84  otorisasi, angka negatif, slip terkunci
 npm run verify:stubguard    # 10  guard stub-nya benar-benar gagal
 npm run verify:docs        # 79  dokumentasi + skrip vps tidak berbohong
 ```
 
-Total **750 assert**, 12 skrip.
+Total **791 assert**, 13 skrip.
 
 Semuanya membersihkan data ujinya sendiri dan bisa dijalankan berulang
 kali.
