@@ -158,6 +158,66 @@ Tiga jebakan di tabel itu:
    `AGENTS.md`). Di produksi tidak mungkin terjadi, tapi kalau pernah
    melihatnya, build-nya memang bentrok.
 
+#### 3.2.1 `HTTP 000` berarti hostname-nya salah, bukan aplikasinya mati
+
+Host yang terdaftar di Traefik (dibaca dari label container):
+
+| Host | Untuk |
+|---|---|
+| `rredcbao7tqz34pkqeelf8xx.168.231.118.146.sslip.io` | hostname Coolify, Let's Encrypt |
+| `app1.tntkreatif.com` | domain asli |
+| `www.app1.tntkreatif.com` | domain asli, www |
+
+Host yang **tidak** terdaftar, misalnya `hr.168.231.118.146.sslip.io`,
+membalas **`HTTP 000`** — curl tidak dapat respons sama sekali, karena
+Traefik tidak punya router untuk Host itu.
+
+`000` mudah disalahartikan sebagai "aplikasi mati" atau "deploy
+rusak". Kalau begitu, orang akan menyalahkan build lalu me-restart
+container yang sebenarnya sehat.
+
+Bedakan dari tabel:
+
+| Kode | Arti |
+|---|---|
+| `000` | tidak ada router untuk Host tersebut — cek hostname |
+| `404` | router ada, path tidak ada |
+| `302` | rute hidup, butuh sesi |
+| `401` | sesi tidak valid — ini kabar baik |
+| `500` | baru ini masalahnya |
+
+**Jangan mengetik hostname sendiri.** Ambil dari label Traefik:
+
+```sh
+docker inspect "$APP" \
+  --format '{{index .Config.Labels "traefik.http.routers.https-0-rredcbao7tqz34pkqeelf8xx.rule"}}'
+```
+
+### 3.2.2 Bukti bahwa kode baru benar-benar ikut ter-deploy
+
+"Deploy finished" + "container healthy" **tidak** membuktikan kode baru
+sudah ter-bundle. Yang membuktikannya: cari **literal string** di
+dalam `.next` di dalam container.
+
+```sh
+docker exec "$APP" sh -c "grep -rl 'Menunggu Persetujuan HR' /app/.next | wc -l"
+```
+
+Dua jebakan dari pemeriksaan ini:
+
+1. **Nama fungsi tidak akan ditemukan.** Build produksi minify nama
+   fungsi, jadi `decideLeaveStage` dan `hrRoleAvailability` berubah
+   jadi `aB` dan tidak akan muncul di `.next` sama sekali. Yang tidak
+   berubah hanya literal string dan nama field di objek JSON. Jadi
+   nyari nama fungsi untuk membuktikan deploy akan selalu gagal, dan
+   kesimpulannya ("kodenya tidak ada") salah.
+2. **Lihat dari dalam container, bukan dari `/root` di host.** Kalau
+   sumbernya terbaca dari host, hasilnya selalu ada walau build-nya
+   yang basi — persis bentuk kesalahan yang paling mahal di §3.11.
+
+Untuk verifikasi lengkap lewat domain yang benar, pakai
+`scripts/vps/vps-verify-prod.sh`.
+
 ### 3.3 Kalau deploy gagal
 
 Coolify tidak memberi tahu lewat chat. Cek:

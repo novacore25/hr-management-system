@@ -470,13 +470,27 @@ npm run verify:overtime     # 76  tahap lembur, transisi, gaji di server
 npm run verify:leave2layer   # 70  persetujuan 2 tahap, kuota, penolakan, halaman
 npm run verify:payroll      # 84  otorisasi, angka negatif, slip terkunci
 npm run verify:stubguard    # 10  guard stub-nya benar-benar gagal
-npm run verify:docs        # 32  dokumentasi + skrip vps tidak berbohong
+npm run verify:docs        # 79  dokumentasi + skrip vps tidak berbohong
 ```
 
-Total **689 assert**, 12 skrip.
+Total **736 assert**, 12 skrip.
 
 Semuanya membersihkan data ujinya sendiri dan bisa dijalankan berulang
 kali.
+
+⚠️ **Angka `verify:docs` tidak bisa diverifikasi sendiri**, jadi ia
+tidak dijaga. `verify:docs` memanggil semua skrip `verify:*` untuk
+membandingkan angka di dokumen dengan yang benar-benar jalan — tapi
+memakai dirinya sendiri akan bercabang terus, jadi skrip itu
+**mengecualikan dirinya sendiri** (§3.17). Akibatnya angka 79 di atas
+harus **diperbarui tangan**.
+
+Dan angka itu **ikut tumbuh** setiap kali ada skrip `.sh` baru di
+`scripts/vps/`, karena salah satu pemeriksaan verify:docs dilakukan
+per berkas. Tambah satu skrip VPS = tambah satu assert. Jadi kalau
+angka ini terlihat meleset tanpa ada yang mengubah kode apa pun,
+penyebabnya hampir selalu skrip baru di `scripts/vps/` — bukan
+kerusakan guard.
 
 `verify:hrkpi` lahir dari halaman yang sama — termasuk assert bahwa
 restore benar-benar menghidupkan penugasan, dan bahwa jalur satu-id juga
