@@ -81,6 +81,103 @@ GPS, multi-office, penghapusan plafon lembur, dan penyembunyian KPI.
 
 ---
 
+### Persetujuan cuti 2 tahap -- SUDAH, dibuktikan 70 assert
+
+Alur: `pending` -> executive -> `approved_executive` -> HR -> `approved`.
+
+Tiga hal yang sebelumnya sudah ada di database tapi tidak dipakai:
+
+1. **`approved_executive` tidak pernah dipakai.** Select DAL sudah
+   mengambil 15 kolom 2 tahap sejak migrasi 0014, tapi
+   `toLeaveRequest()` membuang hasilnya. Jadi tahap 1 tidak punya
+   tempat untuk berhenti, dan approve langsung lompat ke final --
+   persetujuan 2 tahap berubah jadi 1 tahap tanpa error.
+2. **Keduanya `*_by_name` dan `*_by` dibutuhkan.** 287 dari 346 baris
+   punya nama tanpa UUID, karena backfill lama menyalin
+   `processed_by` yang berisi NAMA. Kalau UI hanya membaca UUID,
+   riwayat approvals kosong untuk 83 persen baris.
+3. **`decideLeave` diganti `decideLeaveStage`.** Fungsi lamanya
+   dihapus, bukan dibiarkan dipanggil: kalau dibiarkan, ada jalan
+   yang menyetujui langsung ke `approved` tanpa lewat executive.
+
+Yang ditentukan dari data produksi, bukan dari tebakan:
+
+| Pertanyaan | Bukti |
+|---|---|
+| Urutan tahap | Dari 259 baris berduplikasi timestamp, **259** punya `executive_approved_at <= hr_approved_at`, **0** sebaliknya |
+| Siapa tahap 1 | `Calvin` dan `ibanDev`, keduanya `kpi_role='executive'` |
+| Siapa tahap 2 | `Marcella Dian Mutiara`, `kpi_role='hr'` |
+| Kapan kuota dipotong | Hanya di tahap 2. 20 pengajuan yang ditolak punya `deducted_*` nol semua, termasuk satu yang sudah `executive_status='approved'` lalu ditolak HR |
+| Default kolom | `executive_status` dan `hr_status` keduanya `DEFAULT 'pending'` |
+
+Yang diperiksa test, termasuk yang harus DITOLAK:
+
+- HR tidak bisa menyetujui tahap 1; executive tidak bisa menyetujui
+  tahap 2; role lain (mis. head) tidak bisa menyetujui sama sekali
+- Tidak bisa menyetujui dua kali -- kuota tidak terpotong dua kali
+- Menolak di tahap 1 maupun tahap 2 tidak memotong kuota
+- Nama dan waktu persetujuan ikut terkirim ke klien
+- Halaman approvals benar-benar mengembalikan HTML untuk executive,
+  HR, dan head -- tanpa teks error server
+
+Dua perbedaan sengaja antara kode 403 dan 400:
+
+| Kasus | Kode | Alasannya |
+|---|---|---|
+| Role tidak punya tahap sama sekali (`head`, `tim`) | **403** | permission tidak ada, tahapnya tidak diperiksa |
+| Role punya tahap, tapi pengajuannya belum di tahapnya | **400** | penolakan *state*: HR memang berhak menyetujui, tapi pengajuan ini belum di gilirannya |
+
+Memakai 403 untuk kasus kedua justru lebih tidak informatif: pesannya
+menyiratkan "Anda tidak berhak", padahal yang sebenarnya adalah
+"menunggu executive".
+
+### Sisi UI: gating tombol per tahap
+
+Halaman `/absensi/admin/approvals` sebelumnya **tidak punya
+pengecekan role sama sekali** -- tombol Setujui muncul untuk siapa
+saja yang bisa membuka halaman. Itu tidak masalah saat approve
+langsung ke final, tapi setelah tahap 1 dipisah jadi berarti: HR akan
+melihat pengajuan executive dan executive akan melihat pengajuan HR,
+lalu keduanya ditolak `400`.
+
+Sekarang tombolnya disembunyikan, bukan hanya ditolak server, dan
+penggantinya menampilkan "Menunggu Executive" atau "Menunggu HR" --
+jadi halaman tetap terbaca, dan pesannya tidak perlu error sama
+sekali. Ditambah seksi baru "Menunggu Persetujuan HR" yang menampilkan
+siapa yang sudah menyetujui di tahap 1.
+
+Penyebabnya bukan server yang lemah: `STAGE_ROLE` di DAL sudah menolak
+role yang salah sejak awal. Yang hilang cuma tampilan.
+
+### Kode mati yang dihapus
+
+`rowToLeaveRequest()` di `src/types/absensi.ts` dihapus: grep seluruh
+`src/` menemukan hanya definisinya, tanpa satu pun pemanggilan.
+
+Empat saudaranya -- `rowToAttendance`, `rowToAbsensiUser`,
+`rowToSettings`, `rowToOvertimeRequest` -- **masih ada dan juga mati**.
+Keduanya hal yang sama: sisa era Supabase, pemetaer
+`snake_case -> camelCase`, sementara server sudah mengirim camelCase.
+Komentarnya sendiri sudah menyatakan begitu di dua tempat.
+
+Empat itu sengaja tidak disentuh sekarang karena di luar lingkup
+pekerjaan ini. Kalau dibiarkan, setiap penambahan kolom di masa depan
+akan tercatat sebagai "typecheck gagal" -- persis seperti yang terjadi
+pada `rowToLeaveRequest`.
+
+**RISIKO YANG HARUS Anda tahu:** hanya `Marcella Dian Mutiara` yang
+aktif dengan `kpi_role='hr'`; yang satu lagi berstatus `deleted`.
+Kalau dia tidak aktif atau sedang cuti, semua pengajuan berhenti di
+`approved_executive`. Halaman approvals menampilkan peringatan
+kalau tidak ada HR aktif -- diambil dari `hrRoleAvailability()`, bukan
+ditulis manual.
+
+Persetujuan sendiri diizinkan, asalkan role-nya sesuai (keputusan
+pemilik sistem). Yang dilarang adalah menyetujui di tahap yang bukan
+haknya.
+
+---
+
 ## Yang SUDAH selesai
 
 ### Lapisan infrastruktur
@@ -358,7 +455,7 @@ halaman itu, tapi dari endpoint yang mereka panggil):
 
 ## Verifikasi
 
-Sebelas skrip, **619 assert**. Semuanya membaca isi respons, isi
+12 skrip, **689 assert**. Semuanya membaca isi respons, isi
 database, atau isi file — bukan cuma status code.
 
 ```powershell
@@ -370,12 +467,13 @@ npm run verify:reports      # 65  koreksi, kepemilikan, tanggal
 npm run verify:adminkpi     # 64  role, divisi, bobot, hapus KPI
 npm run verify:hrkpi        # 123 sampah, restore, cascade, bulk, copy, form
 npm run verify:overtime     # 76  tahap lembur, transisi, gaji di server
+npm run verify:leave2layer   # 70  persetujuan 2 tahap, kuota, penolakan, halaman
 npm run verify:payroll      # 84  otorisasi, angka negatif, slip terkunci
 npm run verify:stubguard    # 10  guard stub-nya benar-benar gagal
 npm run verify:docs        # 32  dokumentasi + skrip vps tidak berbohong
 ```
 
-Total **619 assert**, sebelas skrip.
+Total **689 assert**, 12 skrip.
 
 Semuanya membersihkan data ujinya sendiri dan bisa dijalankan berulang
 kali.

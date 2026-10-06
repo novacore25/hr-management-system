@@ -22,6 +22,7 @@
     "verify:adminkpi": "node scripts/verify-admin-kpi.mjs",
     "verify:hrkpi": "node scripts/verify-hr-kpi.mjs",
     "verify:overtime": "node scripts/verify-overtime.mjs",
+    "verify:leave2layer": "node scripts/verify-leave-2layer.mjs",
     "verify:payroll": "node scripts/verify-payroll.mjs",
     "verify:stubguard": "node scripts/verify-stub-guard.mjs",
     "verify:docs": "node scripts/verify-docs.mjs",

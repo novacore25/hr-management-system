@@ -1,6 +1,7 @@
 import {
   withAuth,
   requireUser,
+  requireProfile,
   requireAbsensiAdmin,
   requireActiveAbsensiStaff,
 } from "@/server/dal/guards";
@@ -11,12 +12,18 @@ import {
   createLeaveRequest,
   cancelOwnRequest,
   requestCancellation,
-  decideLeave,
+  decideLeaveStage,
   decideCancellation,
   adjustQuota,
   findLeaveRequest,
+  hrRoleAvailability,
 } from "@/server/dal/leave";
-import type { LeaveRequestStatus, LeaveRequestType } from "@/types/absensi";
+import type {
+  LeaveRequestStatus,
+  LeaveRequestType,
+  LeaveStage,
+} from "@/types/absensi";
+import { nextStageFor } from "@/types/absensi";
 
 export const dynamic = "force-dynamic";
 
@@ -67,19 +74,37 @@ export async function GET(request: Request) {
       const { listLeaveRequests } = await import("@/server/dal/leave");
 
       const all = await listLeaveRequests();
-      const counts = await countStaffByStatus();
+      const [counts, hr] = await Promise.all([
+        countStaffByStatus(),
+        hrRoleAvailability(),
+      ]);
+
+      const pending = all
+        .filter((r) => r.status === "pending")
+        .sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
+
+      // Tahap 2: sudah disetujui executive, menunggu HR.
+      const waitingHr = all
+        .filter((r) => r.status === "approved_executive")
+        .sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
 
       return {
-        pending: all
-          .filter((r) => r.status === "pending")
-          .sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1)),
+        pending,
+        waitingHr,
         cancellations: all.filter(
           (r) => r.status === "approved" && r.cancellationRequested === true,
         ),
         history: all.filter(
-          (r) => r.status === "approved" || r.status === "rejected",
+          (r) =>
+            r.status === "approved" ||
+            r.status === "rejected" ||
+            r.status === "approved_executive",
         ),
         pendingStaffCount: counts.pending,
+        // Dikirim ke UI supaya halaman bisa memperingatkan bahwa
+        // pengajuan menumpuk karena tidak ada HR yang bisa menyetujui.
+        hrAvailable: hr.count > 0,
+        hrCount: hr.count,
       };
     }
 
@@ -131,7 +156,10 @@ export async function POST(request: Request) {
  */
 export async function PATCH(request: Request) {
   return withAuth(async () => {
-    const me = await requireUser();
+    // requireProfile, bukan requireUser: tahap persetujuan ditentukan
+    // dari kpi_role, yang hanya ada di tabel users. SessionUser dari
+    // Auth.js tidak memuatnya.
+    const me = await requireProfile();
     const body = await request.json();
     const { id, action } = body;
 
@@ -163,7 +191,36 @@ export async function PATCH(request: Request) {
 
     let result;
     if (action === "approve" || action === "reject") {
-      result = await decideLeave(id, action, adminName);
+      // Tahap ditentukan dari role, bukan dari kiriman klien:
+      // executive menyetujui tahap 1, HR menyetujui tahap 2.
+      // DAL akan menolak kalau tahap dan status tidak cocok, jadi
+      // executive tidak bisa menyetujui di tahap 2 dan sebaliknya.
+      const stage: LeaveStage | null =
+        me.kpiRole === "executive"
+          ? "executive"
+          : me.kpiRole === "hr"
+            ? "hr"
+            : null;
+
+      if (!stage) {
+        return Response.json(
+          {
+            ok: false,
+            error:
+              "Persetujuan cuti 2 tahap hanya untuk role kpi_role='executive' (tahap 1) atau 'hr' (tahap 2). Role Anda: " +
+              me.kpiRole,
+          },
+          { status: 403 },
+        );
+      }
+
+      result = await decideLeaveStage(
+        id,
+        stage,
+        action,
+        { id: me.id, name: me.name, kpiRole: me.kpiRole },
+        body.notes,
+      );
     } else if (
       action === "approve-cancellation" ||
       action === "reject-cancellation"

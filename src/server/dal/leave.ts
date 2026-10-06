@@ -7,7 +7,9 @@ import type {
   LeaveRequest,
   LeaveRequestType,
   LeaveRequestStatus,
+  LeaveStage,
 } from "@/types/absensi";
+import { STAGE_LABEL } from "@/types/absensi";
 
 type Row = typeof leaveRequests.$inferSelect & {
   userName: string | null;
@@ -76,6 +78,34 @@ function toLeaveRequest(row: Row): LeaveRequest {
     // pemohon.
     userName: row.userName,
     departmentName: row.departmentName,
+
+    // Persetujuan 2 tahap.
+    //
+    // Semua kolom ini SUDAH diambil oleh `select` di atas sejak
+    // migrasi 0014 -- select-nya benar, mapper-nya yang membuang
+    // hasilnya. Akibatnya `status: approved_executive` tidak pernah
+    // terlihat, dan halaman approvals tidak bisa menampilkan siapa
+    // yang sudah menyetujui.
+    //
+    // Timestamp dikembalikan sebagai ISO string supaya bentuknya sama
+    // dengan createdAt/updatedAt di atas; kolomnya timestamptz di
+    // database, dan memanggil .toISOString() langsung di sini akan
+    // tidak terbaca kalau kolomnya null.
+    deductedUrgent: row.deductedUrgent,
+    executiveStatus: row.executiveStatus,
+    executiveApprovedBy: row.executiveApprovedBy,
+    executiveApprovedByName: row.executiveApprovedByName,
+    executiveApprovedAt: row.executiveApprovedAt?.toISOString() ?? null,
+    executiveNotes: row.executiveNotes,
+    hrStatus: row.hrStatus,
+    hrApprovedBy: row.hrApprovedBy,
+    hrApprovedByName: row.hrApprovedByName,
+    hrApprovedAt: row.hrApprovedAt?.toISOString() ?? null,
+    hrNotes: row.hrNotes,
+    rejectionStage: row.rejectionStage,
+    rejectionReason: row.rejectionReason,
+    rejectedBy: row.rejectedBy,
+    rejectedAt: row.rejectedAt?.toISOString() ?? null,
   };
 }
 
@@ -425,42 +455,186 @@ export async function requestCancellation(
  * cuti siapa saja. Di sini pemanggil WAJIB lewat requireAbsensiAdmin()
  * sebelum fungsi ini dipanggil, dan kuotanya tidak pernah bisa minus.
  */
-export async function decideLeave(
+/**
+ * Orang yang akan memutuskan pengajuan, dibaca dari database.
+ *
+ * `name` diambil dari session, bukan dari body request -- kalau
+ * dari body, siapa pun bisa menulis nama orang lain di riwayat.
+ */
+export type LeaveApprover = {
+  id: string;
+  name: string;
+  /** kpi_role dari tabel users: tim | head | hr | executive | developer */
+  kpiRole: string;
+};
+
+/**
+ * Role yang boleh memutuskan tiap tahap.
+ *
+ * Ditentukan dari data, bukan dari asumsi. Dari 8 pengajuan yang benar
+ *-benar lewat 2 tahap di produksi:
+ *
+ *   tahap 1  Calvin [executive/admin], ibanDev [executive/admin]
+ *   tahap 2  Marcella Dian Mutiara [hr/admin]
+ *
+ * Dan urutan timestampnya konsisten: dari 259 baris yang punya kedua
+ * timestamp, 259 punya executive_approved_at <= hr_approved_at, dan
+ * nol sebaliknya.
+ *
+ * CATATAN RISIKO: kpi_role='hr' hanya ada pada 2 user, dan salah
+ * satunya berstatus deleted. Kalau HR yang tersisa tidak aktif, semua
+ * pengajuan akan berhenti di approved_executive. Halaman approvals
+ * menampilkan peringatan kalau hal itu terjadi.
+ */
+const STAGE_ROLE: Record<LeaveStage, string> = {
+  executive: "executive",
+  hr: "hr",
+};
+
+/**
+ * Apakah ada HR aktif yang bisa menyetujui tahap 2?
+ *
+ * Hanya 2 user punya kpi_role='hr', dan di data terbaru salah satunya
+ * berstatus deleted. Kalau keduanya tidak aktif, semua pengajuan akan
+ * berhenti di approved_executive tanpa ada yang bisa menyelesaikannya.
+ *
+ * Halaman approvals memakai ini untuk menampilkan peringatan, supaya
+ * penumpukan itu terlihat dari antarmuka dan bukan baru terasa saat
+ * semua orang wondering kenapa pengajuannya tidak diproses.
+ *
+ * COUNT() tanpa filter absensi_status sengaja di sini: yang dihitung
+ * adalah siapa yang ADA, lalu dicek satu per satu di bawah.
+ */
+export async function hrRoleAvailability(): Promise<{
+  count: number;
+  names: string[];
+}> {
+  const rows = await db
+    .select({
+      name: users.name,
+      absensiStatus: users.absensiStatus,
+      status: users.status,
+    })
+    .from(users)
+    .where(eq(users.kpiRole, "hr"));
+
+  const aktif = rows.filter(
+    (r) =>
+      r.absensiStatus === "active" &&
+      (r.status === null || r.status === "active" || r.status === undefined),
+  );
+
+  return { count: aktif.length, names: aktif.map((r) => r.name) };
+}
+
+export async function decideLeaveStage(
   id: string,
+  stage: LeaveStage,
   action: "approve" | "reject",
-  adminName: string,
+  approver: LeaveApprover,
+  notes?: string,
 ): Promise<CreateLeaveResult> {
   const req = await findLeaveRequest(id);
   if (!req) return { ok: false, reason: "Pengajuan tidak ditemukan." };
-  if (req.status !== "pending") {
+
+  // ── Status saat ini harus cocok dengan tahap yang diputuskan ──
+  //
+  // Tanpa cek ini, executive bisa menyetujui pengajuan yang sudah
+  // disetujui HR, dan HR bisa menyetujui pengajuan yang belum pernah
+  // dilihat executive. Keduanya akan ditulis di atas data yang sudah
+  // final, dan tidak ada yang akan menampilkan Override-nya.
+  const now = new Date();
+
+  if (stage === "executive") {
+    if (req.status !== "pending") {
+      return {
+        ok: false,
+        reason: `Pengajuan ini sudah berstatus ${req.status}, jadi bukan giliran executive. Executive hanya menyetujui pengajuan berstatus pending; kalau statusnya approved_executive, gilirannya HR.`,
+      };
+    }
+  } else {
+    if (req.status !== "approved_executive") {
+      return {
+        ok: false,
+        reason: `Pengajuan ini berstatus ${req.status}, jadi bukan giliran HR. HR hanya menyetujui pengajuan yang sudah di tahap executive, yaitu berstatus approved_executive.`,
+      };
+    }
+  }
+
+  // ── Role pemohon ────────────────────────────────────────────
+  //
+  // Persetujuan sendiri diizinkan, asalkan role-nya sesuai -- sesuai
+  // keputusan pemilik sistem. Yang dilarang adalah menyetujui di tahap
+  // yang bukan haknya.
+  const butuh = STAGE_ROLE[stage];
+  if (approver.kpiRole !== butuh) {
     return {
       ok: false,
-      reason: `Pengajuan sudah diproses sebelumnya (${req.status}).`,
+      reason: `Tahap ${STAGE_LABEL[stage]} hanya untuk role kpi_role='${butuh}'. Role Anda: ${approver.kpiRole}`,
     };
   }
 
+  // ── TOLAK ───────────────────────────────────────────────────
   if (action === "reject") {
+    const set =
+      stage === "executive"
+        ? { executiveStatus: "rejected" as const }
+        : { hrStatus: "rejected" as const };
+
     await db
       .update(leaveRequests)
       .set({
+        ...set,
         status: "rejected",
-        processedBy: adminName,
-        processedAt: new Date(),
-        updatedAt: new Date(),
+        rejectionStage: stage,
+        rejectionReason: notes?.trim() || null,
+        rejectedBy: approver.name,
+        rejectedAt: now,
+        updatedAt: now,
       })
       .where(eq(leaveRequests.id, id));
 
     await writeLog({
-      actorId: adminName,
-      action: "leave_rejected",
+      actorId: approver.name,
+      action: `leave_rejected_${stage}`,
       targetUserId: req.userId,
-      details: `${adminName}: ${req.dates.join(", ")}`,
+      details: `${approver.name}: ${req.dates.join(", ")}${notes ? " -- " + notes : ""}`,
     });
 
     return { ok: true, request: (await findLeaveRequest(id))! };
   }
 
-  // Approve -> kurasi kuota (dibatasi agar tidak pernah minus)
+  // ── SETUJUI TAHAP 1: executive ──────────────────────────────
+  //
+  // BELUM memotong kuota. Pengajuan ini belum final, dan HR masih
+  // bisa menolak. Bukti dari data: 20 pengajuan yang ditolak punya
+  // deducted_* nol semua, termasuk satu yang executive_status-nya
+  // sudah 'approved' lalu ditolak HR.
+  if (stage === "executive") {
+    await db
+      .update(leaveRequests)
+      .set({
+        status: "approved_executive",
+        executiveStatus: "approved",
+        executiveApprovedBy: approver.id,
+        executiveApprovedByName: approver.name,
+        executiveApprovedAt: now,
+        executiveNotes: notes?.trim() || null,
+        updatedAt: now,
+      })
+      .where(eq(leaveRequests.id, id));
+
+    await writeLog({
+      actorId: approver.name,
+      action: "leave_approved_executive",
+      targetUserId: req.userId,
+      details: `${approver.name}: ${req.type} ${req.dates.join(", ")}`,
+    });
+
+    return { ok: true, request: (await findLeaveRequest(id))! };
+  }
+
+  // ── SETUJUI TAHAP 2: HR -- di sini kuota dipotong ──────────
   let deductedSick = 0;
   let deductedLeave = 0;
 
@@ -468,7 +642,7 @@ export async function decideLeave(
     const days = req.dates.length;
 
     if (req.type === "sick") {
-      // Pakai sisa kuota sakit dulu, sisanya potong kuota cuti
+      // Pakai sisa kuota sakit dulu, sisanya potong kuota cuti.
       const [quota, used] = await Promise.all([
         getQuota(req.userId),
         usedQuotaThisMonth(req.userId),
@@ -486,7 +660,7 @@ export async function decideLeave(
         // GREATEST(0, ...) memastikan kuota tidak pernah negatif
         sickQuota: sql`GREATEST(0, sick_quota - ${deductedSick})`,
         leaveQuota: sql`GREATEST(0, leave_quota - ${deductedLeave})`,
-        updatedAt: new Date(),
+        updatedAt: now,
       })
       .where(eq(users.id, req.userId));
   }
@@ -495,19 +669,24 @@ export async function decideLeave(
     .update(leaveRequests)
     .set({
       status: "approved",
-      processedBy: adminName,
-      processedAt: new Date(),
+      hrStatus: "approved",
+      hrApprovedBy: approver.id,
+      hrApprovedByName: approver.name,
+      hrApprovedAt: now,
+      hrNotes: notes?.trim() || null,
+      processedBy: approver.name,
+      processedAt: now,
       deductedSick,
       deductedLeave,
-      updatedAt: new Date(),
+      updatedAt: now,
     })
     .where(eq(leaveRequests.id, id));
 
   await writeLog({
-    actorId: adminName,
+    actorId: approver.name,
     action: "leave_approved",
     targetUserId: req.userId,
-    details: `${adminName}: ${req.type} ${req.dates.join(", ")} (sick -${deductedSick}, cuti -${deductedLeave})`,
+    details: `${approver.name}: ${req.type} ${req.dates.join(", ")} (sick -${deductedSick}, cuti -${deductedLeave})`,
   });
 
   return { ok: true, request: (await findLeaveRequest(id))! };

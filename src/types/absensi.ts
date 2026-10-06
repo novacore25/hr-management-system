@@ -83,7 +83,73 @@ export interface LeaveRequest {
    */
   userName?: string | null;
   departmentName?: string | null;
+
+  // Persetujuan 2 tahap.
+  //
+  // Alur: pending -> approved_executive -> approved.
+  // Tahap 1 oleh executive, tahap 2 oleh HR.
+  //
+  // deducted_* baru diisi pada tahap 2, bukan tahap 1. Dibuktikan dari
+  // data: 20 pengajuan yang ditolak (19 di tahap executive, 1 di tahap
+  // hr) semuanya punya potongan nol -- termasuk satu yang sudah
+  // executive_status='approved' lalu ditolak HR. Kalau dipotong di
+  // tahap 1, 20 pengajuan itu akan kehilangan kuota tanpa pernah
+  // disetujui.
+  //
+  // Kedua pasangan kolom *_by dibutuhkan. 287 dari 346 baris punya
+  // executive_approved_by_name tanpa executive_approved_by, karena
+  // backfill lama menyalin processed_by yang berisi NAMA, bukan id.
+  // Kalau UI hanya membaca UUID, riwayat approvals akan kosong untuk
+  // 83 persen baris.
+  deductedUrgent: number;
+  executiveStatus: string | null;
+  executiveApprovedBy: string | null;
+  executiveApprovedByName: string | null;
+  executiveApprovedAt: string | null;
+  executiveNotes: string | null;
+  hrStatus: string | null;
+  hrApprovedBy: string | null;
+  hrApprovedByName: string | null;
+  hrApprovedAt: string | null;
+  hrNotes: string | null;
+  /** Tahap yang menolak: 'executive' atau 'hr'. Null kalau tidak ditolak. */
+  rejectionStage: string | null;
+  rejectionReason: string | null;
+  rejectedBy: string | null;
+  rejectedAt: string | null;
 }
+
+/**
+ * Tahap persetujuan cuti: executive lebih dulu, lalu HR.
+ *
+ * Urutannya bukan tebakan. Dari 259 baris yang punya kedua timestamp,
+ * 259 punya executive_approved_at <= hr_approved_at, dan nol punya
+ * urutan sebaliknya.
+ */
+export type LeaveStage = "executive" | "hr";
+
+/**
+ * Tahap yang harus bertindak untuk pengajuan berstatus tertentu.
+ *
+ * null kalau pengajuannya sudah selesai -- tidak ada yang menunggu.
+ * Status rejected, cancelled, dan approved semuanya null.
+ */
+export function nextStageFor(status: LeaveRequestStatus): LeaveStage | null {
+  if (status === "pending") return "executive";
+  if (status === "approved_executive") return "hr";
+  return null;
+}
+
+/**
+ * Label tahap untuk UI.
+ *
+ * Dipisah dari nextStageFor supaya teks Bahasa Indonesia tidak ikut
+ * masuk ke logika transisi.
+ */
+export const STAGE_LABEL: Record<LeaveStage, string> = {
+  executive: "Executive",
+  hr: "HR",
+};
 
 // ─── Settings ─────────────────────────────────────────────────────────────────
 
@@ -159,24 +225,6 @@ export function rowToAttendance(row: Record<string, unknown>): Attendance {
   };
 }
 
-export function rowToLeaveRequest(row: Record<string, unknown>): LeaveRequest {
-  return {
-    id:                    row.id as string,
-    userId:                row.user_id as string,
-    type:                  row.type as LeaveRequestType,
-    dates:                 (row.dates as string[]) ?? [],
-    reason:                (row.reason as string) ?? "",
-    status:                row.status as LeaveRequestStatus,
-    processedBy:           row.processed_by as string | null,
-    processedAt:           row.processed_at as string | null,
-    deductedSick:          (row.deducted_sick as number) ?? 0,
-    deductedLeave:         (row.deducted_leave as number) ?? 0,
-    cancellationRequested: (row.cancellation_requested as boolean) ?? false,
-    cancellationReason:    row.cancellation_reason as string | null,
-    createdAt:             row.created_at as string,
-    updatedAt:             row.updated_at as string,
-  };
-}
 
 export function rowToAbsensiUser(row: Record<string, unknown>): AbsensiUser {
   const deptName = (row.departments as { name: string } | null)?.name ?? null;

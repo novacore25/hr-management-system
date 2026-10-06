@@ -35,6 +35,16 @@ interface PendingRequest {
   deductedLeave?: number;
   status?: string;
   departmentName?: string;
+  // Persetujuan 2 tahap. *_ByName dipakai, bukan *_By, karena 287
+  // dari 346 baris punya nama tanpa UUID -- UUID-nya tidak selalu ada.
+  executiveStatus?: string | null;
+  executiveApprovedByName?: string | null;
+  executiveApprovedAt?: string | null;
+  hrStatus?: string | null;
+  hrApprovedByName?: string | null;
+  hrApprovedAt?: string | null;
+  rejectionStage?: string | null;
+  rejectionReason?: string | null;
 }
 
 type ConfirmCfg = {
@@ -61,6 +71,19 @@ export default function AdminApprovalsPage() {
   const [cancelReqs, setCancelReqs] = useState<PendingRequest[]>([]);
   const [historyReqs, setHistoryReqs] = useState<PendingRequest[]>([]);
   const [pendingStaffCount, setPendingStaffCount] = useState(0);
+
+  // Tahap 2: sudah disetujui executive, menunggu HR.
+  const [waitingHrReqs, setWaitingHrReqs] = useState<PendingRequest[]>([]);
+
+  // False kalau tidak ada kpi_role='hr' yang aktif. Kalau false,
+  // pengajuan akan menumpuk di approved_executive tanpa ada yang
+  // bisa menyelesaikannya -- jadi harus terlihat, bukan diam-diam.
+  const [hrAvailable, setHrAvailable] = useState(true);
+
+  const [leaveTab, setLeaveTab] = useState<
+    "pending" | "waitingHr" | "cancellations" | "history"
+  >("pending");
+
   const [isLoading, setIsLoading] = useState(true);
   const [confirmCfg, setConfirmCfg] = useState<ConfirmCfg>(null);
 
@@ -171,9 +194,12 @@ const fetchOvertime = useCallback(async () => {
         ok: boolean;
         data?: {
           pending?: any[];
+          waitingHr?: any[];
           cancellations?: any[];
           history?: any[];
           pendingStaffCount?: number;
+          hrAvailable?: boolean;
+          hrCount?: number;
         };
       };
 
@@ -195,6 +221,30 @@ const fetchOvertime = useCallback(async () => {
           createdAt: r.createdAt,
         })),
       );
+
+      setHrAvailable(d.hrAvailable !== false);
+
+      const keBentuk = (r: any): PendingRequest => ({
+        id: r.id,
+        userId: r.userId,
+        userName: r.userName ?? "Unknown",
+        departmentName: r.departmentName ?? "Umum",
+        type: r.type,
+        dates: r.dates ?? [],
+        reason: r.reason ?? "",
+        createdAt: r.createdAt,
+        status: r.status,
+        executiveStatus: r.executiveStatus ?? null,
+        executiveApprovedByName: r.executiveApprovedByName ?? null,
+        executiveApprovedAt: r.executiveApprovedAt ?? null,
+        hrStatus: r.hrStatus ?? null,
+        hrApprovedByName: r.hrApprovedByName ?? null,
+        hrApprovedAt: r.hrApprovedAt ?? null,
+        rejectionStage: r.rejectionStage ?? null,
+        rejectionReason: r.rejectionReason ?? null,
+      });
+
+      setWaitingHrReqs((d.waitingHr ?? []).map(keBentuk));
 
       setCancelReqs(
         (d.cancellations ?? []).map((r) => ({
@@ -483,6 +533,26 @@ const fetchOvertime = useCallback(async () => {
     return acc;
   }, {} as Record<string, PendingRequest[]>);
 
+  // Untuk apa pun yang menunggu keputusan, tahap berikutnya.
+  //
+  // Halaman ini sebelumnya tidak punya pengecekan role sama sekali --
+  // tombol approve muncul untuk siapa saja yang bisa membuka halaman.
+  // Itu tidak masalah saat approve langsung ke final, tapi jadi berarti
+  // setelah tahap 1 dipisah: executive akan melihat pengajuan HR dan
+  // HR akan melihat pengajuan executive, lalu ditolak server dengan
+  // 400. Tombolnya harus disembunyikan, bukan hanya ditolak.
+  const kpiRole = user?.kpiRole ?? null;
+  const tahapSaya = kpiRole === "executive" ? "executive" : kpiRole === "hr" ? "hr" : null;
+
+  const bisaPutuskan = (tahap: "executive" | "hr") => tahapSaya === tahap;
+
+  const groupedWaitingHr = waitingHrReqs.reduce((acc, req) => {
+    const dept = req.departmentName || "Umum";
+    if (!acc[dept]) acc[dept] = [];
+    acc[dept].push(req);
+    return acc;
+  }, {} as Record<string, PendingRequest[]>);
+
   const groupedHistory = historyReqs.reduce((acc, req) => {
     const dept = req.departmentName || "Umum";
     if (!acc[dept]) acc[dept] = [];
@@ -607,6 +677,15 @@ const fetchOvertime = useCallback(async () => {
                           </div>
                         </div>
                         <div className="flex gap-2">
+                          {/* Tombol hanya untuk executive, karena daftar ini
+                              adalah tahap 1. HR yang membuka halaman ini
+                              melihat pengajuan yang bukan gilirannya --
+                              menampilkan tombol yang pasti ditolak 400
+                              hanya membuat halaman terasa rusak, dan
+                              pesan penolakannya tidak punya nilai
+                              diagnostik. */}
+                          {bisaPutuskan("executive") ? (
+                            <>
                           <button
                             onClick={() => processRequest(req, "approve")}
                             className="flex-1 bg-green-500 text-white py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-green-600 transition shadow-lg flex items-center justify-center gap-2"
@@ -619,6 +698,12 @@ const fetchOvertime = useCallback(async () => {
                           >
                             <X size={14} /> Tolak
                           </button>
+                            </>
+                          ) : (
+                            <div className="flex-1 flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest text-[var(--ab-text-dim)] opacity-70 border border-dashed border-[var(--ab-border)] py-3 rounded-2xl">
+                              <Clock size={12} /> Menunggu Executive
+                            </div>
+                          )}
                         </div>
                       </div>
                     ))}
@@ -627,6 +712,138 @@ const fetchOvertime = useCallback(async () => {
               ))
             )}
           </div>
+
+          {/* Tahap 2: sudah disetujui executive, menunggu HR */}
+          {waitingHrReqs.length > 0 && (
+            <div className="space-y-4 mt-8">
+              <div className="flex items-center gap-3">
+                <div className="bg-blue-500 w-2 h-6 rounded-full"></div>
+                <h2 className="text-xl font-black text-[var(--ab-text-main)] uppercase tracking-tight">
+                  Menunggu Persetujuan HR
+                </h2>
+                <span className="bg-[var(--ab-bg-main)] px-2 py-1 rounded-full text-[10px] font-black text-[var(--ab-text-dim)] border border-[var(--ab-border)]">
+                  {waitingHrReqs.length} Pengajuan
+                </span>
+              </div>
+
+              {/* Peringatan kalau tidak ada HR yang bisa menyetujui.
+                  Diambil dari hrRoleAvailability() di server, bukan
+                  ditulis manual di sini. Tanpa peringatan ini,
+                  pengajuan menumpuk di approved_executive dan tidak ada
+                  yang tahu kenapa -- gejalanya "HRnya lambat", padahal
+                  tidak ada HR yang bisa dipakai. */}
+              {!hrAvailable && (
+                <div className="flex items-start gap-3 bg-red-50 border border-red-200 dark:bg-red-900/20 dark:border-red-800 p-4 rounded-2xl">
+                  <AlertCircle size={18} className="text-red-500 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-xs font-black text-red-700 dark:text-red-400 uppercase tracking-wide">
+                      Tidak ada HR aktif yang bisa menyetujui tahap akhir
+                    </p>
+                    <p className="text-[11px] text-red-600 dark:text-red-300 mt-1 leading-relaxed">
+                      Tahap persetujuan ini butuh user dengan kpi_role=&apos;hr&apos;. Pengajuan di
+                      bawah ini akan tertahan sampai ada HR yang bisa menyetujui --
+                      executive tidak bisa menyelesaikannya, karena tahapnya bukan haknya.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              <div className="space-y-8">
+                {Object.entries(groupedWaitingHr).map(([deptName, reqs]) => (
+                  <div key={deptName} className="space-y-4">
+                    <div className="flex items-center gap-2">
+                      <div className="bg-[var(--ab-primary)] w-2 h-6 rounded-full"></div>
+                      <h3 className="text-lg font-black text-[var(--ab-text-main)] uppercase tracking-tight">{deptName}</h3>
+                      <span className="bg-[var(--ab-bg-main)] px-2 py-1 rounded-full text-[10px] font-black text-[var(--ab-text-dim)] border border-[var(--ab-border)]">
+                        {reqs.length} Pengajuan
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                      {reqs.map((req) => (
+                        <div key={req.id} className="bg-[var(--ab-bg-surface)] p-5 rounded-[32px] border border-[var(--ab-border)] space-y-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="font-black text-[var(--ab-text-main)] text-sm">
+                                {req.userName}
+                              </p>
+                              <p className="text-[10px] text-[var(--ab-text-dim)] uppercase font-bold tracking-widest mt-0.5">
+                                {typeLabel(req.type)} &middot; {req.dates.length} hari
+                              </p>
+                            </div>
+                            <span className="bg-blue-500/10 text-blue-600 dark:text-blue-400 px-2 py-1 rounded-full text-[9px] font-black uppercase tracking-widest shrink-0">
+                              Tahap 2
+                            </span>
+                          </div>
+
+                          {/* Siapa yang sudah menyetujui di tahap 1.
+                              Nama, bukan UUID: 287 dari 346 baris punya
+                              nama tanpa UUID karena backfill lama
+                              menyalin processed_by yang berisi NAMA.
+                              Kalau kolom UUID yang ditampilkan, riwayat
+                              approvals kosong untuk 83 persen baris. */}
+                          <div className="flex items-start gap-2 text-[10px] bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800 rounded-xl px-3 py-2">
+                            <CheckCircle2 size={12} className="text-emerald-600 shrink-0 mt-0.5" />
+                            <span className="text-emerald-700 dark:text-emerald-400 font-semibold">
+                              Disetujui executive: {req.executiveApprovedByName ?? "tidak tercatat"}
+                              {req.executiveApprovedAt && (
+                                <>
+                                  {/* Karakter &middot; literal, bukan
+                                      entitas HTML: entitas hanya diparse
+                                      di teks JSX, dan ini ada di dalam
+                                      ekspresi. */}
+                                  {" · "}
+                                  {new Date(req.executiveApprovedAt).toLocaleDateString("id-ID", {
+                                    day: "numeric",
+                                    month: "short",
+                                    year: "numeric",
+                                  })}
+                                </>
+                              )}
+                            </span>
+                          </div>
+
+                          <div className="text-[11px] text-[var(--ab-text-dim)]">
+                            {req.dates.join(", ")}
+                          </div>
+
+                          <div className="flex items-start gap-2 text-[10px] font-medium text-[var(--ab-text-dim)] italic px-2">
+                            <FileEdit size={12} className="mt-1 text-[var(--ab-text-dim)] shrink-0 opacity-40" />
+                            <span className="line-clamp-2">&ldquo;{req.reason}&rdquo;</span>
+                          </div>
+
+                          <div className="flex gap-2">
+                            {/* Hanya HR. Executive sudah menyetujui di
+                                tahap 1 -- menampilkannya tombol di sini
+                                berarti tombol yang pasti ditolak. */}
+                            {bisaPutuskan("hr") ? (
+                              <>
+                                <button
+                                  onClick={() => processRequest(req, "approve")}
+                                  className="flex-1 bg-green-500 text-white py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-green-600 transition shadow-lg flex items-center justify-center gap-2"
+                                >
+                                  <Check size={14} /> Setujui
+                                </button>
+                                <button
+                                  onClick={() => processRequest(req, "reject")}
+                                  className="flex-1 bg-[var(--ab-bg-main)] text-red-500 border border-[var(--ab-border)] py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-red-500 hover:text-white transition flex items-center justify-center gap-2"
+                                >
+                                  <X size={14} /> Tolak
+                                </button>
+                              </>
+                            ) : (
+                              <div className="flex-1 flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest text-[var(--ab-text-dim)] opacity-70 border border-dashed border-[var(--ab-border)] py-3 rounded-2xl">
+                                <Clock size={12} /> Menunggu HR
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Cancellation Requests */}
           {cancelReqs.length > 0 && (
