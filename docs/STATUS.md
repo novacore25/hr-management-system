@@ -147,6 +147,29 @@ Yang diuji (section 13, 12 assert):
 | HR tidak aktif | **200**, kuota dipotong, tercatat sebagai cadangan |
 | HR aktif lagi | **403** lagi |
 
+Cara mengeceknya di produksi tanpa mengubah apa pun:
+`scripts/vps/vps-probe-fallback.sh`. Ia mencari **literal string** di
+dalam `.next` (`mode cadangan`, `tidak ada HR aktif`,
+`leave_approved_hr_by_executive_fallback`, `sudah berstatus`) — bukan
+nama fungsi, karena nama fungsi ter-minify dan tidak akan pernah
+ditemukan (§3.2.2 di `DEPLOY.md`).
+
+`probe-actions.sql` menjawab pertanyaan yang lebih halus: apakah kolom
+`absensi_logs.action` punya batasan yang akan menolak action baru. Di
+produksi ternyata `varchar` tanpa CHECK, jadi aman tanpa migrasi —
+sudah dicoba INSERT lalu di-ROLLBACK. Ini dicek karena kalau ada enum
+atau CHECK, kegagalan baru muncul saat seseorang benar-benar menutup
+pengajuan dalam mode cadangan, bukan saat compile atau build.
+
+Penamaan action tidak konsisten di codebase ini, dan itu disengaja
+tidak dibetulkan sekarang: ada konvensi lama dari sistem Supabase
+(`approve_leave`, `hr_approve_leave`, `executive_approve_leave`) dan
+konvensi baru era migrasi (`leave_approved`, `leave_approved_executive`).
+Menyamakan keduanya berarti mengubah 11 action yang sudah tercatat di
+riwayat produksi — dan membacanya jadi lebih sulit, bukan lebih mudah.
+Halaman log classifies dari `includes()`, jadi keduanya tetap tampil
+dengan benar.
+
 Test mengubah `absensi_status` HR sementara dan memulihkannya di
 `finally`, jadi satu assert yang gagal tidak meninggalkan database
 dalam kondisi yang salah untuk run berikutnya.
