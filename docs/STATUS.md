@@ -68,6 +68,7 @@ Sudah beres dan terbukti dengan skrip verifikasi:
 | Foto bukti: kode siap, storage belum | `verify:storage` |
 | Cegah KPI kembar di server | `verify:kpikembar` |
 | Notes KPI read-only + tipe `hr` | `verify:kpitampil` |
+| Upah lembur & payroll: tipe numeric dijaga number (cegah string concat) | `verify:otnumbers` |
 
 **Multi-office ternyata sudah benar** dan tidak perlu diperbaiki.
 Dilverifikasi langsung ke produksi: 2 kantor, **10 dari 10 divisi**

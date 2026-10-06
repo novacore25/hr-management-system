@@ -154,9 +154,11 @@ export function countWorkingDaysInMonth(year: number, month: number): number {
 /**
  * Formats a number as Indonesian Rupiah currency string
  */
-export function formatRp(amount: number | null | undefined): string {
-  if (amount === null || amount === undefined || isNaN(amount)) return "Rp 0";
-  return `Rp ${Math.round(amount).toLocaleString("id-ID")}`;
+export function formatRp(amount: number | string | null | undefined): string {
+  if (amount === null || amount === undefined) return "Rp 0";
+  const num = typeof amount === "number" ? amount : Number(amount);
+  if (!Number.isFinite(num) || isNaN(num)) return "Rp 0";
+  return `Rp ${Math.round(num).toLocaleString("id-ID")}`;
 }
 
 /**

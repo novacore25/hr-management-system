@@ -83,24 +83,27 @@ export default function OvertimeFinalizeModal({
     const calculated = calculateOvertimeRates(baseSalary);
 
     // Check if this overtime request was previously finalized
+    const savedPayNum = Number(overtime.totalOvertimePay);
     const hasLegitimateSavedPay =
       overtime.status === "finalized" &&
-      typeof overtime.totalOvertimePay === "number" &&
-      overtime.totalOvertimePay > 0;
+      Number.isFinite(savedPayNum) &&
+      savedPayNum > 0;
 
     if (hasLegitimateSavedPay) {
+      const savedHourlyRate = Number(overtime.hourlyBaseRate);
       const baseRate =
-        (overtime.hourlyBaseRate && overtime.hourlyBaseRate > 0)
-          ? overtime.hourlyBaseRate
+        Number.isFinite(savedHourlyRate) && savedHourlyRate > 0
+          ? savedHourlyRate
           : calculated.hourlyBaseRate;
 
       setHourlyBaseRate(baseRate);
 
       const expectedCalc = calculateOvertimePayDepnaker(defaultMins, baseRate, initialDayType as any);
-      const wasManualOverride = overtime.calculationBreakdown?.isOverride === true ||
-        (typeof overtime.totalOvertimePay === "number" && Math.abs(overtime.totalOvertimePay - expectedCalc) > 5);
+      const wasManualOverride =
+        overtime.calculationBreakdown?.isOverride === true ||
+        (Number.isFinite(savedPayNum) && Math.abs(savedPayNum - expectedCalc) > 5);
 
-      setTotalPayOverride(wasManualOverride ? overtime.totalOvertimePay! : null);
+      setTotalPayOverride(wasManualOverride ? savedPayNum : null);
       // Alasannya ikut dipulihkan, kalau pengajuan ini pernah di-override.
       setOverrideReason(overtime.calculationBreakdown?.overrideReason ?? "");
     } else {

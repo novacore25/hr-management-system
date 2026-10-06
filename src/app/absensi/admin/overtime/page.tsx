@@ -118,7 +118,15 @@ export default function AdminOvertimePage() {
       // tidak perlu lagi.
       setOvertimes((json.data?.requests ?? []) as OvertimeRequest[]);
       setStaffSettings(
-        (json.data?.settings ?? []) as unknown as PayrollStaffSetting[],
+        (json.data?.settings ?? []).map((s: any) => ({
+          ...s,
+          user_id: s.user_id || s.userId,
+          userId: s.userId || s.user_id,
+          default_base_salary: Number(s.default_base_salary ?? s.defaultBaseSalary ?? 0),
+          defaultBaseSalary: Number(s.defaultBaseSalary ?? s.default_base_salary ?? 0),
+          default_mobility_allowance: Number(s.default_mobility_allowance ?? s.defaultMobilityAllowance ?? 0),
+          defaultMobilityAllowance: Number(s.defaultMobilityAllowance ?? s.default_mobility_allowance ?? 0),
+        })) as unknown as PayrollStaffSetting[],
       );
     } catch (err) {
       console.error("fetchData exception:", err);
@@ -161,14 +169,22 @@ export default function AdminOvertimePage() {
     overtimes.forEach((o) => {
       const uId = o.userId;
       if (!map[uId]) {
-        const setting = staffSettings.find((s) => s.user_id === uId);
+        const setting = staffSettings.find(
+          (s) => s.user_id === uId || (s as any).userId === uId,
+        );
+        const baseSal = Number(
+          setting?.default_base_salary ??
+            (setting as any)?.defaultBaseSalary ??
+            o.calculationBreakdown?.baseSalary ??
+            0,
+        );
         map[uId] = {
           user: {
             id: uId,
             name: o.userName || "Karyawan",
             department: o.userDepartment || "Umum",
             position: o.userPosition || "-",
-            baseSalary: setting?.default_base_salary || 0,
+            baseSalary: baseSal,
           },
           items: [],
           totalFinalDays: 0,
@@ -182,8 +198,8 @@ export default function AdminOvertimePage() {
 
       if (o.status === "finalized") {
         map[uId].totalFinalDays += 1;
-        map[uId].totalFinalMinutes += o.finalDurationMinutes || 0;
-        map[uId].totalFinalPay += o.totalOvertimePay || 0;
+        map[uId].totalFinalMinutes += Number(o.finalDurationMinutes) || 0;
+        map[uId].totalFinalPay += Number(o.totalOvertimePay) || 0;
       }
 
       if (o.status === "pending" || o.status === "reported") {
@@ -241,8 +257,8 @@ export default function AdminOvertimePage() {
     overtimes.forEach((o) => {
       uniqueUsers.add(o.userId);
       if (o.status === "finalized") {
-        totalFinalMins += o.finalDurationMinutes || 0;
-        totalFinalNominal += o.totalOvertimePay || 0;
+        totalFinalMins += Number(o.finalDurationMinutes) || 0;
+        totalFinalNominal += Number(o.totalOvertimePay) || 0;
       }
       if (o.status === "pending") totalPendingReview++;
       if (o.status === "reported") totalNeedFinalize++;
@@ -879,7 +895,22 @@ export default function AdminOvertimePage() {
           onClose={() => setFinalizingReq(null)}
           overtime={finalizingReq}
           baseSalary={
-            staffSettings.find((s) => s.user_id === finalizingReq.userId)?.default_base_salary || 0
+            Number(
+              staffSettings.find(
+                (s) =>
+                  s.user_id === finalizingReq.userId ||
+                  (s as any).userId === finalizingReq.userId,
+              )?.default_base_salary ??
+                (
+                  staffSettings.find(
+                    (s) =>
+                      s.user_id === finalizingReq.userId ||
+                      (s as any).userId === finalizingReq.userId,
+                  ) as any
+                )?.defaultBaseSalary ??
+                finalizingReq.calculationBreakdown?.baseSalary ??
+                0,
+            )
           }
           onSuccess={fetchData}
         />

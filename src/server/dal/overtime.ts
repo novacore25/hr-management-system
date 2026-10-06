@@ -149,11 +149,29 @@ const select = {
   departmentName: departments.name,
 };
 
-export type OvertimeWithUser = Omit<Row, "createdAt" | "updatedAt" | "approvalDate" | "reportSubmittedAt"> & {
+export type OvertimeWithUser = Omit<
+  Row,
+  | "createdAt"
+  | "updatedAt"
+  | "approvalDate"
+  | "reportSubmittedAt"
+  | "hourlyBaseRate"
+  | "totalOvertimePay"
+  | "firstHourRate"
+  | "firstHourPay"
+  | "subsequentHourRate"
+  | "subsequentHourPay"
+> & {
   createdAt: string;
   updatedAt: string;
   approvalDate: string | null;
   reportSubmittedAt: string | null;
+  hourlyBaseRate: number;
+  totalOvertimePay: number;
+  firstHourRate: number | null;
+  firstHourPay: number | null;
+  subsequentHourRate: number | null;
+  subsequentHourPay: number | null;
 };
 
 function toOvertime(row: Row): OvertimeWithUser {
@@ -171,9 +189,16 @@ function toOvertime(row: Row): OvertimeWithUser {
     proofImages: (row.proofImages ?? []).filter(
       (u): u is string => typeof u === "string" && u.trim() !== "",
     ),
-    // Kolomnya `numeric` — drizzle mengembalikannya sebagai string.
-    hourlyBaseRate: String(Number(row.hourlyBaseRate)),
-    totalOvertimePay: String(Number(row.totalOvertimePay)),
+    // Kolom database numeric — dikembalikan sebagai number ke UI
+    // agar penjumlahan upah tidak mengalami bug penyambungan string.
+    hourlyBaseRate: Number(row.hourlyBaseRate ?? 0),
+    totalOvertimePay: Number(row.totalOvertimePay ?? 0),
+    firstHourRate: row.firstHourRate != null ? Number(row.firstHourRate) : null,
+    firstHourPay: row.firstHourPay != null ? Number(row.firstHourPay) : null,
+    subsequentHourRate:
+      row.subsequentHourRate != null ? Number(row.subsequentHourRate) : null,
+    subsequentHourPay:
+      row.subsequentHourPay != null ? Number(row.subsequentHourPay) : null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     approvalDate: row.approvalDate ? row.approvalDate.toISOString() : null,
@@ -718,6 +743,8 @@ export async function finalizeOvertime(
         isCapped: isOverCap,
         budgetSaved: isOverCap ? uncapped - capped : 0,
         totalOvertimePay: finalPay,
+        totalDurationMinutes: duration,
+        depnakerFormula: true,
         isOverride,
         overrideReason: input.overrideReason ?? null,
       },
@@ -796,12 +823,13 @@ export async function listPayrollStaffSettings() {
     .leftJoin(departments, eq(users.departmentId, departments.id))
     .orderBy(users.name);
 
-  // `numeric` dikembalikan sebagai string supaya presisinya tidak hilang
-  // di perjalanan.
   return rows.map((r) => ({
     ...r,
-    defaultBaseSalary: String(Number(r.defaultBaseSalary)),
-    defaultMobilityAllowance: String(Number(r.defaultMobilityAllowance)),
+    user_id: r.userId,
+    default_base_salary: Number(r.defaultBaseSalary ?? 0),
+    default_mobility_allowance: Number(r.defaultMobilityAllowance ?? 0),
+    defaultBaseSalary: Number(r.defaultBaseSalary ?? 0),
+    defaultMobilityAllowance: Number(r.defaultMobilityAllowance ?? 0),
   }));
 }
 

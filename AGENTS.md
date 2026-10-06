@@ -709,6 +709,33 @@ Google di `src/server/auth.ts`. Opsi ini memberitahu Auth.js bahwa email
 yang diverifikasi oleh Google aman untuk ditautkan secara otomatis ke
 baris user yang sudah ada.
 
+### 3.22 Kolom `numeric` Drizzle kembali sebagai string, memicu string concatenation pada kalkulasi uang lembur & payroll
+
+Kolom PostgreSQL `numeric` (seperti `total_overtime_pay`, `hourly_base_rate`,
+`default_base_salary`) dipetakan oleh Drizzle ORM sebagai JavaScript `string`.
+Jika di DAL dibiarkan sebagai string atau di-`String(Number(...))`:
+
+Ketika frontend melakukan penjumlahan:
+```typescript
+map[uId].totalFinalPay += o.totalOvertimePay || 0;
+```
+JavaScript melakukan **string concatenation** bukan penjumlahan matematika:
+`"0" + "384389" + "222541"` menjadi `"0384389222541"`.
+Ketika dimasukkan ke `formatRp(...)`, angka ini diformat menjadi
+**`Rp 384.389.222.541`**, dan kartu total atas menjadi
+**`Rp 384.389.219.650.222.500`** (384 Kuadriliun Rupiah!).
+
+Lebih parah lagi:
+1. Di halaman Payroll (`/absensi/admin/payroll`), `uOts.reduce((sum, o) => sum + (o.totalOvertimePay || 0), 0)`
+   ikut menghasilkan string concatenation, merusak take-home-pay pada slip gaji.
+2. Di modal edit (`OvertimeFinalizeModal`), `typeof overtime.totalOvertimePay === "number"`
+   bernilai false sehingga modal mengira pengajuan belum pernah disahkan dan mereset tarif.
+
+Solusi:
+1. Di DAL (`toOvertime` & `listPayrollStaffSettings`): konversi ke `Number(...)` sebelum dikirim ke API/JSON.
+2. Di frontend: selalu gunakan `Number(...) || 0` saat kalkulasi/reduksi numerik.
+3. Di `formatRp`: terima `number | string` dan konversi dengan `Number.isFinite(...)`.
+
 ---
 
 ## 4. Environment

@@ -991,6 +991,8 @@ export const overtimeRequests = pgTable(
       maxPayCap?: number | null;
       budgetSaved?: number;
       depnFormula?: string;
+      depnakerFormula?: boolean;
+      totalDurationMinutes?: number;
       /** Gaji sebelum plafon diterapkan — disimpan supaya bisa diaudit. */
       uncappedTotalPay?: number;
       isCapped?: boolean;

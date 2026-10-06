@@ -390,7 +390,7 @@ function payrollPayload(row: StaffRow, isPublished: boolean) {
         .sort((a, b) => a.overtimeDate.localeCompare(b.overtimeDate));
 
       const totalMins = uOts.reduce((sum, o) => sum + (o.finalDurationMinutes || 0), 0);
-      const totalPay = uOts.reduce((sum, o) => sum + (o.totalOvertimePay || 0), 0);
+      const totalPay = uOts.reduce((sum, o) => sum + (Number(o.totalOvertimePay) || 0), 0);
       const totalDays = uOts.length;
 
       const sessions: OvertimeSessionItem[] = uOts.map((o) => {
@@ -407,7 +407,7 @@ function payrollPayload(row: StaffRow, isPublished: boolean) {
           date: o.overtimeDate,
           durationMinutes: mins,
           hoursFormatted,
-          pay: o.totalOvertimePay || 0,
+          pay: Number(o.totalOvertimePay) || 0,
           dayType: o.dayType,
           isCapped,
           maxPayCap,
