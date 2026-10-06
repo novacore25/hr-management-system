@@ -32,16 +32,64 @@ export function formatScheduleRange(
 }
 
 /**
- * Calculates duration in minutes between two "HH:mm" time strings
+ * Durasi dalam menit antara dua jam "HH:mm".
+ *
+ * MELALUI TENGAH MALAM: kalau jam selesai lebih kecil dari jam mulai,
+ * jam selesai dianggap keesokan hari. Contoh dari data produksi:
+ * pengajuan 2026-09-23 tercatat 19:35 -> 00:30 dengan durasi 295
+ * menit (4 jam 55 menit) -- jadi sistem lama sudah memperhitukannya
+ * dengan benar.
+ *
+ * formerly fungsi ini memakai `Math.max(0, endMins - startMins)`, yang
+ * selalu 0 untuk kasus midnight. Akibatnya:
+ *   - pengajuan 19:35 -> 00:30 ditolak "Jam selesai harus setelah
+ *     jam mulai", padahal persis seperti itu ada di data produksi
+ *   - approve dan laporan aktual punya masalah yang sama
+ *
+ * Contoh nyata: pengajuan 2026-09-23 (19:35 - 00:30) ada di data,
+ * sudah disetujui, sudah dibayar 219650. Kalau form diisi ulang lewat
+ * kode sekarang, lembur 5 jam itu menjadi 0 dan pengajuannya ditolak
+ * -- jadi sistem tidak lagi bisa mereproduksi datanya sendiri.
+ *
+ * Yang "+1HR" (sampai pukul 01:00) dianggap+HARI BERIKUTNYA. Kalau
+ * tidak, lembur 23:00 - 01:00 akan jadi 120 menit -- jauh terlalu
+ * pendek untuk shift malam.
+ *
+ * Return 0 kalau salah satu jam tidak valid atau keduanya sama --
+ * durasi nol berarti pengajuan tidak masuk akal, dan pemanggil sudah
+ * menolak kasus itu.
  */
 export function calcDurationMinutes(startStr: string, endStr: string): number {
   if (!startStr || !endStr) return 0;
   const [sh, sm] = startStr.split(":").map(Number);
   const [eh, em] = endStr.split(":").map(Number);
   if (isNaN(sh) || isNaN(sm) || isNaN(eh) || isNaN(em)) return 0;
+  if (sh < 0 || sh > 23 || sm < 0 || sm > 59) return 0;
+  if (eh < 0 || eh > 23 || em < 0 || em > 59) return 0;
+
   const startMins = sh * 60 + sm;
-  const endMins = eh * 60 + em;
-  return Math.max(0, endMins - startMins);
+  let endMins = eh * 60 + em;
+
+  // Jam yang SAMA persis berarti durasi 0, bukan 24 jam.
+  //
+  // formerly pakai `<=`, jadi 08:00 -> 08:00 jadi 1440 menit (24 jam).
+  // Itu akan diterima sebagai lemburseharian penuh -- dan langsung
+  // jadi bahan hitungan gaji. Bug ini ditemukan oleh test, bukan oleh
+  // review: kalimat "kalau keduanya sama, durasi 0" ada di komentar
+  // tapi implementasinya memakai `<=` yang justru menjadikannya 24 jam.
+  if (endMins === startMins) return 0;
+  if (endMins < startMins) endMins += 24 * 60;
+
+  return endMins - startMins;
+}
+
+/** True kalau rentang jam ini melewati tengah malam. */
+export function crossesMidnight(startStr: string, endStr: string): boolean {
+  if (!startStr || !endStr) return false;
+  const [sh, sm] = startStr.split(":").map(Number);
+  const [eh, em] = endStr.split(":").map(Number);
+  if (isNaN(sh) || isNaN(sm) || isNaN(eh) || isNaN(em)) return false;
+  return eh * 60 + em <= sh * 60 + sm;
 }
 
 /**

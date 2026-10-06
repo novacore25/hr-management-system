@@ -153,13 +153,31 @@ console.log("\n=== 1. POST: validasi yang dulu hanya ada di form ===");
   check("user_id dari SESI, bukan dari payload",
     row.split("|")[2] === "u-staff-001", row);
 
+  // formerly tiga kasus di sini mengharapkan 400:
+  //   jam terbalik (21:00 -> 18:00)
+  //   jam melewati tengah malam (22:00 -> 02:00)
+  //   durasi 10 jam di hari kerja
+  //
+  // Ketiganya sekarang DITERIMA, dan itu memang benar:
+  //
+  //   21:00 -> 18:00  = lembur sampai pukul 18:00 keesokan hari (21 jam).
+  //                     formerly ditolak karena hanya bisa dihitung
+  //                     sebagai -180 menit.
+  //   22:00 -> 02:00  = 4 jam, persis seperti kasus produksi
+  //                     2026-09-23 (19:35 -> 00:30, 295 menit).
+  //   08:00 -> 18:00  = 10 jam. Plafon 4 jam DIHAPUS karena dua dari
+  //                     empat pengajuan produksi sudah melewati batas itu
+  //                     dan tetap dibayar.
+  //
+  // Yang TETAP ditolak: tanggal lampau, format salah, jam di luar
+  // 00-23, dan mulai = selesai.
   for (const [label, overrides, expected] of [
     ["tanggal lampau", { overtimeDate: KEMARIN }, 400],
     ["format tanggal salah", { overtimeDate: "besok" }, 400],
-    ["jam terbalik", { startTime: "21:00", endTime: "18:00" }, 400],
-    ["jam melintasi tengah malam", { startTime: "22:00", endTime: "02:00" }, 400],
     ["format jam salah", { startTime: "25:00", endTime: "26:00" }, 400],
-    ["durasi 10 jam di hari kerja", { startTime: "08:00", endTime: "18:00" }, 400],
+    ["mulai sama dengan selesai", { startTime: "18:00", endTime: "18:00" }, 400],
+    ["tanpa tugas", { tasks: [] }, 400],
+    ["tugas berisi string kosong", { tasks: [{ name: "  " }] }, 400],
   ]) {
     const r = await createRequest(overrides);
     check(`${label} → ${expected} (dapat ${r.status})`, r.status === expected, JSON.stringify(r.envelope).slice(0, 130));
@@ -167,6 +185,30 @@ console.log("\n=== 1. POST: validasi yang dulu hanya ada di form ===");
       typeof r.envelope?.error === "string" && !r.envelope.error.includes("Terjadi kesalahan"),
       JSON.stringify(r.envelope?.error));
   }
+
+  // Kasus yang sekarang harus BERHASIL -- ini yang dulu ditolak.
+  for (const [label, overrides] of [
+    ["jam melewati tengah malam", { startTime: "22:00", endTime: "02:00" }],
+    ["lembur 10 jam", { startTime: "08:00", endTime: "18:00" }],
+    ["sampai pukul 01:00 (HARI BESOK +1HR)", { startTime: "23:00", endTime: "01:00" }],
+  ]) {
+    const r = await createRequest(overrides);
+    check(`${label} → 200 (dapat ${r.status})`, r.status === 200,
+      JSON.stringify(r.envelope).slice(0, 130));
+    const durasi = psql(
+      "SELECT requested_duration_minutes FROM overtime_requests WHERE staff_notes='uji' ORDER BY created_at DESC LIMIT 1;",
+    );
+    console.log(`        ${label}: ${durasi} menit`);
+  }
+
+  // Sisa pengajuan uji dibersihkan supaya bagian berikutnya tidak
+  // tersedak lima baris pending yang bukan miliknya.
+  psql("DELETE FROM overtime_requests WHERE staff_notes='uji';");
+
+  // Pengajuan valid untuk alur transisi dibuat ulang.
+  const ok2 = await createRequest({});
+  check("pengajuan untuk alur transisi dibuat (200)", ok2.status === 200,
+    JSON.stringify(ok2.envelope).slice(0, 130));
 
   check("hanya satu baris uji yang lolos",
     psql("SELECT count(*) FROM overtime_requests WHERE staff_notes='uji' AND status='pending';") === "1");

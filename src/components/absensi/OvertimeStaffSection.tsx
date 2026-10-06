@@ -323,13 +323,14 @@ const EMPTY_OVERTIME = {
     const validTasks = tasks.filter(t => t.task.trim() !== "");
     if (validTasks.length === 0) { toast.error("Isi minimal 1 rencana tugas lembur."); return; }
 
-    const isHoliday = isWeekend(overtimeDate);
-    const maxMinutes = isHoliday ? 12 * 60 : 4 * 60;
-    
-    if (durationMinutes > maxMinutes) {
-      toast.error(`Durasi maksimal lembur untuk ${isHoliday ? 'Hari Libur adalah 12 Jam' : 'Hari Kerja adalah 4 Jam'}.`);
-      return;
-    }
+    // formerly ada batas 4 jam (hari kerja) dan 12 jam (hari libur).
+    // Dihapus karena batas itu sudah dilanggar dua dari empat pengajuan
+    // yang ada di produksi -- keduanya tetap disetujui HR dan tetap
+    // dibayar. Batas yang hanya berlaku di form, tapi tidak di server,
+    // cuma menahan staf yang jujur dan membiarkan yang lain lewat.
+    //
+    // Yang tetap dijaga: durasi harus lebih dari 0 (dicek di atas), dan
+    // laporan aktual tidak boleh melebihi yang disetujui HR.
 
     setShowConfirm(false);
     setIsSubmitting(true);

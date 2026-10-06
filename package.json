@@ -22,6 +22,7 @@
     "verify:adminkpi": "node scripts/verify-admin-kpi.mjs",
     "verify:hrkpi": "node scripts/verify-hr-kpi.mjs",
     "verify:overtime": "node scripts/verify-overtime.mjs",
+    "verify:otmidnight": "node scripts/verify-overtime-midnight.mjs",
     "verify:leave2layer": "node scripts/verify-leave-2layer.mjs",
     "verify:attstats": "node scripts/verify-attendance-stats.mjs",
     "verify:detail": "node scripts/verify-detail-jarak.mjs",

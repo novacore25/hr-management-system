@@ -31,9 +31,29 @@ import {
  * menimpa `total_overtime_pay` yang sudah dibayar.
  */
 
-/** Batas durasi pengajuan (menit), sesuai aturan yang tampil di form. */
-const MAX_MINUTES_WEEKDAY = 4 * 60;
-const MAX_MINUTES_HOLIDAY = 12 * 60;
+/**
+ * Batas durasi pengajuan: TIDAK ADA.
+ *
+ * formerly ada `MAX_MINUTES_WEEKDAY = 240` dan
+ * `MAX_MINUTES_HOLIDAY = 720`, dengan pesan "Durasi maksimal lembur
+ * untuk hari kerja adalah 4 jam".
+ *
+ * Dua alasan dihapus, keduanya dari data produksi:
+ *
+ * 1. **Plafon itu sudah melanggar datanya sendiri.** Dua dari empat
+ *    pengajuan yang ada -- 295 dan 308 menit -- sudah melewati 4 jam,
+ *    tetap disetujui, dan tetap dibayar. Jadi batas 4 jam bukan aturan
+ *    yang berlaku; hanya sisa form yang belum diubah.
+ * 2. **Plafon hanya ditegakkan saat pengajuan dibuat**, bukan saat
+ *    HR menyetujui. Jadi HR bebas menyetujui lebih dari plafon --
+ *    persis yang terjadi di data. Batas yang hanya berlaku di satu
+ *    jalur bukan batas, hanya hambatan yang bisa dilewati.
+ *
+ * Durasi tetap divalidasi: jam selesai harus setelah jam mulai (dengan
+ * jam berikutnya bila lewat tengah malam), dan laporan aktual tetap
+ * tidak boleh melebihi yang disetujui -- itu yang melindungi
+ * perhitungan gaji.
+ */
 
 export type OvertimeStatus =
   | "pending"
@@ -219,14 +239,15 @@ async function isHolidayDate(date: string): Promise<boolean> {
 /**
  * Buat pengajuan lembur.
  *
- * formerly `overtime_requests.insert({...})` dari browser. Yang
- * divalidasi hanya di form:
+ * formerly `overtime_requests.insert({...})` dari browser, dengan
+ * validasi hanya di form: durasi maksimum dan tanggal tidak boleh
+ * di masa lalu. Keduanya bisa dilewati dengan satu request biasa.
  *
- *   - durasi maksimum (4 jam hari kerja / 12 jam hari libur)
- *   - tanggal tidak boleh di masa lalu
- *
- * Keduanya bisa dilewati dengan satu request biasa — dan dampaknya
- * nyata: pengajuan 14 jam di hari kerja langsung masuk antrean approve.
+ * Sekarang tanggal divalidasi di server. Batas durasi SENGAJA tidak
+ * ada -- lihat catatan panjang di blok yang menggantikan
+ * `MAX_MINUTES_WEEKDAY`. Ringkasnya: batas 4 jam sudah dilanggar dua
+ * dari empat pengajuan yang ada di produksi dan tetap dibayar, jadi
+ * menegakkan batas itu hanya akan menolak pengajuan yang sah.
  */
 export async function createOvertimeRequest(
   input: {
@@ -262,16 +283,33 @@ export async function createOvertimeRequest(
     throw new ValidationError("Jam selesai harus setelah jam mulai.");
   }
 
-  const holiday = (await isHolidayDate(input.overtimeDate)) || isWeekend(input.overtimeDate);
-  const max = holiday ? MAX_MINUTES_HOLIDAY : MAX_MINUTES_WEEKDAY;
-
-  if (duration > max) {
+  // Validasi tugas DI SINI, karena cek di form bisa dilewati dengan
+  // satu request biasa.
+  //
+  // formerly ini hanya ada di OvertimeStaffSection.tsx. Jadi POST
+  // dengan tasks kosong berhasil, dan tersimpan pengajuan tanpa
+  // rencana kerja sama sekali -- lalu menunggu persetujuan HR padahal
+  // tidak ada yang perlu disetujui. AGENTS.md 2.4: validasi harus di
+  // server.
+  const tugasValid = (input.tasks ?? []).filter(
+    (t) => typeof t?.name === "string" && t.name.trim() !== "",
+  );
+  if (tugasValid.length === 0) {
     throw new ValidationError(
-      `Durasi maksimal lembur untuk ${
-        holiday ? "hari libur" : "hari kerja"
-      } adalah ${max / 60} jam.`,
+      "Isi minimal 1 rencana tugas lembur.",
     );
   }
+
+  const holiday = (await isHolidayDate(input.overtimeDate)) || isWeekend(input.overtimeDate);
+
+  // formerly di sini ada cek `duration > max` dengan batas 4 jam (hari
+  // kerja) dan 12 jam (hari libur). Dihapus: dua dari empat pengajuan
+  // yang sudah ada di produksi melewati 4 jam dan tetap dibayar, jadi
+  // batas itu tidak pernah berlaku -- hanya ditegakkan di jalur ini
+  // saja. Lihat catatan di MAX_MINUTES_WEEKDAY yang sudah dihapus.
+  //
+  // Yang TETAP dijaga: durasi harus lebih dari 0, dan laporan aktual
+  // tidak boleh melebihi yang disetujui.
 
   const [row] = await db
     .insert(overtimeRequests)
@@ -282,7 +320,7 @@ export async function createOvertimeRequest(
       requestedStartTime: input.startTime,
       requestedEndTime: input.endTime,
       requestedDurationMinutes: duration,
-      tasks: input.tasks ?? [],
+      tasks: tugasValid,
       staffNotes: input.staffNotes ?? null,
       status: "pending",
       isHoliday: holiday,

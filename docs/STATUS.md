@@ -311,6 +311,66 @@ Tanpa itu, streak hanya bisa diuji terhadap bulan berjalan — isinya
 berubah setiap tanggal, jadi test lulus atau gagal tergantung tanggal
 dijalankan, bukan tergantung kode.
 
+### Lembur tengah malam — regresi yang ditemukan dari data
+
+**Ini regresi.** Sistem lama di Supabase mendukung lembur yang melewati
+tengah malam; kode hasil migrasi tidak.
+
+Buktinya satu baris di produksi:
+
+| | |
+|---|---|
+| Tanggal | 2026-09-23 |
+| Jam | 19:35 -> 00:30 |
+| Durasi tersimpan | **295 menit** (4 jam 55 menit) |
+| Approved | 00:35, 300 menit |
+| Dibayar | **219.650** |
+
+Jadi sistem lama menghitungnya dengan benar. Tapi
+`calcDurationMinutes()` memakai:
+
+```ts
+return Math.max(0, endMins - startMins);
+```
+
+Untuk 19:35 -> 00:30 itu `-1145`, jadi hasilnya `0`, dan pengajuan
+ditolak *"Jam selesai harus setelah jam mulai"*. **Sistem tidak lagi bisa
+mereproduksi datanya sendiri** — mengisi ulang pengajuan yang sama lewat
+form sekarang akan ditolak, padahal aslinya sudah dibayar.
+
+Tiga jalur terpengaruh: pengajuan, approval HR, dan laporan aktual.
+
+Sekarang `endMins < startMins` berarti lewat tengah malam dan ditambah
+24 jam. Dan **mulai = selesai menghasilkan 0**, bukan 1440 — versi
+pertama yang saya tulis memakai `<=` sehingga 08:00 -> 08:00 jadi lembur
+24 jam, dan itu akan masuk ke perhitungan gaji.
+
+### Plafon durasi lembur dihapus
+
+`MAX_MINUTES_WEEKDAY = 240` (4 jam) dan `MAX_MINUTES_HOLIDAY = 720`
+(12 jam) dihapus dari DAL dan dari form.
+
+Alasannya bukan preferensi: **plafon itu sudah melanggar datanya sendiri.**
+Dua dari empat pengajuan yang ada — 295 dan 308 menit — sudah melewati
+4 jam, tetap disetujui HR, dan tetap dibayar. Jadi batas 4 jam bukan
+aturan yang berlaku, hanya sisa form yang belum diubah.
+
+Menambahkannya: plafon hanya ditegakkan di jalur pengajuan, **bukan**
+saat approval. HR bebas menyetujui lebih dari plafon — persis yang
+terjadi di data. Batas yang hanya berlaku di satu jalur bukan batas,
+hanya hambatan yang bisa dilewati.
+
+Yang **tetap** dijaga: durasi harus lebih dari 0, dan laporan aktual
+tidak boleh melebihi yang disetujui HR. Itu yang melindungi perhitungan
+gaji.
+
+### Validasi tugas lembur pindah ke server
+
+`tasks` minimal satu item tadinya hanya dicek di form. Satu POST dengan
+`tasks: []` berhasil, dan pengajuan tersimpan tanpa rencana kerja
+sama sekali — lalu menunggu persetujuan HR padahal tidak ada yang perlu
+disetujui. Sekarang ditolak di DAL.
+
 ### Kolom DETAIL dashboard admin: jarak kantor — SUDAH
 
 Tiga hal yang salah, dan ketiganya **tidak terlihat salah** — semuanya
@@ -669,7 +729,7 @@ halaman itu, tapi dari endpoint yang mereka panggil):
 
 ## Verifikasi
 
-14 skrip, **833 assert**. Semuanya membaca isi respons, isi
+15 skrip, **872 assert**. Semuanya membaca isi respons, isi
 database, atau isi file — bukan cuma status code.
 
 ```powershell
@@ -680,7 +740,8 @@ npm run verify:feedbacks    # 39  laporan benar-benar tersimpan
 npm run verify:reports      # 65  koreksi, kepemilikan, tanggal
 npm run verify:adminkpi     # 64  role, divisi, bobot, hapus KPI
 npm run verify:hrkpi        # 123 sampah, restore, cascade, bulk, copy, form
-npm run verify:overtime     # 76  tahap lembur, transisi, gaji di server
+npm run verify:overtime     # 80  tahap lembur, transisi, gaji di server
+npm run verify:otmidnight   # 35  lembur tengah malam, penghapusan plafon durasi
 npm run verify:leave2layer   # 85  2 tahap, kuota, penolakan, jalur cadangan, halaman
 npm run verify:attstats     # 41  streak kehadiran, null vs 0, celah hari kerja
 npm run verify:detail       # 41  jarak kantor, radius terdekat, koordinat rusak
@@ -689,7 +750,7 @@ npm run verify:stubguard    # 10  guard stub-nya benar-benar gagal
 npm run verify:docs        # 79  dokumentasi + skrip vps tidak berbohong
 ```
 
-Total **833 assert**, 14 skrip.
+Total **872 assert**, 15 skrip.
 
 Semuanya membersihkan data ujinya sendiri dan bisa dijalankan berulang
 kali.

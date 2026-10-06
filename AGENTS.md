@@ -708,7 +708,8 @@ npm run verify:feedbacks    # 39 assert: laporan benar-benar tersimpan
 npm run verify:reports      # 65 assert: koreksi, kepemilikan, tanggal
 npm run verify:adminkpi     # 64 assert: role, divisi, bobot, hapus KPI
 npm run verify:hrkpi        # 123 assert: sampah, restore, cascade, bulk, copy, form
-npm run verify:overtime     # 76 assert: tahap lembur, transisi, gaji di server
+npm run verify:overtime     # 80 assert: tahap lembur, transisi, gaji di server
+npm run verify:otmidnight   # 35 assert: lembur tengah malam, tanpa plafon durasi
 npm run verify:leave2layer  # 85 assert: persetujuan cuti 2 tahap, kuota, jalur cadangan
 npm run verify:attstats    # 41 assert: streak kehadiran, null vs 0, celah hari kerja
 npm run verify:detail      # 41 assert: jarak kantor, radius terdekat, koordinat rusak
