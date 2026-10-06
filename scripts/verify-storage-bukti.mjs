@@ -315,6 +315,46 @@ try {
     /aktif:\s*false/.test(src),
   );
 
+  // ── Kejujuran soal uploadBukti() ────────────────────────────
+  //
+  // `uploadBukti` TIDAK dipanggil dari mana pun. Build produksi
+  // membuangnya sebagai dead code -- terbukti: literal string
+  // "belum ada kode yang mengunggah" tidak ada satu pun di dalam
+  // container produksi, padahal ada di sumber.
+  //
+  // Konsekuensinya penting dan tidak boleh disembunyikan:
+  // validasi format + ukuran file DI DALAMNYA belum pernah
+  // dieksekusi sekali pun. Jadi jangan memperlakukannya sebagai
+  // penjaga yang sudah bekerja. Yang benar-benar berjalan sekarang
+  // hanya `cekStorage()` (dipanggil dari GET, diuji di bagian A) dan
+  // penyaringan di DAL (diuji di bagian C dan D).
+  //
+  // Assert ini sengaja menyatakannya, supaya saat R2 nanti diaktifkan
+  // dan `uploadBukti` disambungkan, orang tahu bagian mana yang belum
+  // pernah diuji.
+  const callers = execFileSync(
+    "git",
+    ["grep", "-l", "uploadBukti", "--", "src"],
+    { encoding: "utf8" },
+  )
+    .split(/\r?\n/)
+    .filter(Boolean);
+
+  const callerFiles = callers.filter(
+    (f) => f !== "src/server/storage/overtimeProofs.ts",
+  );
+
+  check(
+    "uploadBukti belum disambungkan (dinyatakan, bukan disembunyikan)",
+    callerFiles.length === 0,
+    `dipanggil dari: ${callerFiles.join(", ")} -- validasi di dalamnya perlu diuji ulang`,
+  );
+
+  check(
+    "penjaga yang BENAR-BENAR jalan teruji di bagian A",
+    /cekStorage/.test(src),
+  );
+
   // ══════════════════════════════════════════════════════════
   section("G. UI tidak mengirim foto baru yang tidak terunggah");
   // ══════════════════════════════════════════════════════════

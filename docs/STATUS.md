@@ -838,7 +838,7 @@ halaman itu, tapi dari endpoint yang mereka panggil):
 
 ## Verifikasi
 
-16 skrip, **896 assert**. Semuanya membaca isi respons, isi
+16 skrip, **898 assert**. Semuanya membaca isi respons, isi
 database, atau isi file — bukan cuma status code.
 
 ```powershell
@@ -854,13 +854,13 @@ npm run verify:otmidnight   # 35  lembur tengah malam, penghapusan plafon durasi
 npm run verify:leave2layer   # 85  2 tahap, kuota, penolakan, jalur cadangan, halaman
 npm run verify:attstats     # 41  streak kehadiran, null vs 0, celah hari kerja
 npm run verify:detail       # 41  jarak kantor, radius terdekat, koordinat rusak
-npm run verify:storage      # 19  status storage, foto lama, URL arbitrer
+npm run verify:storage      # 21  status storage, foto lama, URL arbitrer
 npm run verify:payroll      # 84  otorisasi, angka negatif, slip terkunci
 npm run verify:stubguard    # 10  guard stub-nya benar-benar gagal
 npm run verify:docs        # 84  dokumentasi + skrip vps tidak berbohong
 ```
 
-Total **896 assert**, 16 skrip.
+Total **898 assert**, 16 skrip.
 
 Semuanya membersihkan data ujinya sendiri dan bisa dijalankan berulang
 kali.
@@ -990,6 +990,34 @@ tidak hilang. Kode: `src/server/storage/overtimeProofs.ts`.
 | Upload foto bukti lembur | ❌ ditolak dengan pesan jelas |
 | Foto lama (URL Supabase) | ✅ tetap tampil, bucket masih hidup |
 | Berkas surat (`fileUrl`) | ❌ belum ada, tidak berubah |
+
+#### `uploadBukti()` adalah dead code — dan itu dinyatakan, bukan disembunyikan
+
+Fungsi `uploadBukti()` **belum dipanggil dari mana pun**. Build
+produksi membuangnya sebagai dead code. Buktinya bukan tebakan:
+literal string `"belum ada kode yang mengunggah"` ada di sumber tapi
+**nol berkas** di dalam container produksi (`grep -rlF` di
+`/app/.next`).
+
+Konsekuensinya: validasi format foto dan batas 5 MB **di dalamnya
+belum pernah dieksekusi sekali pun**. Jadi fungsi itu **bukan** penjaga
+yang sedang bekerja — perlakuannya seperti penjaga akan menipu siapa
+pun yang membacanya di kemudian hari (AGENTS.md §3.15).
+
+Yang benar-benar berjalan sekarang hanya dua hal, dan keduanya diuji:
+
+| Yang benar-benar jalan | Diuji di |
+|---|---|
+| `cekStorage()` → `GET` → tombol unggah nonaktif | bagian A |
+| Penyaringan URL di DAL (subset URL tersimpan) | bagian C, D |
+
+`verify:storage` punya assert khusus untuk menyatakan hal ini
+(`uploadBukti belum disambungkan`), jadi saat R2 nanti diaktifkan dan
+fungsi itu disambungkan, orang langsung tahu bagian mana yang belum
+pernah diuji — bukan mewarisi penjaga yang dianggap sudah terbukti.
+
+Untuk menyambungkan nanti butuh **dua** hal, bukan satu: isi bagian
+ungggah `uploadBukti()`, **dan** route yang memanggilnya.
 
 **Kenapa menolak, bukan fallback ke Supabase atau ke disk:** bukti kerja
 staf yang tersimpan di tempat yang tidak diaudit dan tidak di-backup

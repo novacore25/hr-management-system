@@ -19,8 +19,9 @@
  *   1. Buat bucket + API token di Cloudflare.
  *   2. Isi R2_ENDPOINT, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY,
  *      R2_BUCKET, R2_PUBLIC_URL di environment Coolify.
- *   3. Isi bagian upload di `uploadBukti()` -- satu-satunya bagian
- *      yang masih kosong.
+ *   3. Sambungkan `uploadBukti()` ke route upload, lalu isi bagian
+ *      unggahnya. Keduanya belum ada -- dan selama belum ada, fungsi
+ *      itu dead code yang build buang, bukan penjaga yang bekerja.
  *
  * Tidak ada migrasi database dan tidak ada perubahan kode lain:
  * `cekStorage()` membaca environment setiap dipanggil, jadi status
@@ -121,13 +122,21 @@ export type UploadResult =
 /**
  * Unggah satu foto bukti.
  *
- * SELALU menolak selama storage belum siap. Tidak ada jalur
- * lain yang menulis ke disk lokal atau ke URL arbitrer -- keduanya
- * berarti bukti kerja staf tersimpan di tempat yang tidak di-backup.
+ * ⚠️ BELUM DISAMBUNGKAN. Fungsi ini belum dipanggil dari mana pun,
+ * jadi build produksi membuangnya sebagai dead code -- terbukti dengan
+ * grep literal string-nya di dalam container: tidak ada.
  *
- * Batas ukuran dan jenis file diperiksa di server, bukan hanya di
- * form: `accept="image/*"` di input file bisa dilewati dengan
- * request biasa.
+ * Artinya validasi format dan ukuran di bawah ini **belum pernah
+ * dieksekusi sekali pun**. Jangan memperlakukannya sebagai penjaga
+ * yang sudah bekerja (AGENTS.md 3.15).
+ *
+ * Yang benar-benar berjalan sekarang hanya `cekStorage()` -- dipanggil
+ * dari `GET /api/overtime`, dan dia yang membuat UI menonaktifkan
+ * tombol unggah.
+ *
+ * Format dan ukuran diperiksa di server, bukan hanya di form, karena
+ * `accept="image/*"` di input file bisa dilewati dengan request biasa.
+ * Bagian ini baru berarti kalau ada route yang benar-benar memanggilnya.
  */
 export async function uploadBukti(params: {
   userId: string;
