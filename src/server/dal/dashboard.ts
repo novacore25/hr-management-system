@@ -28,6 +28,101 @@ import type { AbsensiRole } from "@/types/index";
  * jadi browser tidak perlu menarik daftar user hanya untuk melengkapi
  * nama.
  */
+/**
+ * Jarak dua titik di permukaan bumi, dalam meter (haversine).
+ *
+ * Dipakai untuk menghitung ulang jarak ke kantor. Radius bumi 6371 km,
+ * sama dengan yang dipakai saat check-in disimpan -- supaya angka di
+ * dashboard cocok dengan yang tercatat di `location_in.distance`.
+ */
+export function jarakMeter(
+  lat1: number,
+  lng1: number,
+  lat2: number,
+  lng2: number,
+): number {
+  const R = 6_371_000;
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+/**
+ * Baca lat/lng dari jsonb `location_in`.
+ *
+ * Mengembalikan null kalau tidak bisa dipakai -- dan HANYA kalau begitu.
+ * Yang ditemukan di produksi:
+ *
+ *   - 743 baris tanpa location_in sama sekali
+ *   - 3 baris punya lat/lng bernilai null
+ *
+ * Keduanya harus mengembalikan null, bukan NaN. NaN akan lolos ke UI
+ * dan tampil sebagai "NaN m", yang jelas salah tapi hanya terlihat
+ * kalau sedangICATIONS dificuldade.
+ */
+function bacaKoordinat(raw: unknown): { lat: number; lng: number } | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const lat = typeof o.lat === "number" ? o.lat : Number(o.lat);
+  const lng = typeof o.lng === "number" ? o.lng : Number(o.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  // Latitude di luar rentang ini berarti koordinat rusak, bukan lokasi
+  // di ujung dunia. Difilter diam-diam supaya tidak mengarang data.
+  if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
+  // 0/0 adalah "tidak diketahui", bukan Gulf of Guinea.
+  if (lat === 0 && lng === 0) return null;
+  return { lat, lng };
+}
+
+/**
+ * Jarak ke kantor TERDEKAT, atau null kalau tidak bisa dihitung.
+ *
+ * Mengembalikan null, bukan 0, untuk tiga keadaan berbeda yang sering
+ * disamakan: tidak ada koordinat, koordinatnya rusak, atau tidak ada
+ * kantor yang terdaftar. Kalau semuanya jadi 0, dashboard akan
+ * menampilkan "0 m / Dalam Area" untuk orang yang tidak absen dengan
+ * GPS sama sekali -- dan itu kesimpulan yang salah.
+ */
+function hitungJarakKantor(
+  raw: unknown,
+  offices: Array<{
+    name: string;
+    lat: number | string;
+    lng: number | string;
+    radius: number | string | null;
+  }>,
+): DashboardLog["jarakDariKantor"] {
+  if (offices.length === 0) return null;
+  const p = bacaKoordinat(raw);
+  if (!p) return null;
+
+  let terbaik:
+    | { meter: number; kantor: (typeof offices)[number] }
+    | null = null;
+
+  for (const k of offices) {
+    const lat = Number(k.lat);
+    const lng = Number(k.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+    const d = jarakMeter(p.lat, p.lng, lat, lng);
+    if (!Number.isFinite(d)) continue;
+    if (!terbaik || d < terbaik.meter) terbaik = { meter: d, kantor: k };
+  }
+  if (!terbaik) return null;
+
+  const radius = Number(terbaik.kantor.radius ?? 0);
+  return {
+    meter: Math.round(terbaik.meter),
+    namaKantor: terbaik.kantor.name,
+    radius,
+    dalamRadius: radius > 0 ? terbaik.meter <= radius : true,
+  };
+}
+
 export type DashboardLog = {
   id: string;
   userId: string;
@@ -42,7 +137,33 @@ export type DashboardLog = {
   lateFine: number;
   radiusPenalty: number;
   locationStatus: string | null;
-  locationIn: { lat: number; lng: number } | null;
+  /**
+   * Koordinat check-in mentah, kalau ada.
+   *
+   * Bentuk jsonb bisa berbeda-beda antar baris -- lihat
+   * `jarakDariKantor` untuk yang sudah dihitung ulang.
+   */
+  locationIn: Record<string, unknown> | null;
+  /**
+   * Jarak ke kantor terdekat dalam meter, dihitung ulang dari
+   * `office_locations`.
+   *
+   * Kenapa tidak memakai `locationIn.distance`: di produksi, hanya 347
+   * dari 2687 baris yang punya field itu. Sisanya hanya menyimpan lat
+   * dan lng. Kalau UI membaca `distance`, kolom jarak kosong untuk 87
+   * persen baris -- dan itu tidak terlihat salah, karena kolom kosong
+   * selalu terlihat normal.
+   *
+   * Yang tersimpan memang benar (diverifikasi: rata-rata 2703.9 m dari
+   * haversine, beda maksimal 0.5 m), tapi hanya ada di baris yang punya
+   * kantor saat check-in terjadi.
+   */
+  jarakDariKantor: {
+    meter: number;
+    namaKantor: string;
+    radius: number;
+    dalamRadius: boolean;
+  } | null;
   lateReason: string;
   lateReasonStatus: string | null;
   notes: string | null;
@@ -186,6 +307,11 @@ export async function dashboardForDate(date: string): Promise<{
       radiusPenalty: Number(r.radiusPenalty ?? 0),
       locationStatus: r.locationStatus,
       locationIn: r.locationIn ?? null,
+      // Jarak dihitung ulang di sini, bukan diambil dari
+      // location_in.distance: field itu hanya ada di 347 dari 2687
+      // baris, jadi membacanya langsung membuat kolom kosong untuk
+      // sebagian besar data.
+      jarakDariKantor: hitungJarakKantor(r.locationIn, officeRows),
       lateReason: r.lateReason ?? "",
       lateReasonStatus: r.lateReasonStatus,
       notes: r.notes,

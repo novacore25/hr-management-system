@@ -174,6 +174,21 @@ Test mengubah `absensi_status` HR sementara dan memulihkannya di
 `finally`, jadi satu assert yang gagal tidak meninggalkan database
 dalam kondisi yang salah untuk run berikutnya.
 
+**Pembersihan juga berjalan SEBELUM test, bukan hanya sesudahnya.**
+Ini ditemukan karena test-nya sendiri tidak bisa dijalankan dua kali
+berturut-turut setelah gagal: fixture tertinggal, submit berikutnya
+ditolak *"sudah ada pengajuan aktif"* di tanggal yang sama, `id` jadi
+`undefined`, lalu setiap query berikutnya gagal dengan *"invalid input
+syntax for type uuid"*.
+
+Gejalanya mengarah ke tempat yang salah. Error-nya muncul dari SQL
+sementara penyebabnya fixture yang tidak pernah dibersihkan -- persis
+pola §3.20, di mana pesan error sangat meyakinkan tapi bukan penyebabnya.
+
+Sekarang kalau submit pertama ditolak, test berhenti dengan pesan yang
+benar, tanggal yang diminta, dan daftar fixture yang tersisa -- bukan
+error SQL.
+
 ### Tahap diturunkan dari STATUS, bukan dari ROLE
 
 Ini perubahan struktur yang wajib diketahui. Sebelumnya route memetakan
@@ -295,6 +310,60 @@ Parameter `month=YYYY-MM` ada supaya test bisa memakai bulan lampau.
 Tanpa itu, streak hanya bisa diuji terhadap bulan berjalan — isinya
 berubah setiap tanggal, jadi test lulus atau gagal tergantung tanggal
 dijalankan, bukan tergantung kode.
+
+### Kolom DETAIL dashboard admin: jarak kantor — SUDAH
+
+Tiga hal yang salah, dan ketiganya **tidak terlihat salah** — semuanya
+berakhir sebagai kolom kosong atau angka yang masuk akal.
+
+**1. Membaca `locationIn.distance`, yang hampir tidak ada.** Di produksi,
+`location_in` terisi pada 2687 dari 3430 baris (78.3%). Tapi field
+`distance` di dalamnya hanya ada pada **347** baris. Jadi kalau UI
+membacanya langsung, kolom jarak kosong untuk 87 persen data — dan kolom
+kosong selalu terlihat normal.
+
+`location_in` sendiri memang menyimpan koordinat kantor saat check-in
+(`officeLat`, `officeLng`, `officeName`), tapi hanya pada 308 dari 2687
+baris. Yang sudah ada itu **benar** — diverifikasi dengan haversine: rata-
+rata 2703.9 m, beda maksimal 0.5 m. Jadi masalahnya bukan angkanya salah,
+melainkan tidak lengkap.
+
+Sekarang dihitung ulang di server dari `office_locations` memakai
+haversine, dan **kantor terdekat** yang dipilih. Field ini dikirim sebagai
+`jarakDariKantor` — `{ meter, namaKantor, radius, dalamRadius }`.
+
+**2. Membandingkan dengan radius kantor TERBESAR.**
+
+```ts
+selectedDist <= Math.max(...officeLocations.map(o => o.radius))
+```
+
+Dengan radius 500 m di kedua kantor, ini terjadi kalau suatu saat satu
+kantor punya radius lebih besar: orang yang absen di kantor **kecil**
+dengan jarak 1500 m akan terbaca "dalam area", selama kantor besar punya
+radius 2000. Sekarang penilaiannya memakai radius kantor yang benar-benar
+dipakai.
+
+**3. `locationIn` dibaca sebagai `{lat, lng}` padahal `Record<string, unknown>`.**
+Ada **3 baris** di produksi dengan `lat`/`lng` bernilai null.
+`null.toFixed(5)` melempar `TypeError`, dan seluruh modal detail gagal
+dibuka — bukan hanya tautan Google Maps-nya. Sekarang koordinat hanya
+dipakai kalau benar-benar angka, dan `0/0` (yang berarti "tidak diketahui",
+bukan Gulf of Guinea) ikut ditolak.
+
+Tiga keadaan yang sekarang dibedakan: ada koordinat (tampilkan meter),
+tidak ada koordinat (`Tanpa GPS`), dan tidak ada kantor terdaftar
+(`Tanpa data kantor`). Semuanya `null`, bukan 0 — 0 berarti "tepat di
+kantor", dan menampilkan itu untuk orang yang tidak absen dengan GPS
+adalah kesimpulan yang salah.
+
+`calcDist()` di client **dihapus**, bukan dibiarkan. Salinan rumus haversine
+yang berbeda tipis dari versi server akan menampilkan angka berbeda untuk
+data yang sama, tanpa ada yang mengetahuinya.
+
+`verify:detail` 41 assert mengujinya, termasuk field `distance` yang
+dipalsukan (999999) — hasilnya harus diabaikan, karena yang dipakai
+koordinatnya.
 
 ### Zona waktu: sudah dipastikan benar, tapi rapuh
 
@@ -600,7 +669,7 @@ halaman itu, tapi dari endpoint yang mereka panggil):
 
 ## Verifikasi
 
-13 skrip, **791 assert**. Semuanya membaca isi respons, isi
+14 skrip, **833 assert**. Semuanya membaca isi respons, isi
 database, atau isi file — bukan cuma status code.
 
 ```powershell
@@ -612,14 +681,15 @@ npm run verify:reports      # 65  koreksi, kepemilikan, tanggal
 npm run verify:adminkpi     # 64  role, divisi, bobot, hapus KPI
 npm run verify:hrkpi        # 123 sampah, restore, cascade, bulk, copy, form
 npm run verify:overtime     # 76  tahap lembur, transisi, gaji di server
-npm run verify:leave2layer   # 84  2 tahap, kuota, penolakan, jalur cadangan, halaman
+npm run verify:leave2layer   # 85  2 tahap, kuota, penolakan, jalur cadangan, halaman
 npm run verify:attstats     # 41  streak kehadiran, null vs 0, celah hari kerja
+npm run verify:detail       # 41  jarak kantor, radius terdekat, koordinat rusak
 npm run verify:payroll      # 84  otorisasi, angka negatif, slip terkunci
 npm run verify:stubguard    # 10  guard stub-nya benar-benar gagal
 npm run verify:docs        # 79  dokumentasi + skrip vps tidak berbohong
 ```
 
-Total **791 assert**, 13 skrip.
+Total **833 assert**, 14 skrip.
 
 Semuanya membersihkan data ujinya sendiri dan bisa dijalankan berulang
 kali.

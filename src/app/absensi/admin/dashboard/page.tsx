@@ -34,7 +34,21 @@ interface AttLog {
   lateFine: number;
   radiusPenalty: number;
   locationStatus: string | null;
-  locationIn: { lat: number; lng: number } | null;
+  /** Koordinat mentah dari jsonb. Bentuknya bisa berbeda-beda. */
+  locationIn: Record<string, unknown> | null;
+  /**
+   * Jarak ke kantor terdekat, sudah dihitung ulang di server.
+   *
+   * formerly UI menghitung sendiri dari `locationIn` -- dan karena
+   * `locationIn.distance` hanya ada di 347 dari 2687 baris, kolom ini
+   * kosong untuk 87 persen data tanpa error apa pun.
+   */
+  jarakDariKantor: {
+    meter: number;
+    namaKantor: string;
+    radius: number;
+    dalamRadius: boolean;
+  } | null;
   lateReason: string;
   lateReasonStatus: string | null;
   notes: string | null;
@@ -93,13 +107,14 @@ interface EditingLog {
 // ─ Helpers ────────────────────────────────────────────────────────────────────
 function fmt(t: string | null) { return t ? t.substring(0, 5) : "--:--"; }
 
-function calcDist(la1: number, lo1: number, la2: number, lo2: number) {
-  const R = 6371e3;
-  const f1 = (la1 * Math.PI) / 180, f2 = (la2 * Math.PI) / 180;
-  const df = ((la2 - la1) * Math.PI) / 180, dl = ((lo2 - lo1) * Math.PI) / 180;
-  const a = Math.sin(df / 2) ** 2 + Math.cos(f1) * Math.cos(f2) * Math.sin(dl / 2) ** 2;
-  return Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
-}
+// calcDist DIHAPUS. formerly dipakai untuk menghitung jarak kantor di
+// browser. Sekarang jaraknya dikirim server sebagai `jarakDariKantor`
+// (lihat dal/dashboard.ts), jadi tidak ada lagi salinan rumus haversine
+// di client.
+//
+// Kenapa penting dihapus, bukan dibiarkan: salinan rumus bisa berbeda
+// dari versi server tanpa ada yang mengetahuinya -- dan hasil yang
+// berbeda akan menampilkan angka yang berbeda untuk data yang sama.
 
 function buildDateRange(start: string, end: string): string[] {
   const out: string[] = [];
@@ -140,7 +155,11 @@ export default function AdminDashboardPage() {
   // Detail modal
   const [selectedRow, setSelectedRow]   = useState<DisplayRow | null>(null);
   const [editingLog,  setEditingLog]    = useState<EditingLog | null>(null);
-  const [selectedDist, setSelectedDist] = useState<number | null>(null);
+  // formerly: state terpisah untuk jarak, karena jaraknya dihitung ulang
+// dari locationIn saat baris diklik. Sekarang jaraknya sudah ada di
+// `selectedRow.log.jarakDariKantor`, jadi state ini hanya menyimpan
+// bentuk yang sudah dibulatkan -- tidak ada sumber angka kedua.
+const [selectedDist, setSelectedDist] = useState<number | null>(null);
   const [officeLocations, setOfficeLocations] = useState<{ id: string; name: string; lat: number; lng: number; radius: number }[]>([]);
 
   // Export modal
@@ -842,24 +861,23 @@ export default function AdminDashboardPage() {
                     <tr
                       key={row.id}
                       onClick={() => {
-                        if (row.log) {
-                          let dist: number | null = null;
-                          if (row.log.locationIn && (row.log.locationIn as any).distance !== undefined) {
-                            dist = (row.log.locationIn as any).distance;
-                          } else if (row.log.locationIn && officeLocations.length > 0) {
-                            let minDist = Infinity;
-                            for (const ol of officeLocations) {
-                              const d = calcDist(row.log.locationIn.lat, row.log.locationIn.lng, ol.lat, ol.lng);
-                              if (d < minDist) minDist = d;
-                            }
-                            dist = minDist;
-                          } else if (row.log.locationIn && settings?.officeLat && settings?.officeLng) {
-                            dist = calcDist(row.log.locationIn.lat, row.log.locationIn.lng, settings.officeLat, settings.officeLng);
-                          }
-                          setSelectedDist(dist);
-                        } else {
-                          setSelectedDist(null);
-                        }
+                        // formerly: hierarki tiga fallback di sini --
+                        // baca locationIn.distance, kalau tidak ada hitung
+                        // dari officeLocations, kalau tidak ada pakai
+                        // settings.officeLat/Lng.
+                        //
+                        // Masalahnya bukan fallback-nya, tapi urutan
+                        // prioritasnya: `locationIn.distance` hanya ada
+                        // di 347 dari 2687 baris, jadi 87 persen baris
+                        // diam-diam memakai hitungan kedua. Dan settings
+                        // hanya punya SATU titik kantor, padahal ada dua
+                        // (KANTOR HYPE dan KANTOR TNT) -- jadi fallback
+                        // ketiga bisa salah total.
+                        //
+                        // Sekarang server sudah menghitungnya dengan
+                        // haversine dan memakai kantor TERDEKAT, jadi
+                        // cukup satu sumber.
+                        setSelectedDist(row.log?.jarakDariKantor?.meter ?? null);
                         setSelectedRow(row);
                         setEditingLog(null);
                       }}
@@ -897,6 +915,30 @@ export default function AdminDashboardPage() {
                         {row.log ? (
                           <div className="flex flex-col gap-0.5">
                             <span className="text-[9px] text-[var(--ab-text-dim)] font-bold">{row.log.locationStatus ?? "-"}</span>
+                            {/* Jarak dari kantor, sudah dihitung di server.
+
+                                Tiga keadaan dibedakan, karena ketiganya berbeda:
+                                ada koordinat (tampilkan meter), tidak ada
+                                koordinat (tampilkan "Tanpa GPS"), dan tidak
+                                ada kantor terdaftar (tampilkan "Tanpa data
+                                kantor"). Kalau semuanya jadi "-" atau 0,
+                                orang yang absen tanpa GPS akan terlihat
+                                sama dengan orang yang tepat di kantor. */}
+                            {row.log.jarakDariKantor ? (
+                              <span
+                                className={`text-[8px] font-black ${
+                                  row.log.jarakDariKantor.dalamRadius
+                                    ? "text-green-600"
+                                    : "text-rose-500"
+                                }`}
+                              >
+                                {row.log.jarakDariKantor.meter.toLocaleString("id-ID")} m dari {row.log.jarakDariKantor.namaKantor}
+                              </span>
+                            ) : (
+                              <span className="text-[8px] font-bold text-[var(--ab-text-dim)] opacity-60">
+                                {row.log.locationIn ? "Tanpa data kantor" : "Tanpa GPS"}
+                              </span>
+                            )}
                             {(row.log.lateFine ?? 0) > 0 && (
                               <span className="text-[8px] font-black text-orange-500">Telat: {row.log.lateFine} Menit</span>
                             )}
@@ -1071,21 +1113,62 @@ export default function AdminDashboardPage() {
                             </div>
                           </div>
                         )}
-                        {selectedDist !== null && (
+                        {/* Jarak ke kantor.
+
+                        formerly: `selectedDist <= Math.max(...officeLocations.map(o => o.radius))`.
+                        Itu membandingkan jarak dengan radius kantor yang
+                        TERBESAR, jadi untuk orang yang absen di kantor
+                        kecil selalu terbaca "dalam area" -- bahkan jarak
+                        1500 meter, selama kantor besar punya radius 2000.
+
+                        Sekarang memakai penilaian dari server, yang sudah
+                        tahu radius kantor mana yang dipakai. */}
+                        {selectedRow.log?.jarakDariKantor && (
                           <div className="flex justify-between items-center">
-                            <span className="text-[10px] uppercase font-black tracking-widest text-[var(--ab-text-dim)]">Jarak ke Kantor</span>
-                            <span className={`text-[10px] font-black uppercase ${selectedDist <= (officeLocations.length > 0 ? Math.max(...officeLocations.map(o => o.radius)) : (settings?.officeRadius ?? 100)) ? "text-green-500" : "text-red-500"}`}>{Math.round(selectedDist)} meter</span>
+                            <span className="text-[10px] uppercase font-black tracking-widest text-[var(--ab-text-dim)]">
+                              Jarak ke {selectedRow.log.jarakDariKantor.namaKantor}
+                            </span>
+                            <span
+                              className={`text-[10px] font-black uppercase ${
+                                selectedRow.log.jarakDariKantor.dalamRadius
+                                  ? "text-green-500"
+                                  : "text-red-500"
+                              }`}
+                            >
+                              {selectedRow.log.jarakDariKantor.meter.toLocaleString("id-ID")} meter
+                              {" · radius "}
+                              {selectedRow.log.jarakDariKantor.radius} m
+                            </span>
                           </div>
                         )}
-                        {selectedRow.log.locationIn && (
-                          <a
-                            href={`https://www.google.com/maps?q=${selectedRow.log.locationIn.lat},${selectedRow.log.locationIn.lng}`}
-                            target="_blank" rel="noreferrer"
-                            className="w-full flex items-center justify-center gap-2 bg-[var(--ab-bg-surface)] border border-[var(--ab-border)] py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest text-[var(--ab-text-main)] hover:bg-[var(--ab-bg-main)] transition"
-                          >
-                            <MapPin size={12} className="text-red-500" /> Buka Google Maps ({selectedRow.log.locationIn.lat.toFixed(5)}, {selectedRow.log.locationIn.lng.toFixed(5)})
-                          </a>
-                        )}
+                        {/* Tautan Google Maps hanya dibuat kalau koordinatnya benar-benar
+                        angka. `locationIn` bertipe Record<string, unknown>
+                        karena jsonb -- isinya bisa apa saja, termasuk
+                        null (ditemukan 3 baris begitu di produksi).
+
+                        Kalau tidak diperiksa, `null.toFixed()` melempar
+                        TypeError dan seluruh modal gagal dibuka -- bukan
+                        hanya tautannya yang hilang. */}
+                        {(() => {
+                          const loc = selectedRow.log?.locationIn;
+                          const lat = loc ? Number(loc.lat) : NaN;
+                          const lng = loc ? Number(loc.lng) : NaN;
+                          const valid =
+                            Number.isFinite(lat) &&
+                            Number.isFinite(lng) &&
+                            !(lat === 0 && lng === 0);
+                          if (!valid) return null;
+                          return (
+                            <a
+                              href={`https://www.google.com/maps?q=${lat},${lng}`}
+                              target="_blank" rel="noreferrer"
+                              className="w-full flex items-center justify-center gap-2 bg-[var(--ab-bg-surface)] border border-[var(--ab-border)] py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest text-[var(--ab-text-main)] hover:bg-[var(--ab-bg-main)] transition"
+                            >
+                              <MapPin size={12} className="text-red-500" />
+                              Buka Google Maps ({lat.toFixed(5)}, {lng.toFixed(5)})
+                            </a>
+                          );
+                        })()}
                       </div>
 
                       {selectedRow.log.lateReason && (

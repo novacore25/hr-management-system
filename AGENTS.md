@@ -709,8 +709,9 @@ npm run verify:reports      # 65 assert: koreksi, kepemilikan, tanggal
 npm run verify:adminkpi     # 64 assert: role, divisi, bobot, hapus KPI
 npm run verify:hrkpi        # 123 assert: sampah, restore, cascade, bulk, copy, form
 npm run verify:overtime     # 76 assert: tahap lembur, transisi, gaji di server
-npm run verify:leave2layer  # 84 assert: persetujuan cuti 2 tahap, kuota, jalur cadangan
+npm run verify:leave2layer  # 85 assert: persetujuan cuti 2 tahap, kuota, jalur cadangan
 npm run verify:attstats    # 41 assert: streak kehadiran, null vs 0, celah hari kerja
+npm run verify:detail      # 41 assert: jarak kantor, radius terdekat, koordinat rusak
 npm run verify:payroll      # 84 assert: otorisasi gaji, angka negatif, slip terkunci
 npm run verify:stubguard    # 10 assert: guard stub benar-benar gagal
 npm run verify:docs        # 32 assert: dokumentasi + skrip vps tidak berbohong

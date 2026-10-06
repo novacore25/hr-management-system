@@ -123,13 +123,54 @@ function bersihkan(id) {
 section("1. Pengajuan oleh staf");
 // ═══════════════════════════════════════════════════════════════
 
+// Pembersihan SEBELUM test, bukan hanya sesudahnya.
+//
+// formerly: cleanup hanya di section 14, di akhir file. Kalau test
+// gagal atau terlempar di tengah -- persis seperti yang terjadi --
+// semua fixture tertinggal. Run berikutnya lalu menabrak pengajuan
+// lama di tanggal yang sama, submit-nya ditolak "sudah ada pengajuan
+// aktif", `id` jadi undefined, dan setiap query berikutnya gagal
+// dengan "invalid input syntax for type uuid".
+//
+// Gejalanya menunjuk ke tempat yang salah: error-nya sprawl dari
+// SQL, padahal penyebabnya fixture yang tidak pernah dibersihkan.
+psql(`
+  DELETE FROM leave_requests WHERE reason = 'uji 2 tahap';
+  UPDATE users SET leave_quota = 12, sick_quota = 14
+   WHERE id = 'u-staff-001';
+`);
+const sisaAwal = psql(
+  `SELECT count(*) FROM leave_requests WHERE reason = 'uji 2 tahap';`,
+);
+check("tidak ada fixture dari run sebelumnya", Number(sisaAwal) === 0,
+  `sisa ${sisaAwal}`);
+
 const tgl = workingDay(30);
 const quotaSebelum = quotaOf("u-staff-001");
 console.log(`  kuota sebelum: ${quotaSebelum}`);
 
 const submit1 = await submit("u-staff-001", tgl);
-check("staf bisa mengajukan (200)", submit1.status === 200, JSON.stringify(submit1.envelope).slice(0, 140));
+check("staf bisa mengajukan (200)", submit1.status === 200,
+  `status ${submit1.status} -- ${JSON.stringify(submit1.envelope).slice(0, 180)}`);
 const id1 = payload(submit1).request?.id;
+
+// formerly: `rowOf(id1)` langsung dipanggil tanpa memeriksa id1.
+// Kalau submit ditolak, id1 undefined, dan psql error "invalid input
+// syntax for type uuid" -- menutupi pesan penolakan yang sebenarnya.
+if (!id1) {
+  console.error("");
+  console.error("ABORT: pengajuan pertama ditolak, test tidak bisa lanjut.");
+  console.error("  pesan dari server: " + JSON.stringify(submit1.envelope));
+  console.error("  tanggal yang diminta: " + tgl);
+  console.error("");
+  console.error("Sisa fixture:");
+  console.error(psql(
+    `SELECT '    ' || type || ' | ' || status || ' | ' || dates::text
+       FROM leave_requests WHERE reason = 'uji 2 tahap';`,
+  ));
+  process.exit(1);
+}
+
 check("pengajuan dapat id", !!id1);
 check("status awal pending", rowOf(id1).startsWith("pending|"), rowOf(id1));
 check("belum ada potongan kuota", rowOf(id1).split("|")[1] === "0", rowOf(id1));
