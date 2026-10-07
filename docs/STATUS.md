@@ -69,6 +69,7 @@ Sudah beres dan terbukti dengan skrip verifikasi:
 | Cegah KPI kembar di server | `verify:kpikembar` |
 | Notes KPI read-only + tipe `hr` | `verify:kpitampil` |
 | Upah lembur & payroll: tipe numeric dijaga number (cegah string concat) | `verify:otnumbers` |
+| Auth.js v5: useSecureCookies di balik proxy + state CSRF (cegah error Configuration) | `verify:build` |
 
 **Multi-office ternyata sudah benar** dan tidak perlu diperbaiki.
 Dilverifikasi langsung ke produksi: 2 kantor, **10 dari 10 divisi**

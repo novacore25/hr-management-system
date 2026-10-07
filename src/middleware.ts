@@ -11,9 +11,8 @@
 import { authConfig } from "@/server/auth-config";
 import NextAuth from "next-auth";
 
-export { default } from "next-auth";
-
 export const { auth: middleware } = NextAuth(authConfig);
+export default middleware;
 
 export const config = {
   /**

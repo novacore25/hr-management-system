@@ -736,7 +736,28 @@ Solusi:
 2. Di frontend: selalu gunakan `Number(...) || 0` saat kalkulasi/reduksi numerik.
 3. Di `formatRp`: terima `number | string` dan konversi dengan `Number.isFinite(...)`.
 
+### 3.23 Auth.js v5: 'Configuration' / 'pkceCodeVerifier value could not be parsed' di balik reverse proxy
+
+Gejala: Saat user mengklik "Masuk dengan Google" dan menyelesaikan persetujuan di Google, browser terlempar balik ke `/login?error=Configuration` dengan pesan:
+`"Konfigurasi login belum lengkap. Hubungi admin."`
+
+Log container VPS mencatat:
+`[auth][error] InvalidCheck: pkceCodeVerifier value could not be parsed`
+dan/atau
+`[auth][details]: { "error": "invalid_grant", "error_description": "Invalid code verifier.", "provider": "google" }`
+
+Akar masalah:
+1. Di balik reverse proxy (Coolify Traefik dengan SSL termination), container Next.js berjalan di jaringan internal via HTTP (`0.0.0.0:3000`). Jika `useSecureCookies` tidak dideklarasikan eksplisit, Auth.js v5 dapat menurunkan prefix cookie ke non-secure saat internal request handling, sehingga salt enkripsi JWE mismatch antara browser (`__Secure-authjs.pkce.code_verifier`) dan server.
+2. PKCE (`checks: ["pkce"]`) pada Auth.js v5 menyimpan verifier di cookie terenkripsi browser. Untuk confidential web client yang sudah memiliki `clientSecret` di server, PKCE tidak diwajibkan oleh Google dan rentan rusak jika user melakukan retry/double-click atau cookie terpotong saat redirect lintas domain.
+3. Di `src/middleware.ts`, `export { default } from "next-auth"` mengekspor fungsi factory NextAuth alih-alih `export default middleware`.
+
+Solusi:
+1. Di `src/server/auth-config.ts`: pasang `useSecureCookies: process.env.NODE_ENV === "production"`.
+2. Di `src/server/auth.ts`: pasang `checks: ["state"]` pada Google provider untuk menggunakan perlindungan CSRF state parameter standar OAuth 2.0 tanpa ketergantungan pada cookie PKCE.
+3. Di `src/middleware.ts`: ubah export menjadi `export default middleware;`.
+
 ---
+
 
 ## 4. Environment
 

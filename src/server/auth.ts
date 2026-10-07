@@ -70,6 +70,10 @@ function buildInstance() {
         clientId: process.env.AUTH_GOOGLE_ID ?? "",
         clientSecret: process.env.AUTH_GOOGLE_SECRET ?? "",
         allowDangerousEmailAccountLinking: true,
+        // Gunakan CSRF state parameter standar OAuth 2.0 (tanpa PKCE cookie).
+        // Sebagai confidential web client dengan clientSecret di server,
+        // ini mencegah kegagalan parse cookie PKCE di browser saat redirect lintas domain.
+        checks: ["state"],
       }),
     ],
     // Sengaja TIDAK menimpa `session` di sini.
