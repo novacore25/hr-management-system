@@ -29,6 +29,7 @@ function LoginInner({
     setSubmitting(true);
     try {
       await signIn("google", {
+        redirectTo: searchParams.callbackUrl ?? "/dashboard",
         callbackUrl: searchParams.callbackUrl ?? "/dashboard",
       });
       // Kalau sukses, browser akan redirect ke Google.
