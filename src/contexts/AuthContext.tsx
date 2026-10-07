@@ -141,39 +141,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     async function init() {
       try {
-        // Auth.js session dicek server-side lewat /api/auth/session
-        const res = await fetch("/api/auth/session", {
-          credentials: "include",
-          cache: "no-store",
-        });
+        // Panggil /api/auth/session dan /api/me secara paralel (bukan sekuensial)
+        // untuk memangkas latency inisialisasi login di frontend hingga 50%.
+        const [sessionRes, profile] = await Promise.all([
+          fetch("/api/auth/session", {
+            credentials: "include",
+            cache: "no-store",
+          }),
+          fetchProfile(),
+        ]);
 
-        if (!res.ok) {
-          if (!cancelled) {
+        if (sessionRes.ok) {
+          const session = (await sessionRes.json()) as {
+            user?: { id?: string; email?: string | null } | null;
+          } | null;
+
+          if (session?.user?.id && !cancelled) {
+            setSupabaseUser({ id: session.user.id, email: session.user.email });
+          } else if (profile && !cancelled) {
+            setSupabaseUser({ id: profile.id, email: profile.email });
+          } else if (!cancelled) {
             setSupabaseUser(null);
             setUser(null);
-            setIsLoading(false);
           }
-          return;
+        } else if (profile && !cancelled) {
+          setSupabaseUser({ id: profile.id, email: profile.email });
+        } else if (!cancelled) {
+          setSupabaseUser(null);
+          setUser(null);
         }
-
-        const session = (await res.json()) as {
-          user?: { id?: string; email?: string | null } | null;
-        } | null;
-
-        if (!session?.user?.id) {
-          if (!cancelled) {
-            setSupabaseUser(null);
-            setUser(null);
-            setIsLoading(false);
-          }
-          return;
-        }
-
-        if (!cancelled) {
-          setSupabaseUser({ id: session.user.id, email: session.user.email });
-        }
-
-        await fetchProfile();
       } catch {
         if (!cancelled) {
           setSupabaseUser(null);
