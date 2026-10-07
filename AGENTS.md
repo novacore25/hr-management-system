@@ -756,6 +756,23 @@ Solusi:
 2. Di `src/server/auth.ts`: pasang `checks: ["state"]` pada Google provider untuk menggunakan perlindungan CSRF state parameter standar OAuth 2.0 tanpa ketergantungan pada cookie PKCE.
 3. Di `src/middleware.ts`: ubah export menjadi `export default middleware;`.
 
+### 3.24 Auth.js v5: 'InvalidCheck: state value could not be parsed' & Google Cloud Console Redirect URI Exact Match
+
+Gejala: Saat user mengklik "Masuk dengan Google", login bounce kembali ke `/login?error=Configuration` dengan pesan `"Konfigurasi login belum lengkap. Hubungi admin."`. Log server mencatat:
+`[auth][error] InvalidCheck: state value could not be parsed` atau `[auth][cause]: dN: unexpected "state" response parameter value`.
+
+Akar masalah:
+1. `secret` tidak didefinisikan eksplisit di objek `authConfig` (`src/server/auth-config.ts`), sehingga saat transisi runtime antara Edge (Middleware) dan Node.js (Route Handler), salt enkripsi/dekripsi JWE untuk cookie state (`__Secure-authjs.state`) berisiko tidak seragam.
+2. Sisa cookie lama di browser (`authjs.state` non-secure dari deployment sebelum `useSecureCookies`) bentrok dengan cookie baru (`__Secure-authjs.state`), menyebabkan fungsi dekripsi Auth.js melempar `no matching decryption secret`.
+3. Authorized Redirect URIs di Google Cloud Console wajib cocok persis (exact string match) sampai path lengkap: `https://<domain>/api/auth/callback/google`. Jika hanya tertulis `https://<domain>/api/auth/`, Google akan menolak redirect atau Next.js memicu 308 redirect yang membuang parameter state.
+4. Pemanggilan `signIn("google", { callbackUrl })` di client NextAuth v5 telah mendeprecate `callbackUrl` dan menganjurkan `redirectTo`.
+
+Solusi:
+1. Di `src/server/auth-config.ts`: sertakan `secret: process.env.AUTH_SECRET` secara eksplisit.
+2. Di `src/app/login/page.tsx`: berikan `redirectTo` dan `callbackUrl` secara berdampingan.
+3. Saat verifikasi setelah redeploy: uji di jendela **Incognito / Private Window** (atau bersihkan cookie `*.sslip.io`) agar cookie lama yang berbeda salt tidak merusak dekripsi.
+4. Pastikan baris URI di Google Cloud Console berakhiran `/api/auth/callback/google`.
+
 ---
 
 

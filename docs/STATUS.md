@@ -70,6 +70,7 @@ Sudah beres dan terbukti dengan skrip verifikasi:
 | Notes KPI read-only + tipe `hr` | `verify:kpitampil` |
 | Upah lembur & payroll: tipe numeric dijaga number (cegah string concat) | `verify:otnumbers` |
 | Auth.js v5: useSecureCookies di balik proxy + state CSRF (cegah error Configuration) | `verify:build` |
+| Auth.js v5: secret eksplisit di authConfig + redirectTo login | `verify:build` |
 
 **Multi-office ternyata sudah benar** dan tidak perlu diperbaiki.
 Dilverifikasi langsung ke produksi: 2 kantor, **10 dari 10 divisi**
@@ -1634,3 +1635,8 @@ itu adalah aplikasi Supabase yang sekarang sudah dibuang.
 | `467741a` | Fase 5 — DAL payroll + halaman Pengaturan Gaji |
 | `784182f` | Docs: status allowlist 14 → 2 |
 | `dca09b8` | Fase 5 — slip gaji. **MIGRASI KODE SELESAI** |
+| `cf54677` | Fix auth: allowDangerousEmailAccountLinking untuk akun migrasi |
+| `68c4049` | Fix overtime: casting numeric payroll & lembur cegah string concat |
+| `e15858c` | Fix auth: useSecureCookies + checks state CSRF |
+| `ac4a9c1` | Test auth: skrip verifikasi alur OAuth di VPS |
+| `2fbb841` | Fix auth: secret eksplisit di authConfig + redirectTo login |
