@@ -278,3 +278,20 @@ export function getBrandColor(brand: string | undefined): string {
   const charCode = b.charCodeAt(0) || 0;
   return colors[charCode % colors.length];
 }
+
+/**
+ * Ekstrak tanggal spesifik ISO (YYYY-MM-DD) dari judul KPI harian jika ada (format: [YYYY-MM-DD]).
+ */
+export function extractKpiDate(title: string | undefined): string | null {
+  if (!title) return null;
+  const match = title.match(/\[(\d{4}-\d{2}-\d{2})\]/);
+  return match ? match[1] : null;
+}
+
+/**
+ * Menghilangkan tag tanggal [YYYY-MM-DD] dari judul agar tampil bersih.
+ */
+export function cleanKpiTitle(title: string | undefined): string {
+  if (!title) return "";
+  return title.replace(/\[\d{4}-\d{2}-\d{2}\]\s*/, "").trim();
+}

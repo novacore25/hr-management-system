@@ -16,7 +16,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ChevronLeft, AlertTriangle } from "lucide-react";
+import { ChevronLeft, AlertTriangle, Calendar } from "lucide-react";
+import { extractKpiDate, cleanKpiTitle, todayISODate } from "@/lib/utils";
 import type { KPI } from "@/types";
 
 type Department = { id: string; name: string };
@@ -66,6 +67,7 @@ export function KpiFormPage({ kpiId, backHref }: KpiFormPageProps) {
   const [type, setType] = useState<string>("");
   const [unit, setUnit] = useState<string>("");
   const [period, setPeriod] = useState<string>("");
+  const [targetDate, setTargetDate] = useState(() => todayISODate());
   /** Sekarang **id** divisi, bukan nama. */
   const [departmentId, setDepartmentId] = useState("");
   const [monthlyTarget, setMonthlyTarget] = useState("");
@@ -137,7 +139,13 @@ export function KpiFormPage({ kpiId, backHref }: KpiFormPageProps) {
         }
 
         setKpi(found);
-        setTitle(found.title);
+        const parsedDate = extractKpiDate(found.title);
+        if (parsedDate) {
+          setTargetDate(parsedDate);
+          setTitle(cleanKpiTitle(found.title));
+        } else {
+          setTitle(found.title);
+        }
         setBrand(found.brand ?? "");
         setDescription(found.description ?? "");
         setType(found.type);
@@ -194,8 +202,13 @@ export function KpiFormPage({ kpiId, backHref }: KpiFormPageProps) {
       return;
     }
 
+    let finalTitle = title.trim();
+    if (period === "daily" && targetDate) {
+      finalTitle = `[${targetDate}] ${cleanKpiTitle(finalTitle)}`;
+    }
+
     const payload: Record<string, unknown> = {
-      title: title.trim(),
+      title: finalTitle,
       brand: brand.trim(),
       description: description.trim(),
       type,
@@ -407,6 +420,26 @@ export function KpiFormPage({ kpiId, backHref }: KpiFormPageProps) {
             </Select>
           </div>
         </div>
+
+        {period === "daily" && (
+          <div className="space-y-1.5 rounded-xl border border-emerald-200 bg-emerald-50/50 p-3.5 transition-all">
+            <Label htmlFor="target-date" className="flex items-center gap-1.5 text-xs font-semibold text-emerald-800">
+              <Calendar className="h-3.5 w-3.5 text-emerald-600" />
+              Tanggal Khusus Pelaksanaan Tugas
+            </Label>
+            <Input
+              id="target-date"
+              type="date"
+              value={targetDate}
+              onChange={(e) => setTargetDate(e.target.value)}
+              className="bg-background text-sm cursor-pointer"
+              required
+            />
+            <p className="text-[11px] text-emerald-700 leading-relaxed">
+              Tugas ini akan tercatat khusus untuk tanggal ini. Staf akan melihat tanggal ini langsung di kartu tugas mereka.
+            </p>
+          </div>
+        )}
 
         <div className="space-y-1.5">
           <Label htmlFor="monthly-target">

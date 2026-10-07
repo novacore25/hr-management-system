@@ -15,7 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useApiMutation } from "@/hooks/useApi";
 import { withQuery } from "@/lib/api-client";
-import { todayISODate, formatNumber, formatCurrency, formatPercentage, getLiveWorkingDaysRemaining } from "@/lib/utils";
+import { todayISODate, formatNumber, formatCurrency, formatPercentage, getLiveWorkingDaysRemaining, extractKpiDate, cleanKpiTitle, formatDateDisplay } from "@/lib/utils";
 import type { KpiAssignmentWithDetails } from "@/types";
 import { CalendarDays } from "lucide-react";
 
@@ -46,10 +46,14 @@ export function DailyInputForm({
   open,
   onClose,
 }: DailyInputFormProps) {
+  const { kpi } = assignment;
   const today = todayISODate();
   const minDate = today.slice(0, 7) + "-01";
 
-  const [selectedDate, setSelectedDate] = useState(today);
+  const kpiSpecificDate = extractKpiDate(kpi?.title);
+  const initialDate = kpiSpecificDate && kpiSpecificDate <= today ? kpiSpecificDate : today;
+
+  const [selectedDate, setSelectedDate] = useState(initialDate);
   const [value, setValue] = useState("");
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -57,8 +61,6 @@ export function DailyInputForm({
   const [existingReportId, setExistingReportId] = useState<string | null>(null);
   const [isChecking, setIsChecking] = useState(true);
   const [confirmDelete, setConfirmDelete] = useState(false);
-
-  const { kpi } = assignment;
 
   const workingDaysRemaining = getLiveWorkingDaysRemaining(assignment.year, assignment.month);
   const remainingTarget = Math.max(0, assignment.monthlyTarget - assignment.actualTotal);
@@ -249,7 +251,14 @@ export function DailyInputForm({
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-sm">
         <DialogHeader>
-          <DialogTitle className="text-base">{kpi.title}</DialogTitle>
+          <DialogTitle className="text-base leading-snug">
+            {cleanKpiTitle(kpi.title)}
+          </DialogTitle>
+          {kpiSpecificDate && (
+            <p className="text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded w-fit mt-1">
+              📅 Tugas Khusus: {formatDateDisplay(kpiSpecificDate)}
+            </p>
+          )}
         </DialogHeader>
 
         {kpi.type === "quality" ? (

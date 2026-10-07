@@ -12,6 +12,8 @@ import {
   getPerformanceCategory,
   getLiveWorkingDaysRemaining,
   getBrandColor,
+  extractKpiDate,
+  cleanKpiTitle,
   cn,
 } from "@/lib/utils";
 import { useDailyReportsForAssignment } from "@/hooks/useDailyReports";
@@ -51,6 +53,9 @@ export function KpiCard({ assignment, onClick, showNotes = true, period, readonl
   const [expandNotes, setExpandNotes] = useState(false);
   const [expandDesc, setExpandDesc] = useState(false);
   const isRange = period?.type === "range";
+
+  const kpiDate = extractKpiDate(kpi?.title);
+  const displayTitle = cleanKpiTitle(kpi?.title);
 
   // Hitung live — tidak pakai nilai statis dari Firestore
   const liveWorkingDaysRemaining = getLiveWorkingDaysRemaining(assignment.year, assignment.month);
@@ -116,7 +121,7 @@ export function KpiCard({ assignment, onClick, showNotes = true, period, readonl
               </span>
               {kpi.period === "daily" && (
                 <span className="inline-block px-2 py-0.5 rounded-lg border text-[10px] font-black uppercase tracking-wider text-emerald-700 bg-emerald-50 border-emerald-200">
-                  Harian
+                  Harian{kpiDate ? ` · ${formatDateDisplay(kpiDate)}` : ""}
                 </span>
               )}
               {kpi.period === "weekly" && (
@@ -125,7 +130,9 @@ export function KpiCard({ assignment, onClick, showNotes = true, period, readonl
                 </span>
               )}
             </div>
-            <CardTitle className="text-lg font-black leading-tight text-[var(--ab-text-main)] tracking-tight">{kpi.title}</CardTitle>
+            <CardTitle className="text-lg font-black leading-tight text-[var(--ab-text-main)] tracking-tight">
+              {displayTitle}
+            </CardTitle>
             
             {kpi.description && (
               <div className="mt-2 text-[11px] text-[var(--ab-text-dim)]">
