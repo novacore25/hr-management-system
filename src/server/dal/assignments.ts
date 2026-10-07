@@ -452,6 +452,7 @@ export async function createAssignments(
       id: kpis.id,
       type: kpis.type,
       title: kpis.title,
+      period: kpis.period,
       year: kpis.year,
       month: kpis.month,
     })
@@ -488,6 +489,10 @@ export async function createAssignments(
     }
 
     r.kpiType = kpi.type;
+    if (kpi.period === "daily") {
+      // Untuk KPI bertipe daily, target harian adalah nilai target itu sendiri
+      r.currentDailyTarget = r.monthlyTarget;
+    }
   }
 
   const inserted = await db
@@ -888,26 +893,44 @@ export async function recalcAssignmentTotals(assignmentId: string): Promise<void
   const total = Number(agg?.total ?? 0);
 
   const [a] = await db
-    .select()
+    .select({
+      id: kpiAssignments.id,
+      kpiId: kpiAssignments.kpiId,
+      monthlyTarget: kpiAssignments.monthlyTarget,
+      year: kpiAssignments.year,
+      month: kpiAssignments.month,
+      workingDaysTotal: kpiAssignments.workingDaysTotal,
+      workingDaysElapsed: kpiAssignments.workingDaysElapsed,
+      kpiPeriod: kpis.period,
+    })
     .from(kpiAssignments)
+    .innerJoin(kpis, eq(kpiAssignments.kpiId, kpis.id))
     .where(eq(kpiAssignments.id, assignmentId))
     .limit(1);
 
   if (!a) return;
 
   const monthlyTarget = Number(a.monthlyTarget);
-  const wdTotal = a.workingDaysTotal || 1;
-  const wdElapsed = elapsedWorkingDays(a.year, a.month, a.workingDaysElapsed);
+  const isDaily = a.kpiPeriod === "daily";
 
-  const expectedTotal =
-    wdElapsed > 0 ? (monthlyTarget / wdTotal) * wdElapsed : 0;
-  const pacePct = expectedTotal > 0 ? (total / expectedTotal) * 100 : 0;
+  let expectedTotal: number;
+  let pacePct: number;
+  let wdElapsed: number;
+  let wdRemaining: number;
 
-  // Tulis balik ke kolom, bukan cuma dipakai di perhitungan. Halaman lain
-  // membaca `workingDaysElapsed` / `workingDaysRemaining` langsung dari
-  // database, jadi kalau kolomnya dibiarkan 0 angka-angka itu salah di
-  // mana-mana — termasuk "sisa hari kerja" yang ditampilkan ke user.
-  const wdRemaining = Math.max(wdTotal - wdElapsed, 0);
+  if (isDaily) {
+    // KPI harian: target berlaku penuh untuk tugas itu sendiri
+    expectedTotal = monthlyTarget;
+    pacePct = expectedTotal > 0 ? (total / expectedTotal) * 100 : 0;
+    wdElapsed = a.workingDaysTotal || 1;
+    wdRemaining = 0;
+  } else {
+    const wdTotal = a.workingDaysTotal || 1;
+    wdElapsed = elapsedWorkingDays(a.year, a.month, a.workingDaysElapsed);
+    expectedTotal = wdElapsed > 0 ? (monthlyTarget / wdTotal) * wdElapsed : 0;
+    pacePct = expectedTotal > 0 ? (total / expectedTotal) * 100 : 0;
+    wdRemaining = Math.max(wdTotal - wdElapsed, 0);
+  }
 
   await db
     .update(kpiAssignments)

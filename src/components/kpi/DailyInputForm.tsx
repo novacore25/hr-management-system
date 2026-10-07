@@ -63,7 +63,10 @@ export function DailyInputForm({
   const workingDaysRemaining = getLiveWorkingDaysRemaining(assignment.year, assignment.month);
   const remainingTarget = Math.max(0, assignment.monthlyTarget - assignment.actualTotal);
   const dynamicDailyTarget = workingDaysRemaining > 0 ? remainingTarget / workingDaysRemaining : 0;
-  const finalDailyTarget = dynamicDailyTarget || assignment.currentDailyTarget || 0;
+  const isDailyKpi = kpi?.period === "daily";
+  const finalDailyTarget = isDailyKpi
+    ? assignment.monthlyTarget
+    : dynamicDailyTarget || assignment.currentDailyTarget || 0;
 
   const isBelowTarget = value !== "" && !isNaN(parseFloat(value)) && parseFloat(value) < finalDailyTarget;
 

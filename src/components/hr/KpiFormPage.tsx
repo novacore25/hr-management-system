@@ -410,7 +410,11 @@ export function KpiFormPage({ kpiId, backHref }: KpiFormPageProps) {
 
         <div className="space-y-1.5">
           <Label htmlFor="monthly-target">
-            Target Bulanan
+            {period === "daily"
+              ? "Target Harian"
+              : period === "weekly"
+              ? "Target Mingguan"
+              : "Target Bulanan"}
             {assignmentCount > 0 && (
               <span className="text-muted-foreground font-normal">
                 {" "}
@@ -424,7 +428,7 @@ export function KpiFormPage({ kpiId, backHref }: KpiFormPageProps) {
             inputMode="decimal"
             step="any"
             min="0"
-            placeholder="0"
+            placeholder={period === "daily" ? "Target untuk tugas harian ini..." : "0"}
             value={monthlyTarget}
             onChange={(e) => setMonthlyTarget(e.target.value)}
             required

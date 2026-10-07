@@ -34,6 +34,28 @@ export default function TimKpiPage() {
   
   const [selected, setSelected] = useState<KpiAssignmentWithDetails | null>(null);
   const [period, setPeriod] = useState<Period>({ type: "month" });
+  const [tab, setTab] = useState<"active" | "completed_daily" | "all">("active");
+
+  const hasDailyKpis = assignments.some((a) => a.kpi?.period === "daily");
+
+  const activeAssignments = assignments.filter((a) => {
+    if (a.kpi?.period === "daily") {
+      // Harian aktif: belum selesai (actual < monthlyTarget)
+      return a.actualTotal < a.monthlyTarget;
+    }
+    return true; // Bulanan tetap aktif sepanjang bulan
+  });
+
+  const completedDailyAssignments = assignments.filter((a) => {
+    return a.kpi?.period === "daily" && a.actualTotal >= a.monthlyTarget;
+  });
+
+  const displayedAssignments =
+    !hasDailyKpis || tab === "all"
+      ? assignments
+      : tab === "active"
+      ? activeAssignments
+      : completedDailyAssignments;
 
   function handleFilterMonthChange(value: string) {
     setFilterMonth(value);
@@ -108,21 +130,69 @@ export default function TimKpiPage() {
           <p className="text-sm font-medium">Belum ada KPI untuk bulan ini</p>
         </div>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {assignments.map((a) => (
-            <KpiCard
-              key={a.id}
-              assignment={a}
-              onClick={() => setSelected(a)}
-              period={period}
-              readonlyMessage={
-                pesanKpiReadonly(
-                  a.kpi,
-                  a.kpi?.type === "quality" ? "Head" : "HR",
-                ) ?? undefined
-              }
-            />
-          ))}
+        <div className="space-y-4">
+          {hasDailyKpis && (
+            <div className="flex items-center gap-1.5 p-1 bg-slate-100 dark:bg-slate-800/60 rounded-xl w-fit border border-border">
+              <button
+                type="button"
+                onClick={() => setTab("active")}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                  tab === "active"
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Tugas Aktif ({activeAssignments.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setTab("completed_daily")}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                  tab === "completed_daily"
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Riwayat Harian Selesai ({completedDailyAssignments.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setTab("all")}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                  tab === "all"
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Semua ({assignments.length})
+              </button>
+            </div>
+          )}
+
+          {displayedAssignments.length === 0 ? (
+            <div className="flex h-32 flex-col items-center justify-center rounded-xl border border-dashed border-border text-center">
+              <p className="text-sm font-medium text-muted-foreground">
+                Tidak ada tugas di kategori ini
+              </p>
+            </div>
+          ) : (
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {displayedAssignments.map((a) => (
+                <KpiCard
+                  key={a.id}
+                  assignment={a}
+                  onClick={() => setSelected(a)}
+                  period={period}
+                  readonlyMessage={
+                    pesanKpiReadonly(
+                      a.kpi,
+                      a.kpi?.type === "quality" ? "Head" : "HR",
+                    ) ?? undefined
+                  }
+                />
+              ))}
+            </div>
+          )}
         </div>
       )}
 

@@ -114,6 +114,16 @@ export function KpiCard({ assignment, onClick, showNotes = true, period, readonl
               <span className={cn("inline-block px-2 py-0.5 rounded-lg border text-[10px] font-black uppercase tracking-wider", typeColor[kpi.type] || "text-slate-600 bg-slate-50 border-slate-200")}>
                 {typeLabel[kpi.type] || kpi.type}
               </span>
+              {kpi.period === "daily" && (
+                <span className="inline-block px-2 py-0.5 rounded-lg border text-[10px] font-black uppercase tracking-wider text-emerald-700 bg-emerald-50 border-emerald-200">
+                  Harian
+                </span>
+              )}
+              {kpi.period === "weekly" && (
+                <span className="inline-block px-2 py-0.5 rounded-lg border text-[10px] font-black uppercase tracking-wider text-blue-700 bg-blue-50 border-blue-200">
+                  Mingguan
+                </span>
+              )}
             </div>
             <CardTitle className="text-lg font-black leading-tight text-[var(--ab-text-main)] tracking-tight">{kpi.title}</CardTitle>
             
@@ -200,17 +210,21 @@ export function KpiCard({ assignment, onClick, showNotes = true, period, readonl
                 </span>
               </div>
               <div className="rounded-2xl bg-[var(--ab-bg-main)] p-3 border border-[var(--ab-border)] shadow-inner">
-                <span className="block text-[9px] uppercase font-black text-[var(--ab-text-dim)] mb-1 tracking-widest">Target Bulanan</span>
+                <span className="block text-[9px] uppercase font-black text-[var(--ab-text-dim)] mb-1 tracking-widest">
+                  {kpi.period === "daily" ? "Target Harian" : kpi.period === "weekly" ? "Target Mingguan" : "Target Bulanan"}
+                </span>
                 <span className="block text-sm font-black text-[var(--ab-text-main)] truncate" title={formatValue(monthlyTarget, unit)}>
                   {formatValue(monthlyTarget, unit)}
                 </span>
               </div>
             </div>
 
-            <div className="mt-4 flex items-center justify-between text-[10px] px-1 font-bold text-[var(--ab-text-dim)] uppercase tracking-widest">
+            {kpi.period !== "daily" && (
+              <div className="mt-4 flex items-center justify-between text-[10px] px-1 font-bold text-[var(--ab-text-dim)] uppercase tracking-widest">
                 <span>Tgt Harian: <strong className="text-[var(--ab-text-main)] font-black">{formatValue(liveCurrentDailyTarget, unit)}</strong></span>
                 <span>Sisa: <strong className="text-[var(--ab-text-main)] font-black">{liveWorkingDaysRemaining} hr</strong></span>
-            </div>
+              </div>
+            )}
           </>
         )}
 

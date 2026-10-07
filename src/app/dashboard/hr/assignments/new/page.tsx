@@ -472,6 +472,16 @@ export default function NewAssignmentPage() {
                               <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0 ${typeColor[kpi.type]}`}>
                                 {typeLabel[kpi.type]}
                               </span>
+                              {kpi.period === "daily" && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0">
+                                  Harian
+                                </span>
+                              )}
+                              {kpi.period === "weekly" && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold bg-blue-50 text-blue-700 border border-blue-200 shrink-0">
+                                  Mingguan
+                                </span>
+                              )}
                               <span className={`text-[10px] px-1.5 py-0.5 rounded border font-medium shrink-0 ${getBrandColor(kpi.brand)}`}>
                                 {kpi.brand || "Umum"}
                               </span>
