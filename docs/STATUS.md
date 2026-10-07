@@ -1640,3 +1640,36 @@ itu adalah aplikasi Supabase yang sekarang sudah dibuang.
 | `e15858c` | Fix auth: useSecureCookies + checks state CSRF |
 | `ac4a9c1` | Test auth: skrip verifikasi alur OAuth di VPS |
 | `2fbb841` | Fix auth: secret eksplisit di authConfig + redirectTo login |
+| `d0e019a` | Perf: paralelkan /api/auth/session & profile fetch di AuthContext |
+| `[current]` | Data: migrasi delta produksi Supabase ke VPS (15.018 baris, 23 tabel) |
+
+---
+
+## 21. Migrasi Delta Data Produksi (7 Oktober 2026)
+
+### Latar Belakang & Status Paritas
+Sejak snapshot migrasi skema awal pada 2 Oktober 2026, sistem lama di Supabase masih terus aktif digunakan operasional harian. Pada 7 Oktober 2026, dilakukan sinkronisasi menyeluruh membawa seluruh data hingga detik ini ke VPS PostgreSQL 18.6 (`db_hr_system`).
+
+Hasil akhir verifikasi: **100% PARITAS TERCAPAI** di 23 dari 23 tabel (15.018 baris data operasional).
+
+| Nama Tabel | Snapshot 2 Okt | Live 7 Okt | Selisih | Keterangan |
+|---|---|---|---|---|
+| `attendance` | 3.430 | 3.498 | +68 | Absensi karyawan s.d. 7 Okt 2026 (26 check-in hari ini) |
+| `kpi_assignments` | 2.707 | 2.751 | +44 | Target penugasan KPI Oktober 2026 |
+| `absensi_logs` | 567 | 584 | +17 | Audit log absensi |
+| `kpis` | 2.024 | 2.037 | +13 | KPI baru dibuat |
+| `daily_reports` | 4.992 | 5.006 | +14 | Laporan harian staf s.d. 7 Okt 2026 |
+| `leave_requests` | 346 | 352 | +6 | Pengajuan cuti baru s.d. 6 Okt 2026 |
+| `payrolls` | 71 | 73 | +2 | Draf slip gaji baru bulan Oktober |
+| 16 Tabel Lainnya | Identik | Identik | 0 | Master data & settings sudah 100% sama |
+| `users` | 67 | 66 (+1) | 0 | 66 user produksi identik + 1 user test VPS (`web.tntmedia@gmail.com`) |
+| `accounts` | 3 | - | - | 3 akun Google OAuth yang telah ditautkan tetap utuh |
+
+### Pengamanan Khusus
+1. **Preservasi Akun OAuth (`accounts`)**:
+   - `TRUNCATE TABLE users CASCADE` akan otomatis menghapus foreign key di `accounts`.
+   - Menggunakan tabel temporary `pg_temp.accounts_backup` dan `pg_temp.users_backup`, kredensial Google OAuth 3 akun (`hibban25nzl@gmail.com`, `hibbannazala.hn@gmail.com`, `web.tntmedia@gmail.com`) dipulihkan otomatis setelah data dimuat.
+2. **Preservasi Angka Desimal Presisi (0017 Parity)**:
+   - Nilai desimal pada `daily_reports.value` dan `kpi_assignments.actual_total` dimuat dengan casting `numeric(20,6)` tanpa pemotongan desimal bermakna.
+3. **Simulasi Dry-Run Rollback**:
+   - Skrip `scripts/vps/vps-dryrun-oct7.sh` dijalankan terlebih dahulu dan memvalidasi `SAMA` pada 23 dari 23 tabel sebelum eksekusi `COMMIT` dilakukan via `0018_delta_migration_oct7.sql`.
