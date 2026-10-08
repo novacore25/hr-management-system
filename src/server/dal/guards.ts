@@ -172,7 +172,11 @@ export async function requireKpiRoleAtLeast(minimum: KpiRole) {
  */
 export async function requireAbsensiAdmin() {
   const p = await requireProfile();
-  if (p.absensiRole !== "admin") {
+  if (
+    p.absensiRole !== "admin" &&
+    p.kpiRole !== "executive" &&
+    p.kpiRole !== "developer"
+  ) {
     throw new ForbiddenError("Halaman ini khusus admin absensi.");
   }
   return p;
