@@ -1672,4 +1672,20 @@ Hasil akhir verifikasi: **100% PARITAS TERCAPAI** di 23 dari 23 tabel (15.018 ba
 2. **Preservasi Angka Desimal Presisi (0017 Parity)**:
    - Nilai desimal pada `daily_reports.value` dan `kpi_assignments.actual_total` dimuat dengan casting `numeric(20,6)` tanpa pemotongan desimal bermakna.
 3. **Simulasi Dry-Run Rollback**:
-   - Skrip `scripts/vps/vps-dryrun-oct7.sh` dijalankan terlebih dahulu dan memvalidasi `SAMA` pada 23 dari 23 tabel sebelum eksekusi `COMMIT` dilakukan via `0018_delta_migration_oct7.sql`.
+   - Skrip `scripts/vps/vps-dryrun-oct7.sh` dijalankan terlebih dahulu dan memvalidasi `SAMA` pada 23 dari 23 tabel sebelum eksekusi `COMMIT` dilakukan via `0018_delta_migration_oct7.sql`.
+
+---
+
+## 22. Fitur KPI Khusus Harian (One-Day Task) & Navigasi Pengaturan Executive (8 Oktober 2026)
+
+### A. KPI Khusus Satu Hari (`period = "daily"`)
+- Menambahkan opsi frekuensi periode `Harian` pada pembuatan KPI (`/dashboard/head/kpi-setup/new`, `/dashboard/hr/kpi/new`).
+- Target harian spesifik tanggal ditandai dengan prefix tag tanggal `[YYYY-MM-DD]` pada judul penugasan.
+- Di sisi database & DAL:
+  - Input harian staf (`/api/daily-reports`) mendukung backdate / target harian sesuai tanggal penugasan.
+  - UI KPI staf (`/dashboard/tim/kpi`) menampilkan judul bersih (tag tanggal diurai sebagai badge tanggal eksekusi).
+
+### B. Hak Akses & Navigasi Pengaturan Sistem untuk Role Executive
+- Menambahkan rute `/absensi/admin/settings` (Pengaturan Sistem: jam operasional, toleransi telat, geofence radius, lokasi kantor, libur nasional, dan divisi) ke daftar navigasi sidebar `executive` di `src/components/layout/Sidebar.tsx`.
+- Memperluas guard otorisasi `requireAbsensiAdmin()` di `src/server/dal/guards.ts` agar role `executive` dan `developer` otomatis memiliki hak akses admin absensi.
+
