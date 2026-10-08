@@ -118,6 +118,8 @@ export function AttendanceWidget() {
   const [showRadiusWarning, setShowRadiusWarning] = useState(false);
   const [showLateReasonPrompt, setShowLateReasonPrompt] = useState(false);
   const [showGpsPrePrompt, setShowGpsPrePrompt] = useState(false);
+  const [showGpsErrorDialog, setShowGpsErrorDialog] = useState(false);
+  const [gpsErrorReason, setGpsErrorReason] = useState("");
   const [syncRetryCount, setSyncRetryCount] = useState(0);
   const [pendingDistance, setPendingDistance] = useState(0);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -348,12 +350,7 @@ export function AttendanceWidget() {
         toast.dismiss(toastId);
         const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
         const nearest = getNearestLocation(loc);
-        if (nearest.noLocationError) {
-          toast.error("Lokasi absen divisi Anda belum diatur oleh Admin. Hubungi HR.");
-          setIsProcessing(false);
-          return;
-        }
-        if (nearest.dist > nearest.radius) {
+        if (!nearest.noLocationError && nearest.dist > nearest.radius) {
           setPendingLocation(loc);
           setPendingDistance(Math.round(nearest.dist));
           setSyncRetryCount(0);
@@ -374,16 +371,16 @@ export function AttendanceWidget() {
           if ("requireLateReason" in result) setPendingLocation(null);
           finalizeCheckIn(result);
           if (!("requireLateReason" in result)) setShowLocationGuide(true);
-        } else if (err.code === 2) {
-          // Position unavailable
-          toast.error("GPS tidak tersedia. Pastikan GPS aktif lalu coba lagi.", { duration: 5000 });
-          setIsProcessing(false);
-        } else if (err.code === 3) {
-          // Timeout
-          toast.error("GPS timeout. Koneksi lambat atau sinyal GPS lemah. Coba lagi.", { duration: 5000 });
-          setIsProcessing(false);
         } else {
-          toast.error("Gagal mendapatkan lokasi GPS. Pastikan izin lokasi aktif.");
+          // Sinyal GPS lemah / timeout / GPS mati di perangkat
+          setGpsErrorReason(
+            err.code === 2
+              ? "GPS tidak aktif atau perangkat tidak dapat mendeteksi posisi."
+              : err.code === 3
+              ? "Sinyal GPS lemah atau waktu deteksi habis (timeout)."
+              : "Gagal mendeteksi koordinat GPS perangkat."
+          );
+          setShowGpsErrorDialog(true);
           setIsProcessing(false);
         }
       },
@@ -1142,23 +1139,19 @@ export function AttendanceWidget() {
                             toast.dismiss(toastId);
                             const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
                             const nearest = getNearestLocation(loc);
-                            if (nearest.noLocationError) {
-                              toast.error("Lokasi absen divisi Anda belum diatur oleh Admin.");
-                              setIsSyncing(false);
-                              return;
-                            }
-                            const newCount = syncRetryCount + 1;
-                            setSyncRetryCount(newCount);
-                            setPendingLocation(loc);
-                            setPendingDistance(Math.round(nearest.dist));
-                            if (nearest.dist <= nearest.radius) {
+                            if (!nearest.noLocationError && nearest.dist <= nearest.radius) {
                               toast.success("Lokasi terdeteksi dalam area kantor!");
                               setShowRadiusWarning(false);
                               setSyncRetryCount(0);
                               setIsProcessing(true);
                               doCheckIn(loc).then(finalizeCheckIn);
                             } else {
-                              toast.error(`Masih di luar area (${Math.round(nearest.dist)}m). Sisa percobaan: ${2 - newCount}x`);
+                              const newCount = syncRetryCount + 1;
+                              setSyncRetryCount(newCount);
+                              setPendingLocation(loc);
+                              const distVal = nearest.noLocationError ? 0 : Math.round(nearest.dist);
+                              setPendingDistance(distVal);
+                              toast.error(`Masih di luar area (${distVal}m). Sisa percobaan: ${2 - newCount}x`);
                             }
                             setIsSyncing(false);
                           },
@@ -1215,6 +1208,62 @@ export function AttendanceWidget() {
             </div>
           </div>
         )}
+      {/* Modal Penyelamat Kendala Sinyal GPS / Timeout */}
+      {showGpsErrorDialog && (
+        <div
+          className="ab-confirm-overlay fixed inset-0 flex items-center justify-center p-4"
+          style={{ zIndex: 99999, background: "rgba(2, 8, 23, 0.65)", backdropFilter: "blur(8px)" }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setShowGpsErrorDialog(false);
+            }
+          }}
+        >
+          <div
+            className="w-full max-w-md rounded-[50px] shadow-2xl overflow-hidden ab-animate-scaleIn border border-[var(--ab-border)]"
+            style={{ background: "var(--ab-bg-surface)" }}
+          >
+            <div className="p-8 text-center">
+              <div className="w-20 h-20 bg-amber-100 dark:bg-amber-900/30 rounded-full flex items-center justify-center mx-auto mb-6 border-4 border-amber-50 dark:border-amber-800">
+                <AlertCircle size={32} className="text-amber-600" />
+              </div>
+              <h3 className="text-2xl font-black text-[var(--ab-text-main)] uppercase tracking-tight mb-3">
+                Kendala Sinyal GPS
+              </h3>
+              <p className="text-sm text-[var(--ab-text-dim)] font-medium leading-relaxed mb-4">
+                {gpsErrorReason}
+              </p>
+              <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800 rounded-3xl p-4 mb-6 text-left">
+                <p className="text-xs font-bold text-blue-700 dark:text-blue-300 leading-relaxed">
+                  💡 Pastikan GPS di HP aktif. Jika sinyal terhalang atau mendesak, Anda tetap dapat melakukan check-in tanpa data GPS.
+                </p>
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => {
+                    setShowGpsErrorDialog(false);
+                    processCheckIn();
+                  }}
+                  className="flex-1 text-white py-4 rounded-[20px] font-black uppercase tracking-widest text-[10px] shadow-lg transition-all active:scale-95"
+                  style={{ background: "var(--ab-primary)" }}
+                >
+                  🔄 Coba Lagi
+                </button>
+                <button
+                  onClick={() => {
+                    setShowGpsErrorDialog(false);
+                    setIsProcessing(true);
+                    doCheckIn(null).then(finalizeCheckIn);
+                  }}
+                  className="flex-1 bg-[var(--ab-bg-main)] text-[var(--ab-text-main)] py-4 rounded-[20px] font-black uppercase tracking-widest text-[10px] border border-[var(--ab-border)] hover:bg-[var(--ab-bg-surface)] transition-all active:scale-95"
+                >
+                  ⚡ Tetap Absen Tanpa GPS
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       <PromptDialog
         isOpen={showLateReasonPrompt}
         title="Konfirmasi Telat"
