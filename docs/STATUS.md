@@ -1688,4 +1688,19 @@ Hasil akhir verifikasi: **100% PARITAS TERCAPAI** di 23 dari 23 tabel (15.018 ba
 ### B. Hak Akses & Navigasi Pengaturan Sistem untuk Role Executive
 - Menambahkan rute `/absensi/admin/settings` (Pengaturan Sistem: jam operasional, toleransi telat, geofence radius, lokasi kantor, libur nasional, dan divisi) ke daftar navigasi sidebar `executive` di `src/components/layout/Sidebar.tsx`.
 - Memperluas guard otorisasi `requireAbsensiAdmin()` di `src/server/dal/guards.ts` agar role `executive` dan `developer` otomatis memiliki hak akses admin absensi.
+
+---
+
+## 23. Perbaikan Pemetaan Divisi Head & Filter Akun Pending di Overview KPI (9 Oktober 2026)
+
+### A. Resolusi UUID `managedDepartments` ke Nama Divisi
+- Masalah: Kolom `users.managed_departments` di database menyimpan array UUID relasi `departments.id` (misal: `["b4d144fa-e1a9-4eae-8da6-977795bb3fcd"]` untuk divisi `HYPE`). Halaman `/dashboard/executive/overview` sebelumnya langsung mengelompokkan Head berdasarkan string UUID tersebut, menyebabkan muncul seksi bernama UUID dan Head (Icha Fitri Ayunda) hilang dari grup HYPE.
+- Solusi: Memanfaatkan hook `useDepartmentsWithId()` untuk memetakan setiap ID divisi ke nama divisi (`idToName`). Head otomatis dikelompokkan ke divisi yang semestinya (HYPE menjadi 10 anggota lengkap) dan seksi UUID lenyap.
+
+### B. Pembersihan Karakter Mojibake (`â€”`) & Filter Pendaftar Baru
+- Masalah: Pendaftar baru (`absensiStatus: "pending"`) seperti `Iban TNT` dan `Maria Alvita` yang belum disetujui HR dan belum memiliki divisi ikut muncul di Overview KPI di bawah fallback karakter mojibake `â€”` (akibat encoding rusak dari `—`).
+- Solusi:
+  - Menyaring hanya staf aktif (`absensiStatus === "active"`) pada `timUsers` di Overview KPI, sehingga pendaftar baru tidak mengotori laporan KPI sebelum disetujui dan diberi divisi oleh HR.
+  - Memperbaiki seluruh teks mojibake `â€”` menjadi label bersih `"Tanpa Divisi"` di seluruh halaman overview, laporan tim, dan laporan HR.
+
 
