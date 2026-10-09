@@ -1,10 +1,10 @@
-﻿"use client";
+"use client";
 
 import { useState, useMemo } from "react";
 import { useAllUsers } from "@/hooks/useUsers";
 import { useAllKpiSettings } from "@/hooks/useKpiSettings";
 import { useAssignmentsForPeriod } from "@/hooks/useAssignmentsForPeriod";
-import { useDepartments } from "@/hooks/useDivisions";
+import { useDepartmentsWithId } from "@/hooks/useDivisions";
 import { ExpandableStaffGrid } from "@/components/kpi/ExpandableStaffGrid";
 import { PeriodPicker, type Period } from "@/components/kpi/PeriodPicker";
 import { PerformanceBadge } from "@/components/ui/badge";
@@ -32,18 +32,40 @@ export default function ExecutiveOverviewPage() {
 
   const { users, isLoading: usersLoading } = useAllUsers();
   const { getWeights, isLoading: settingsLoading } = useAllKpiSettings();
-  const { departments, isLoading: deptLoading } = useDepartments();
+  const { departments: departmentsList, isLoading: deptLoading } =
+    useDepartmentsWithId();
   const { assignments, kpisMap, isLoading } =
     useAssignmentsForPeriod(period);
+
+  const deptIdToName = useMemo(() => {
+    const map: Record<string, string> = {};
+    departmentsList.forEach((d) => {
+      map[d.id] = d.name;
+    });
+    return map;
+  }, [departmentsList]);
+
+  const departments = useMemo(() => {
+    return departmentsList.map((d) => d.name);
+  }, [departmentsList]);
 
   const [expandedDepts, setExpandedDepts] = useState<Set<string>>(new Set());
   const [expandedUsers, setExpandedUsers] = useState<Set<string>>(new Set());
 
   const timUsers = useMemo(
-    () => users.filter((u) => {
-      const r = getKpiRole(u);
-      return r === "tim" || r === "head" || r === "hr";
-    }),
+    () =>
+      users.filter((u) => {
+        // Kecualikan pendaftar baru yang masih pending atau user non-aktif
+        if (
+          u.absensiStatus === "pending" ||
+          u.absensiStatus === "deleted" ||
+          u.absensiStatus === "rejected"
+        ) {
+          return false;
+        }
+        const r = getKpiRole(u);
+        return r === "tim" || r === "head" || r === "hr";
+      }),
     [users]
   );
 
@@ -61,10 +83,16 @@ export default function ExecutiveOverviewPage() {
     timUsers.forEach((u) => {
       if (getKpiRole(u) === "head") {
         // Head appears first in each of their managed departments
-        const depts =
+        const rawDepts =
           u.managedDepartments && u.managedDepartments.length > 0
             ? u.managedDepartments
-            : u.department ? [u.department] : [];
+            : u.department
+            ? [u.department]
+            : [];
+        // Terjemahkan UUID jika ada ke Nama Departemen
+        const depts = rawDepts.map(
+          (idOrName) => deptIdToName[idOrName] ?? idOrName
+        );
         depts.forEach((dept) => {
           if (!map[dept]) map[dept] = [];
           if (!map[dept].find((x) => x.id === u.id)) {
@@ -72,13 +100,13 @@ export default function ExecutiveOverviewPage() {
           }
         });
       } else {
-        const dept = u.department ?? "â€”";
+        const dept = u.department ?? "Tanpa Divisi";
         if (!map[dept]) map[dept] = [];
         map[dept].push(u);
       }
     });
     return map;
-  }, [timUsers]);
+  }, [timUsers, deptIdToName]);
 
   // Use the exact department list and order from Supabase, plus any unassigned ones
   const deptNames = useMemo(() => {
@@ -144,7 +172,7 @@ export default function ExecutiveOverviewPage() {
         <div>
           <h2 className="text-base font-semibold">Overview Seluruh Karyawan</h2>
           <p className="text-sm text-muted-foreground">
-            {timUsers.length} karyawan Â· {deptNames.length} departemen
+            {timUsers.length} karyawan • {deptNames.length} departemen
           </p>
         </div>
         <PeriodPicker

@@ -110,7 +110,7 @@ export default function HrReportsPage() {
 
   function handleExportCsv() {
     const rows: string[][] = [];
-    rows.push(["Laporan Performa KPI â€” HR"]);
+    rows.push(["Laporan Performa KPI - HR"]);
     rows.push(["Periode", periodLabel]);
     rows.push(["Total KPI", String(totalKpis)]);
     rows.push(["Rata-rata Perusahaan", `${formatPercentage(companyAvg)}`]);
@@ -229,7 +229,7 @@ export default function HrReportsPage() {
                 >
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold truncate">{u.name}</p>
-                    <p className="text-xs text-muted-foreground">{u.department ?? "â€”"}</p>
+                    <p className="text-xs text-muted-foreground">{u.department ?? "Tanpa Divisi"}</p>
                   </div>
                   {hasAssignments ? (
                     <div className="flex items-center gap-3 shrink-0">
@@ -259,7 +259,7 @@ export default function HrReportsPage() {
                         <div key={a.id} className="rounded-lg border border-border bg-background px-3 py-2.5 space-y-1.5">
                           <div className="flex items-center justify-between gap-2">
                             <p className="text-xs font-medium truncate">
-                              {kpisMap[a.kpiId]?.title ?? "â€”"}
+                              {kpisMap[a.kpiId]?.title ?? "-"}
                             </p>
                             <div className="flex items-center gap-1.5 shrink-0">
                               <span className="text-xs font-semibold tabular-nums">

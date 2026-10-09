@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useState, useMemo } from "react";
 import { useAuth } from "@/contexts/AuthContext";
@@ -59,7 +59,7 @@ export default function HeadTeamPage() {
   const byDept = useMemo(() => {
     const map: Record<string, typeof timUsers> = {};
     timUsers.forEach((u) => {
-      const dept = u.department ?? "â€”";
+      const dept = u.department ?? "Tanpa Divisi";
       if (!map[dept]) map[dept] = [];
       map[dept].push(u);
     });

@@ -97,7 +97,7 @@ export default function ExecutiveTeamPage() {
                 <div className="min-w-0">
                   <p className="text-sm font-medium truncate">{u.name}</p>
                   <p className="text-xs text-muted-foreground">
-                    {u.department ?? "â€”"} Â· {userAssignments.length} KPI aktif
+                    {u.department ?? "Tanpa Divisi"} • {userAssignments.length} KPI aktif
                   </p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0 ml-3">
@@ -124,7 +124,7 @@ export default function ExecutiveTeamPage() {
           <DialogHeader>
             <DialogTitle>{selectedUser?.name}</DialogTitle>
             <p className="text-sm text-muted-foreground">
-              {selectedUser?.department ?? "â€”"} Â·{" "}
+              {selectedUser?.department ?? "Tanpa Divisi"} •{" "}
               {selectedUser ? (kpiRoleLabel[getKpiRole(selectedUser)] ?? "") : ""}
             </p>
           </DialogHeader>
@@ -153,7 +153,7 @@ export default function ExecutiveTeamPage() {
                           {kpi?.title ?? a.kpiId}
                         </p>
                         <p className="text-xs text-muted-foreground capitalize">
-                          {kpi?.type ?? "â€”"} Â· {kpi?.period ?? "â€”"}
+                          {kpi?.type ?? "-"} • {kpi?.period ?? "-"}
                         </p>
                       </div>
                       <PerformanceBadge category={cat} />
