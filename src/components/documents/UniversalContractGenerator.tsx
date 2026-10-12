@@ -458,7 +458,7 @@ function UniversalContractGeneratorInner({ backHref = "/absensi/letters" }: Prop
               }`}
             >
               <Layers size={13} />
-              <span>PKS Klien MCN</span>
+              <span>PKS Klien MCN (LS)</span>
             </button>
           </div>
 

@@ -101,7 +101,7 @@ export function PksPreviewModal({
                   Pratinjau Dokumen Kontrak Resmi
                 </h3>
                 <span className="text-[11px] font-black uppercase px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
-                  {contractType === "PKS_KLIEN_TNT" ? "PKS TNT" : "PKS MCN"}
+                  {contractType === "PKS_KLIEN_TNT" ? "PKS TNT" : "PKS MCN (LS)"}
                 </span>
               </div>
               <p className="text-xs text-slate-500 font-mono">
