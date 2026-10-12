@@ -1478,10 +1478,27 @@ function UniversalContractGeneratorInner({ backHref = "/absensi/letters" }: Prop
                             className="p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 space-y-3"
                           >
                             <div className="flex justify-between items-center text-xs font-bold border-b border-slate-100 dark:border-slate-700/60 pb-2">
-                              <span>Creator #{rIdx + 1}: {roster.creatorName}</span>
-                              <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300">
-                                Tema: {roster.themeColor || "blue"}
-                              </span>
+                              <span>Creator #{rIdx + 1}: {roster.creatorName || `Talent ${rIdx + 1}`}</span>
+                              <div className="flex items-center gap-2">
+                                <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300">
+                                  Tema: {roster.themeColor || "blue"}
+                                </span>
+                                {(formDataMcn.calendarRosters || []).length > 1 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const next = (formDataMcn.calendarRosters || []).filter(
+                                        (_, i) => i !== rIdx,
+                                      );
+                                      setFormDataMcn((p) => ({ ...p, calendarRosters: next }));
+                                    }}
+                                    className="text-rose-500 hover:text-rose-700 p-1"
+                                    title="Hapus Kalender Creator Ini"
+                                  >
+                                    <Trash2 size={13} />
+                                  </button>
+                                )}
+                              </div>
                             </div>
 
                             <div className="space-y-2 text-xs">
@@ -1620,6 +1637,91 @@ function UniversalContractGeneratorInner({ backHref = "/absensi/letters" }: Prop
                           </div>
                         ))}
 
+                        <div className="flex flex-wrap gap-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const cur = formDataMcn.calendarRosters || [];
+                              const newIndex = cur.length + 1;
+                              const colors: Array<"blue" | "pink" | "purple" | "emerald"> = [
+                                "blue",
+                                "pink",
+                                "purple",
+                                "emerald",
+                              ];
+                              const color = colors[cur.length % colors.length];
+                              const creator =
+                                formDataMcn.deliverables.creators[cur.length]?.name ||
+                                `Creator ${newIndex}`;
+
+                              setFormDataMcn((p) => ({
+                                ...p,
+                                calendarRosters: [
+                                  ...cur,
+                                  {
+                                    creatorName: creator,
+                                    targetInfo: `${creator} - TnT (10x Sesi)`,
+                                    monthName: "OKTOBER",
+                                    themeColor: color,
+                                    slots: {
+                                      prev_30: "1 sesi exc tavi",
+                                      "6": "1 sesi mix tavi & IP",
+                                      "10": "1 sesi mix tavi & IP",
+                                    },
+                                    notes: [
+                                      { date: "10 Okt", description: "Promo 10.10" },
+                                      { date: "25 Okt", description: "Promo Payday" },
+                                    ],
+                                  },
+                                ],
+                              }));
+                            }}
+                            className="px-3 py-1.5 text-xs font-bold bg-primary text-primary-foreground hover:bg-primary/90 rounded-xl transition-all flex items-center gap-1.5 shadow-sm"
+                          >
+                            <Plus size={13} />
+                            <span>Tambah Kalender Creator</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const creators = formDataMcn.deliverables.creators;
+                              const colors: Array<"blue" | "pink" | "purple" | "emerald"> = [
+                                "blue",
+                                "pink",
+                                "purple",
+                                "emerald",
+                              ];
+                              const synced = creators.map((c, i) => {
+                                const existing = (formDataMcn.calendarRosters || []).find(
+                                  (r) => r.creatorName.toLowerCase() === c.name.toLowerCase(),
+                                );
+                                if (existing) return existing;
+                                return {
+                                  creatorName: c.name || `Creator ${i + 1}`,
+                                  targetInfo: `${c.name || `Creator ${i + 1}`} - TnT (${c.sessions}x Sesi)`,
+                                  monthName: "OKTOBER",
+                                  themeColor: colors[i % colors.length],
+                                  slots: {
+                                    prev_30: "1 sesi exc tavi",
+                                    "6": "1 sesi mix tavi & IP",
+                                  },
+                                  notes: [
+                                    { date: "10 Okt", description: "Promo 10.10" },
+                                    { date: "25 Okt", description: "Promo Payday" },
+                                  ],
+                                };
+                              });
+                              setFormDataMcn((p) => ({ ...p, calendarRosters: synced }));
+                              toast.success(`Berhasil menyinkronkan ${synced.length} kalender creator!`);
+                            }}
+                            className="px-3 py-1.5 text-xs font-bold bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-300 dark:hover:bg-slate-600 rounded-xl transition-all flex items-center gap-1.5"
+                          >
+                            <RotateCcw size={13} />
+                            <span>Sinkronkan dari Tab Deliverables</span>
+                          </button>
+                        </div>
+
                         <button
                           type="button"
                           onClick={() => {
@@ -1628,7 +1730,7 @@ function UniversalContractGeneratorInner({ backHref = "/absensi/letters" }: Prop
                               calendarRosters: DEFAULT_PKS_MCN_DATA.calendarRosters,
                             }));
                           }}
-                          className="text-[11px] text-slate-500 hover:text-primary underline block"
+                          className="text-[11px] text-slate-500 hover:text-primary underline block pt-1"
                         >
                           ↻ Reset ke Template Kalender Asli TAVI x TNT
                         </button>

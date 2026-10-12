@@ -1814,5 +1814,19 @@ Hasil akhir verifikasi: **100% PARITAS TERCAPAI** di 23 dari 23 tabel (15.018 ba
   - Editor Kalender: Pengguna dapat mengedit Judul Kalender, Nama Bulan, Warna Tema (Biru, Pink, Ungu, Hijau), dan daftar Catatan Promo (*Note:) secara dinamis.
   - Tombol **"Reset ke Template Kalender Asli TAVI x TNT"** untuk mengembalikan tata letak baku dalam satu klik.
 
+### D. Tata Bahasa EYD Formal & Multi-Creator Pagination Dinamis
+- **Enumerasi EYD Bahasa Indonesia**:
+  - Diterapkan fungsi `formatListIndonesian()` untuk penulisan daftar kreator dalam pasal perjanjian:
+    - 1 kreator: `"A"`
+    - 2 kreator: `"A dan B"`
+    - 3+ kreator: `"A, B, dan C"` (menggunakan koma serial / Oxford comma sesuai standar PUEBI/EYD).
+- **Dukungan Skala Kreator Tanpa Batas (Infinite Creators Pagination)**:
+  - Setiap kalender kreator di Lampiran I kini dipisahkan menjadi blok independen dalam `DynamicPksPaginator`.
+  - Jika terdapat lebih dari 2 kreator (misal 3, 5, 10, hingga 50 kreator):
+    - 2 kreator pertama ditampilkan pada Halaman Lampiran 1.
+    - Begitu kapasitas halaman tercapai, engine secara otomatis membuat lembar Halaman Lampiran baru untuk kreator ke-3 dan ke-4, lalu ke-5 dan ke-6, dan seterusnya secara berkesinambungan.
+  - Ditambahkan tombol **"+ Tambah Kalender Creator"** dan **"⟳ Sinkronkan dari Tab Deliverables"** pada generator untuk memudahkan penambahan banyak talent secara instan.
+
+
 
 

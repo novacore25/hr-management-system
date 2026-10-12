@@ -182,6 +182,22 @@ function CreatorCalendarView({
   );
 }
 
+/**
+ * Format enumerasi daftar formal EYD bahasa Indonesia:
+ * - 0 item: ""
+ * - 1 item: "A"
+ * - 2 item: "A dan B"
+ * - 3+ item: "A, B, dan C"
+ */
+function formatListIndonesian(items: string[]): string {
+  const cleanItems = items.filter((it) => it && it.trim().length > 0);
+  if (cleanItems.length === 0) return "";
+  if (cleanItems.length === 1) return cleanItems[0];
+  if (cleanItems.length === 2) return `${cleanItems[0]} dan ${cleanItems[1]}`;
+  const allButLast = cleanItems.slice(0, -1).join(", ");
+  return `${allButLast}, dan ${cleanItems[cleanItems.length - 1]}`;
+}
+
 interface Props {
   data: PksMcnData;
 }
@@ -189,11 +205,13 @@ interface Props {
 export function PksMcnDocument({ data }: Props) {
   const { header, client, agency, deliverables, term, financial, legal, schedule } = data;
 
-  const creatorsText = deliverables.creators
-    .map((c) => `${c.name} (${c.sessions} sesi)`)
-    .join(" dan ");
+  const creatorsText = formatListIndonesian(
+    deliverables.creators.map((c) => `${c.name} (${c.sessions} sesi)`)
+  );
 
-  const creatorsNamesOnly = deliverables.creators.map((c) => c.name).join(" dan ");
+  const creatorsNamesOnly = formatListIndonesian(
+    deliverables.creators.map((c) => c.name)
+  );
 
   const taxName =
     financial.taxType === "pph_0_5"
@@ -674,9 +692,9 @@ export function PksMcnDocument({ data }: Props) {
       </div>
     </div>,
 
-    /* 14. LAMPIRAN I (Jadwal & Roster - Wajib Halaman Baru) */
+    /* 14. LAMPIRAN I (Header & Creator Pertama - Wajib Halaman Baru) */
     <div
-      key="b-appendix"
+      key="b-appendix-main"
       data-page-break="true"
       className="pt-1 space-y-3"
     >
@@ -689,11 +707,7 @@ export function PksMcnDocument({ data }: Props) {
       {data.appendixFormat !== "table" &&
       data.calendarRosters &&
       data.calendarRosters.length > 0 ? (
-        <div className="space-y-4">
-          {data.calendarRosters.map((roster, idx) => (
-            <CreatorCalendarView key={`roster-${idx}`} roster={roster} />
-          ))}
-        </div>
+        <CreatorCalendarView roster={data.calendarRosters[0]} />
       ) : (
         /* Fallback / Opsi Table View */
         <div className="overflow-x-auto space-y-2">
@@ -748,6 +762,17 @@ export function PksMcnDocument({ data }: Props) {
         </div>
       )}
     </div>,
+
+    /* 15. Creator 2 s/d N (Dinamis: 2, 5, 10, atau 50 Creator terpaginasi otomatis) */
+    ...(data.appendixFormat !== "table" &&
+    data.calendarRosters &&
+    data.calendarRosters.length > 1
+      ? data.calendarRosters.slice(1).map((roster, idx) => (
+          <div key={`b-appendix-creator-${idx + 1}`} className="pt-2">
+            <CreatorCalendarView roster={roster} />
+          </div>
+        ))
+      : []),
   ];
 
   return <DynamicPksPaginator blocks={blocks} />;
