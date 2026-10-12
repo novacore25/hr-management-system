@@ -245,3 +245,16 @@ dua tempat harus konsisten — dan tidak ada tooling untuk itu.
 1. Pendekatan statis hardcoded pembagian pasal per halaman sebelumnya menyebabkan dua masalah fatal: timbulnya ruang kosong (*blank space*) artifisial yang tidak wajar pada pasal pendek, dan *text overflow* terpotong pada pasal yang memiliki rincian panjang. Dengan engine dinamis berbasis akumulasi tinggi, dokumen mengisi lembaran A4 secara natural tanpa memaksakan potong halaman, menghasilkan dokumen legal formal yang rapi dan profesional.
 2. Banyak klien perusahaan menunjuk perwakilan penandatangan yang berbeda-beda untuk program yang berbeda (misal Direktur Utama untuk PKS MCN, CMO / Brand Manager untuk PKS TNT). Jika kontak di-overwrite pada level klien, histori penandatangan lama akan hilang. Dengan tabel `client_contacts`, sistem menyajikan dropdown pilihan kontak tersimpan sekaligus opsi input kontak baru dengan auto write-back idempoten.
 
+---
+
+## 14. Pemisahan Halaman Wajib (Forced Page Break) untuk Lampiran & Kalender Roster Resmi PKS
+
+**Pilihan:**
+1. Engine `DynamicPksPaginator.tsx` mendeteksi atribut `data-page-break="true"`. Saat blok dengan atribut ini diproses, engine langsung menutup halaman berjalan dan mengalokasikan lembar halaman baru terisolasi.
+2. Lampiran I pada PKS MCN mengadopsi struktur visual **Monthly Calendar Grid** per Creator persis seperti dokumen acuan resmi (TAVI x TNT Hal 14/14), lengkap dengan header bulan, nama creator + target sesi, header 7 hari, kotak tanggal berslot live streaming, dan daftar catatan promo (*Note:).
+
+**Alasan:**
+1. Dalam kaidah penyusunan dokumen hukum dan kontrak kerjasama korporat, bagian Lampiran (*Appendix / Schedule*) merupakan adendum terpisah yang tidak boleh disambung secara canggung di bawah kolom tanda tangan para pihak, melainkan harus dicetak pada lembaran kertas berikutnya. Deteksi `data-page-break="true"` memberikan fleksibilitas gabungan: alur dinamis tanpa ruang kosong untuk pasal-pasal perjanjian utama, sekaligus isolasi tegas untuk dokumen lampiran.
+2. Format kalender bulanan per creator memberikan kejelasan visual langsung bagi brand dan talent mengenai jadwal siaran langsung dan momentum promo penting (Payday, Mega Sales, Weekly events) dibandingkan tabel daftar linear biasa.
+
+

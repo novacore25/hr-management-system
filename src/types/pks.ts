@@ -15,6 +15,22 @@ export type PksScheduleItem = {
   notes: string;
 };
 
+export type PksCalendarPromoNote = {
+  date: string;
+  description: string;
+};
+
+export type PksCreatorCalendar = {
+  creatorName: string;
+  targetInfo: string; // e.g. "Storyandine - TnT (10x Sesi Oktober)"
+  monthName: string; // e.g. "OKTOBER"
+  year?: number;
+  themeColor?: "blue" | "pink" | "purple" | "emerald";
+  // Key: tanggal string (misal "prev_30", "1", "6", "10", dll.) -> Value: text sesi (misal "1 sesi exc tavi")
+  slots: Record<string, string>;
+  notes?: PksCalendarPromoNote[];
+};
+
 export type PksTaxType = "pph_0_5" | "pph_23" | "ppn_11" | "none";
 
 export interface PksMcnData {
@@ -75,6 +91,8 @@ export interface PksMcnData {
     curePeriodDays: number;
     courtJurisdiction: string;
   };
+  appendixFormat?: "calendar" | "table"; // default "calendar"
+  calendarRosters?: PksCreatorCalendar[];
   schedule: PksScheduleItem[];
 }
 
@@ -140,6 +158,57 @@ export const DEFAULT_PKS_MCN_DATA: PksMcnData = {
     curePeriodDays: 14,
     courtJurisdiction: "Pengadilan Negeri Tangerang",
   },
+  appendixFormat: "calendar",
+  calendarRosters: [
+    {
+      creatorName: "Storyandine",
+      targetInfo: "Storyandine - TnT (10x Sesi Oktober)",
+      monthName: "OKTOBER",
+      themeColor: "blue",
+      slots: {
+        "prev_30": "1 sesi exc tavi",
+        "6": "1 sesi mix tavi & IP",
+        "8": "1 sesi exc IP",
+        "10": "1 sesi mix tavi & IP",
+        "13": "1 sesi exc tavi",
+        "15": "1 sesi exc tavi",
+        "20": "1 sesi exc tavi",
+        "25": "1 sesi mix tavi & IP",
+        "27": "1 sesi exc tavi",
+        "29": "1 sesi mix tavi & IP",
+      },
+      notes: [
+        { date: "30 Sept", description: "Promo Beauty Rush" },
+        { date: "10 Okt", description: "Promo 10.10" },
+        { date: "6, 13, 20, 27 Okt", description: "Promo Tuesday Made Easy" },
+        { date: "25 Okt", description: "Promo Payday" },
+      ],
+    },
+    {
+      creatorName: "Anisarobiyanti",
+      targetInfo: "Anisarobiyanti - TnT (10x Sesi Oktober)",
+      monthName: "OKTOBER",
+      themeColor: "pink",
+      slots: {
+        "prev_30": "1 sesi exc tavi",
+        "6": "1 sesi exc tavi",
+        "9": "1 sesi exc tavi",
+        "10": "1 sesi exc tavi",
+        "13": "1 sesi exc tavi",
+        "15": "1 sesi mix tavi & IP",
+        "20": "1 sesi exc tavi",
+        "22": "1 sesi mix tavi & IP",
+        "25": "1 sesi exc tavi",
+        "27": "1 sesi exc tavi",
+      },
+      notes: [
+        { date: "30 Sept", description: "Promo Beauty Rush" },
+        { date: "10 Okt", description: "Promo 10.10" },
+        { date: "6, 13, 20, 27 Okt", description: "Promo Tuesday Made Easy" },
+        { date: "25 Okt", description: "Promo Payday" },
+      ],
+    },
+  ],
   schedule: [
     {
       sessionNo: 1,

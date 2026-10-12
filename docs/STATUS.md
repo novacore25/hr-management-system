@@ -1787,4 +1787,32 @@ Hasil akhir verifikasi: **100% PARITAS TERCAPAI** di 23 dari 23 tabel (15.018 ba
   - Tombol **"Buat PKS"**: Tombol langsung untuk memulai draf perjanjian baru di generator dengan data klien yang otomatis terisi instan (`/absensi/admin/letters/generator?clientId={id}`).
   - Integrasi Menu Sidebar: Ditambahkan ke kelompok menu `Admin` untuk role `hr` dan `executive` di `src/components/layout/Sidebar.tsx`.
 
+---
+
+## 27. Force Page Break untuk Lampiran Legal & Kalender Roster Bulanan PKS MCN (12 Oktober 2026)
+
+### A. Force Page Break Engine pada `DynamicPksPaginator.tsx`
+- Masalah: Lampiran I sebelumnya menempel di bawah blok tanda tangan para pihak pada halaman terakhir jika masih ada sisa tinggi halaman, tidak sesuai standar dokumen legal formal.
+- Solusi: `DynamicPksPaginator.tsx` kini mendukung deteksi atribut `data-page-break="true"` pada setiap blok elemen:
+  - Saat engine mendeteksi sebuah blok berlabel `data-page-break="true"` dan halaman berjalan sudah terisi (`currentPage.length > 0`), engine secara otomatis menutup lembar halaman saat ini dan membuka lembar halaman baru khusus untuk blok tersebut.
+  - Hasil: Blok Lampiran I kini 100% selalu dimulai pada lembar halaman baru tersendiri (*clean new page*).
+
+### B. Format Kalender Roster Bulanan Resmi (Monthly Calendar Grid) di `PksMcnDocument.tsx`
+- Menggantikan tampilan tabel linear sederhana dengan **Kalender Roster Bulanan per Creator** yang identik dengan dokumen acuan resmi (TAVI x TNT PKS MCN Hal 14/14):
+  - **Judul Lampiran**: `LAMPIRAN I` (bold, underline, center, font Times New Roman).
+  - **Header Creator**: Judul target sesi per kreator (cth: `Storyandine - TnT (10x Sesi Oktober)` dan `Anisarobiyanti - TnT (10x Sesi Oktober)`).
+  - **Tabel Grid Kalender Bulanan**:
+    - Header bulan: `OKTOBER` dengan background pastel bertema (Biru Pastel untuk Storyandine, Pink/Magenta untuk Anisarobiyanti).
+    - Header 7 hari: `Minggu | Senin | Selasa | Rabu | Kamis | Jumat | Sabtu`.
+    - Grid 5 minggu kalender A4: Sel tanggal dengan nomor di pojok kanan atas, serta badge slot sesi di tengah (cth: `1 sesi exc tavi`, `1 sesi mix tavi & IP`, `1 sesi exc IP`).
+    - Catatan Promo (`*Note:`): Blok catatan promo per tanggal di bawah kalender (cth: `30 Sept Promo Beauty Rush`, `10 Okt Promo 10.10`, `6, 13, 20, 27 Okt Promo Tuesday Made Easy`, `25 Okt Promo Payday`).
+  - **Presisi Dimensi A4**: Kedua kalender dan catatan promo dirancang pas masuk dalam 1 halaman A4 tersendiri tanpa overflow, persis seperti dokumen aslinya.
+
+### C. Kontrol Generator Interaktif di `UniversalContractGenerator.tsx`
+- Tab Jadwal & Roster pada generator kini dilengkapi:
+  - Toggle Mode Lampiran: Pilihan antara **"Kalender Grid (Resmi)"** (default) atau **"Tabel Daftar Sesi"**.
+  - Editor Kalender: Pengguna dapat mengedit Judul Kalender, Nama Bulan, Warna Tema (Biru, Pink, Ungu, Hijau), dan daftar Catatan Promo (*Note:) secara dinamis.
+  - Tombol **"Reset ke Template Kalender Asli TAVI x TNT"** untuk mengembalikan tata letak baku dalam satu klik.
+
+
 

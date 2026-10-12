@@ -1429,73 +1429,281 @@ function UniversalContractGeneratorInner({ backHref = "/absensi/letters" }: Prop
                     </div>
                   </div>
                 ) : (
-                  <div className="p-3 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-800 space-y-3">
-                    <p className="text-xs font-black uppercase text-slate-500 tracking-wider">
-                      Lampiran Jadwal Sesi Live Streaming
-                    </p>
-                    <div className="space-y-2">
-                      {formDataMcn.schedule.map((row, idx) => (
-                        <div key={idx} className="p-2.5 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 space-y-2">
-                          <div className="flex justify-between items-center text-xs font-bold">
-                            <span>Sesi #{row.sessionNo || idx + 1}</span>
-                            <button
-                              onClick={() => {
-                                const next = formDataMcn.schedule.filter((_, i) => i !== idx);
-                                setFormDataMcn((p) => ({ ...p, schedule: next }));
-                              }}
-                              className="text-rose-500 hover:text-rose-700"
-                            >
-                              <Trash2 size={13} />
-                            </button>
-                          </div>
-                          <div className="grid grid-cols-2 gap-2 text-xs">
-                            <input
-                              type="text"
-                              placeholder="Tanggal (cth: 06 Oktober 2026)"
-                              value={row.date}
-                              onChange={(e) => {
-                                const next = [...formDataMcn.schedule];
-                                next[idx] = { ...next[idx], date: e.target.value };
-                                setFormDataMcn((p) => ({ ...p, schedule: next }));
-                              }}
-                              className="px-2 py-1 bg-slate-50 dark:bg-slate-900 border rounded"
-                            />
-                            <input
-                              type="text"
-                              placeholder="Jam (cth: 19:00 - 21:00 WIB)"
-                              value={row.time}
-                              onChange={(e) => {
-                                const next = [...formDataMcn.schedule];
-                                next[idx] = { ...next[idx], time: e.target.value };
-                                setFormDataMcn((p) => ({ ...p, schedule: next }));
-                              }}
-                              className="px-2 py-1 bg-slate-50 dark:bg-slate-900 border rounded"
-                            />
-                          </div>
-                        </div>
-                      ))}
-                      <button
-                        onClick={() =>
-                          setFormDataMcn((p) => ({
-                            ...p,
-                            schedule: [
-                              ...p.schedule,
-                              {
-                                sessionNo: p.schedule.length + 1,
-                                date: "",
-                                time: "19:00 - 21:00 WIB",
-                                creator: p.deliverables.creators[0]?.name ?? "",
-                                notes: "Live Session",
-                              },
-                            ],
-                          }))
-                        }
-                        className="text-xs font-bold text-primary flex items-center gap-1 hover:underline pt-1"
-                      >
-                        <Plus size={13} />
-                        Tambah Baris Jadwal
-                      </button>
+                  <div className="p-3 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-800 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-black uppercase text-slate-500 tracking-wider">
+                        Lampiran I (Jadwal & Roster)
+                      </p>
+                      {/* Format Selector Toggle */}
+                      <div className="flex rounded-lg bg-slate-200 dark:bg-slate-700 p-0.5 text-[11px] font-bold">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setFormDataMcn((p) => ({ ...p, appendixFormat: "calendar" }))
+                          }
+                          className={`px-2.5 py-1 rounded-md transition-all ${
+                            (formDataMcn.appendixFormat || "calendar") === "calendar"
+                              ? "bg-white dark:bg-slate-900 text-primary shadow-sm"
+                              : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
+                          }`}
+                        >
+                          Kalender Grid (Resmi)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setFormDataMcn((p) => ({ ...p, appendixFormat: "table" }))
+                          }
+                          className={`px-2.5 py-1 rounded-md transition-all ${
+                            formDataMcn.appendixFormat === "table"
+                              ? "bg-white dark:bg-slate-900 text-primary shadow-sm"
+                              : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
+                          }`}
+                        >
+                          Tabel Daftar Sesi
+                        </button>
+                      </div>
                     </div>
+
+                    {(formDataMcn.appendixFormat || "calendar") === "calendar" ? (
+                      /* ── KALENDER ROSTER BULANAN VIEW BUILDER ── */
+                      <div className="space-y-4">
+                        <p className="text-[11px] text-slate-500">
+                          Format kalender bulanan per creator sesuai dokumen asli PKS TAVI. Tiap creator memiliki jadwal live dan daftar promo di bawahnya.
+                        </p>
+
+                        {(formDataMcn.calendarRosters || []).map((roster, rIdx) => (
+                          <div
+                            key={rIdx}
+                            className="p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 space-y-3"
+                          >
+                            <div className="flex justify-between items-center text-xs font-bold border-b border-slate-100 dark:border-slate-700/60 pb-2">
+                              <span>Creator #{rIdx + 1}: {roster.creatorName}</span>
+                              <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300">
+                                Tema: {roster.themeColor || "blue"}
+                              </span>
+                            </div>
+
+                            <div className="space-y-2 text-xs">
+                              <div>
+                                <label className="text-[10.5px] font-bold text-slate-600 dark:text-slate-400 block mb-0.5">
+                                  Judul Kalender:
+                                </label>
+                                <input
+                                  type="text"
+                                  value={roster.targetInfo}
+                                  onChange={(e) => {
+                                    const next = [...(formDataMcn.calendarRosters || [])];
+                                    next[rIdx] = { ...next[rIdx], targetInfo: e.target.value };
+                                    setFormDataMcn((p) => ({ ...p, calendarRosters: next }));
+                                  }}
+                                  placeholder="cth: Storyandine - TnT (10x Sesi Oktober)"
+                                  className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-900 border rounded-lg text-xs font-medium"
+                                />
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                  <label className="text-[10.5px] font-bold text-slate-600 dark:text-slate-400 block mb-0.5">
+                                    Bulan Header:
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={roster.monthName}
+                                    onChange={(e) => {
+                                      const next = [...(formDataMcn.calendarRosters || [])];
+                                      next[rIdx] = { ...next[rIdx], monthName: e.target.value };
+                                      setFormDataMcn((p) => ({ ...p, calendarRosters: next }));
+                                    }}
+                                    placeholder="OKTOBER"
+                                    className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-900 border rounded-lg text-xs font-bold"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-[10.5px] font-bold text-slate-600 dark:text-slate-400 block mb-0.5">
+                                    Warna Tema:
+                                  </label>
+                                  <select
+                                    value={roster.themeColor || "blue"}
+                                    onChange={(e) => {
+                                      const next = [...(formDataMcn.calendarRosters || [])];
+                                      next[rIdx] = {
+                                        ...next[rIdx],
+                                        themeColor: e.target.value as "blue" | "pink" | "purple" | "emerald",
+                                      };
+                                      setFormDataMcn((p) => ({ ...p, calendarRosters: next }));
+                                    }}
+                                    className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-900 border rounded-lg text-xs font-semibold"
+                                  >
+                                    <option value="blue">Biru (Blue Pastel)</option>
+                                    <option value="pink">Pink / Magenta (TAVI)</option>
+                                    <option value="purple">Ungu (Purple Pastel)</option>
+                                    <option value="emerald">Hijau (Emerald Pastel)</option>
+                                  </select>
+                                </div>
+                              </div>
+
+                              {/* Promo Notes List */}
+                              <div className="pt-2 border-t border-slate-100 dark:border-slate-700/50">
+                                <div className="flex justify-between items-center mb-1">
+                                  <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300">
+                                    Catatan Promo (*Note:)
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const next = [...(formDataMcn.calendarRosters || [])];
+                                      const curNotes = next[rIdx].notes || [];
+                                      next[rIdx] = {
+                                        ...next[rIdx],
+                                        notes: [...curNotes, { date: "", description: "" }],
+                                      };
+                                      setFormDataMcn((p) => ({ ...p, calendarRosters: next }));
+                                    }}
+                                    className="text-[10px] font-bold text-primary hover:underline"
+                                  >
+                                    + Tambah Promo
+                                  </button>
+                                </div>
+
+                                <div className="space-y-1.5">
+                                  {(roster.notes || []).map((note, nIdx) => (
+                                    <div key={nIdx} className="flex items-center gap-1.5">
+                                      <input
+                                        type="text"
+                                        value={note.date}
+                                        placeholder="Tgl (cth: 10 Okt)"
+                                        onChange={(e) => {
+                                          const next = [...(formDataMcn.calendarRosters || [])];
+                                          const curNotes = [...(next[rIdx].notes || [])];
+                                          curNotes[nIdx] = { ...curNotes[nIdx], date: e.target.value };
+                                          next[rIdx] = { ...next[rIdx], notes: curNotes };
+                                          setFormDataMcn((p) => ({ ...p, calendarRosters: next }));
+                                        }}
+                                        className="w-28 px-2 py-1 bg-slate-50 dark:bg-slate-900 border rounded text-[11px]"
+                                      />
+                                      <input
+                                        type="text"
+                                        value={note.description}
+                                        placeholder="Keterangan Promo"
+                                        onChange={(e) => {
+                                          const next = [...(formDataMcn.calendarRosters || [])];
+                                          const curNotes = [...(next[rIdx].notes || [])];
+                                          curNotes[nIdx] = {
+                                            ...curNotes[nIdx],
+                                            description: e.target.value,
+                                          };
+                                          next[rIdx] = { ...next[rIdx], notes: curNotes };
+                                          setFormDataMcn((p) => ({ ...p, calendarRosters: next }));
+                                        }}
+                                        className="flex-1 px-2 py-1 bg-slate-50 dark:bg-slate-900 border rounded text-[11px]"
+                                      />
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const next = [...(formDataMcn.calendarRosters || [])];
+                                          const curNotes = (next[rIdx].notes || []).filter(
+                                            (_, i) => i !== nIdx,
+                                          );
+                                          next[rIdx] = { ...next[rIdx], notes: curNotes };
+                                          setFormDataMcn((p) => ({ ...p, calendarRosters: next }));
+                                        }}
+                                        className="text-rose-500 hover:text-rose-700 p-1"
+                                      >
+                                        <Trash2 size={12} />
+                                      </button>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFormDataMcn((p) => ({
+                              ...p,
+                              calendarRosters: DEFAULT_PKS_MCN_DATA.calendarRosters,
+                            }));
+                          }}
+                          className="text-[11px] text-slate-500 hover:text-primary underline block"
+                        >
+                          ↻ Reset ke Template Kalender Asli TAVI x TNT
+                        </button>
+                      </div>
+                    ) : (
+                      /* ── TABEL DAFTAR SESI VIEW ── */
+                      <div className="space-y-2">
+                        {formDataMcn.schedule.map((row, idx) => (
+                          <div
+                            key={idx}
+                            className="p-2.5 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 space-y-2"
+                          >
+                            <div className="flex justify-between items-center text-xs font-bold">
+                              <span>Sesi #{row.sessionNo || idx + 1}</span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const next = formDataMcn.schedule.filter((_, i) => i !== idx);
+                                  setFormDataMcn((p) => ({ ...p, schedule: next }));
+                                }}
+                                className="text-rose-500 hover:text-rose-700"
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2 text-xs">
+                              <input
+                                type="text"
+                                placeholder="Tanggal (cth: 06 Oktober 2026)"
+                                value={row.date}
+                                onChange={(e) => {
+                                  const next = [...formDataMcn.schedule];
+                                  next[idx] = { ...next[idx], date: e.target.value };
+                                  setFormDataMcn((p) => ({ ...p, schedule: next }));
+                                }}
+                                className="px-2 py-1 bg-slate-50 dark:bg-slate-900 border rounded"
+                              />
+                              <input
+                                type="text"
+                                placeholder="Jam (cth: 19:00 - 21:00 WIB)"
+                                value={row.time}
+                                onChange={(e) => {
+                                  const next = [...formDataMcn.schedule];
+                                  next[idx] = { ...next[idx], time: e.target.value };
+                                  setFormDataMcn((p) => ({ ...p, schedule: next }));
+                                }}
+                                className="px-2 py-1 bg-slate-50 dark:bg-slate-900 border rounded"
+                              />
+                            </div>
+                          </div>
+                        ))}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setFormDataMcn((p) => ({
+                              ...p,
+                              schedule: [
+                                ...p.schedule,
+                                {
+                                  sessionNo: p.schedule.length + 1,
+                                  date: "",
+                                  time: "19:00 - 21:00 WIB",
+                                  creator: p.deliverables.creators[0]?.name ?? "",
+                                  notes: "Live Session",
+                                },
+                              ],
+                            }))
+                          }
+                          className="text-xs font-bold text-primary flex items-center gap-1 hover:underline pt-1"
+                        >
+                          <Plus size={13} />
+                          Tambah Baris Jadwal
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

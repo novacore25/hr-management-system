@@ -42,8 +42,13 @@ export function DynamicPksPaginator({
         const marginBottom = parseFloat(style.marginBottom) || 0;
         const elementHeight = child.offsetHeight + marginTop + marginBottom;
 
-        // Jika blok ditambahkan melebihi kapasitas halaman, buka halaman baru
-        if (currentPage.length > 0 && currentHeight + elementHeight > maxPageHeightPx) {
+        // Cek apakah blok meminta pemisahan halaman paksa (misal Lampiran atau Addendum)
+        const isForceBreak =
+          child.getAttribute("data-page-break") === "true" ||
+          child.querySelector("[data-page-break='true']") !== null;
+
+        // Jika blok ditambahkan melebihi kapasitas halaman atau dipaksa page break, buka halaman baru
+        if (currentPage.length > 0 && (isForceBreak || currentHeight + elementHeight > maxPageHeightPx)) {
           newPages.push(currentPage);
           currentPage = [index];
           currentHeight = elementHeight;

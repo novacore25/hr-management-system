@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import type { PksMcnData } from "@/types/pks";
+import type { PksMcnData, PksCreatorCalendar } from "@/types/pks";
 import {
   terbilang,
   terbilangRupiah,
@@ -10,6 +10,177 @@ import {
   formatTanggalId,
 } from "@/lib/terbilang";
 import { DynamicPksPaginator } from "./DynamicPksPaginator";
+
+const THEME_STYLES: Record<
+  string,
+  { headerBg: string; subHeaderBg: string; slotBg: string; text: string }
+> = {
+  blue: {
+    headerBg: "#99b3ec",
+    subHeaderBg: "#c9daf8",
+    slotBg: "#8ea9db",
+    text: "#000000",
+  },
+  pink: {
+    headerBg: "#f4bfe0",
+    subHeaderBg: "#f9d5ea",
+    slotBg: "#e691d8",
+    text: "#000000",
+  },
+  purple: {
+    headerBg: "#d9b3ff",
+    subHeaderBg: "#ebd9fc",
+    slotBg: "#c28dfc",
+    text: "#000000",
+  },
+  emerald: {
+    headerBg: "#a8e6cf",
+    subHeaderBg: "#dcedc1",
+    slotBg: "#88d8b0",
+    text: "#000000",
+  },
+};
+
+interface CalendarCell {
+  dateNumber: number | null;
+  label?: string;
+  slotKey: string;
+}
+
+// Layout baku 5 minggu kalender (berawal di hari Rabu seperti kalender resmi TAVI x TNT)
+const DEFAULT_CALENDAR_WEEKS: CalendarCell[][] = [
+  [
+    { dateNumber: null, slotKey: "empty_0_0" },
+    { dateNumber: null, slotKey: "empty_0_1" },
+    { dateNumber: null, slotKey: "empty_0_2" },
+    { dateNumber: 30, label: "30 Sept", slotKey: "prev_30" },
+    { dateNumber: 1, slotKey: "1" },
+    { dateNumber: 2, slotKey: "2" },
+    { dateNumber: 3, slotKey: "3" },
+  ],
+  [
+    { dateNumber: 4, slotKey: "4" },
+    { dateNumber: 5, slotKey: "5" },
+    { dateNumber: 6, slotKey: "6" },
+    { dateNumber: 7, slotKey: "7" },
+    { dateNumber: 8, slotKey: "8" },
+    { dateNumber: 9, slotKey: "9" },
+    { dateNumber: 10, slotKey: "10" },
+  ],
+  [
+    { dateNumber: 11, slotKey: "11" },
+    { dateNumber: 12, slotKey: "12" },
+    { dateNumber: 13, slotKey: "13" },
+    { dateNumber: 14, slotKey: "14" },
+    { dateNumber: 15, slotKey: "15" },
+    { dateNumber: 16, slotKey: "16" },
+    { dateNumber: 17, slotKey: "17" },
+  ],
+  [
+    { dateNumber: 18, slotKey: "18" },
+    { dateNumber: 19, slotKey: "19" },
+    { dateNumber: 20, slotKey: "20" },
+    { dateNumber: 21, slotKey: "21" },
+    { dateNumber: 22, slotKey: "22" },
+    { dateNumber: 23, slotKey: "23" },
+    { dateNumber: 24, slotKey: "24" },
+  ],
+  [
+    { dateNumber: 25, slotKey: "25" },
+    { dateNumber: 26, slotKey: "26" },
+    { dateNumber: 27, slotKey: "27" },
+    { dateNumber: 28, slotKey: "28" },
+    { dateNumber: 29, slotKey: "29" },
+    { dateNumber: 30, slotKey: "30" },
+    { dateNumber: 31, slotKey: "31" },
+  ],
+];
+
+function CreatorCalendarView({
+  roster,
+}: {
+  roster: PksCreatorCalendar;
+}) {
+  const theme = THEME_STYLES[roster.themeColor || "blue"] || THEME_STYLES.blue;
+
+  return (
+    <div className="space-y-1 mb-4 last:mb-0">
+      <p className="font-bold text-[12.5px] text-left">
+        {roster.targetInfo || `${roster.creatorName} - (${roster.monthName})`}
+      </p>
+
+      <table className="w-full border-collapse border border-black text-[10.5px]">
+        <thead>
+          <tr>
+            <th
+              colSpan={7}
+              className="border border-black py-0.5 text-center font-bold uppercase tracking-wider text-[11px]"
+              style={{ backgroundColor: theme.headerBg }}
+            >
+              {roster.monthName || "OKTOBER"}
+            </th>
+          </tr>
+          <tr style={{ backgroundColor: theme.subHeaderBg }}>
+            <th className="border border-black py-0.5 w-[14.28%] text-center font-bold">Minggu</th>
+            <th className="border border-black py-0.5 w-[14.28%] text-center font-bold">Senin</th>
+            <th className="border border-black py-0.5 w-[14.28%] text-center font-bold">Selasa</th>
+            <th className="border border-black py-0.5 w-[14.28%] text-center font-bold">Rabu</th>
+            <th className="border border-black py-0.5 w-[14.28%] text-center font-bold">Kamis</th>
+            <th className="border border-black py-0.5 w-[14.28%] text-center font-bold">Jumat</th>
+            <th className="border border-black py-0.5 w-[14.28%] text-center font-bold">Sabtu</th>
+          </tr>
+        </thead>
+        <tbody>
+          {DEFAULT_CALENDAR_WEEKS.map((week, wIdx) => (
+            <tr key={`week-${wIdx}`} className="h-[36px]">
+              {week.map((cell, cIdx) => {
+                const slotText =
+                  roster.slots[cell.slotKey] ||
+                  (cell.dateNumber !== null ? roster.slots[String(cell.dateNumber)] : undefined);
+
+                return (
+                  <td
+                    key={`cell-${wIdx}-${cIdx}`}
+                    className="border border-black p-0.5 align-top relative bg-white"
+                  >
+                    {cell.dateNumber !== null && (
+                      <div className="text-right text-[10px] font-semibold pr-0.5 leading-none">
+                        {cell.label || cell.dateNumber}
+                      </div>
+                    )}
+                    {slotText && (
+                      <div
+                        className="mt-0.5 px-0.5 py-0.5 text-center text-[9px] font-bold leading-tight border border-black/20"
+                        style={{ backgroundColor: theme.slotBg, color: theme.text }}
+                      >
+                        {slotText}
+                      </div>
+                    )}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      {/* Catatan Promo *Note: */}
+      {roster.notes && roster.notes.length > 0 && (
+        <div className="pt-0.5 text-[10.5px] leading-snug flex items-start gap-4 pl-1">
+          <span className="font-bold shrink-0">*Note:</span>
+          <div className="space-y-0.5">
+            {roster.notes.map((note, nIdx) => (
+              <div key={nIdx} className="flex gap-6">
+                <span className="w-24 shrink-0 font-medium">{note.date}</span>
+                <span className="text-black">{note.description}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 interface Props {
   data: PksMcnData;
@@ -503,57 +674,79 @@ export function PksMcnDocument({ data }: Props) {
       </div>
     </div>,
 
-    /* 14. LAMPIRAN I (Jadwal & Roster) */
-    <div key="b-appendix" className="pt-4 space-y-3">
-      <div className="text-center pt-2 pb-2">
-        <h3 className="font-bold text-[16px] tracking-wide uppercase">LAMPIRAN I</h3>
-        <div className="w-24 h-[1.5px] bg-black mx-auto my-1.5" />
-        <p className="text-[13px] font-bold uppercase">
-          JADWAL & ROSTER SIARAN LANGSUNG (LIVE STREAMING)
-        </p>
-        <p className="text-[12px] text-slate-600 mt-0.5">
-          Program: {deliverables.programName} · Platform: {deliverables.platform}
-        </p>
+    /* 14. LAMPIRAN I (Jadwal & Roster - Wajib Halaman Baru) */
+    <div
+      key="b-appendix"
+      data-page-break="true"
+      className="pt-1 space-y-3"
+    >
+      <div className="text-center pt-2 pb-1">
+        <h3 className="font-bold text-[15px] tracking-wide uppercase underline">
+          LAMPIRAN I
+        </h3>
       </div>
 
-      <div className="overflow-x-auto">
-        <table className="w-full text-left border-collapse border border-black text-[12px]">
-          <thead>
-            <tr className="bg-slate-100">
-              <th className="border border-black px-2 py-1.5 text-center w-10 font-bold">
-                No
-              </th>
-              <th className="border border-black px-2 py-1.5 font-bold w-32">Tanggal</th>
-              <th className="border border-black px-2 py-1.5 font-bold w-28">Waktu</th>
-              <th className="border border-black px-2 py-1.5 font-bold w-36">Creator</th>
-              <th className="border border-black px-2 py-1.5 font-bold">Catatan</th>
-            </tr>
-          </thead>
-          <tbody>
-            {schedule.length > 0 ? (
-              schedule.map((row, idx) => (
-                <tr key={idx}>
-                  <td className="border border-black px-2 py-1.5 text-center">
-                    {row.sessionNo || idx + 1}
-                  </td>
-                  <td className="border border-black px-2 py-1.5">{row.date}</td>
-                  <td className="border border-black px-2 py-1.5">{row.time}</td>
-                  <td className="border border-black px-2 py-1.5 font-semibold">
-                    {row.creator}
-                  </td>
-                  <td className="border border-black px-2 py-1.5">{row.notes}</td>
-                </tr>
-              ))
-            ) : (
-              <tr>
-                <td colSpan={5} className="border border-black px-3 py-4 text-center text-slate-500 italic">
-                  Jadwal siaran langsung disepakati Para Pihak sebelum pelaksanaan First Live.
-                </td>
+      {data.appendixFormat !== "table" &&
+      data.calendarRosters &&
+      data.calendarRosters.length > 0 ? (
+        <div className="space-y-4">
+          {data.calendarRosters.map((roster, idx) => (
+            <CreatorCalendarView key={`roster-${idx}`} roster={roster} />
+          ))}
+        </div>
+      ) : (
+        /* Fallback / Opsi Table View */
+        <div className="overflow-x-auto space-y-2">
+          <div className="text-center">
+            <p className="text-[13px] font-bold uppercase">
+              JADWAL & ROSTER SIARAN LANGSUNG (LIVE STREAMING)
+            </p>
+            <p className="text-[12px] text-slate-600 mt-0.5">
+              Program: {deliverables.programName} · Platform: {deliverables.platform}
+            </p>
+          </div>
+
+          <table className="w-full text-left border-collapse border border-black text-[12px]">
+            <thead>
+              <tr className="bg-slate-100">
+                <th className="border border-black px-2 py-1.5 text-center w-10 font-bold">
+                  No
+                </th>
+                <th className="border border-black px-2 py-1.5 font-bold w-32">Tanggal</th>
+                <th className="border border-black px-2 py-1.5 font-bold w-28">Waktu</th>
+                <th className="border border-black px-2 py-1.5 font-bold w-36">Creator</th>
+                <th className="border border-black px-2 py-1.5 font-bold">Catatan</th>
               </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {schedule.length > 0 ? (
+                schedule.map((row, idx) => (
+                  <tr key={idx}>
+                    <td className="border border-black px-2 py-1.5 text-center">
+                      {row.sessionNo || idx + 1}
+                    </td>
+                    <td className="border border-black px-2 py-1.5">{row.date}</td>
+                    <td className="border border-black px-2 py-1.5">{row.time}</td>
+                    <td className="border border-black px-2 py-1.5 font-semibold">
+                      {row.creator}
+                    </td>
+                    <td className="border border-black px-2 py-1.5">{row.notes}</td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td
+                    colSpan={5}
+                    className="border border-black px-3 py-4 text-center text-slate-500 italic"
+                  >
+                    Jadwal siaran langsung disepakati Para Pihak sebelum pelaksanaan First Live.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>,
   ];
 
