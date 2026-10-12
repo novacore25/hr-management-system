@@ -1429,7 +1429,7 @@ export function UniversalContractGenerator({ backHref = "/absensi/letters" }: Pr
           <div className="no-print bg-white/90 dark:bg-slate-900/90 backdrop-blur border-b border-slate-200 dark:border-slate-800 px-6 py-2.5 flex items-center justify-between text-xs">
             <div className="flex items-center gap-2">
               <span className="font-bold text-slate-700 dark:text-slate-300">
-                Pratinjau Lembar A4 ({templateType === "PKS_KLIEN_TNT" ? "7 Halaman" : "14 Halaman"})
+                Pratinjau Lembar A4 (Auto-Flow · Tanpa Blank Space)
               </span>
               <span className="text-[11px] text-slate-400">· Skala: {Math.round(zoom * 100)}%</span>
             </div>
