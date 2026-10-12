@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
+import Link from "next/link";
 import { useApiQuery, useApiMutation } from "@/hooks/useApi";
 import { withQuery } from "@/lib/api-client";
 import { format } from "date-fns";
@@ -57,6 +58,13 @@ export default function LettersPage() {
           </p>
         </div>
         <div className="flex gap-2 w-full sm:w-auto">
+          <Link
+            href="/absensi/admin/letters/generator"
+            className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-xl text-sm font-bold hover:brightness-105 transition-all shadow-sm shadow-emerald-500/20"
+          >
+            <FileText size={16} />
+            <span>PKS Klien MCN</span>
+          </Link>
           <button
             onClick={() => setShowTypeModal(true)}
             className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-white border border-slate-200 text-slate-700 rounded-xl text-sm font-bold hover:bg-slate-50 hover:text-slate-900 transition-all shadow-sm"

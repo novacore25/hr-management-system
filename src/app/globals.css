@@ -87,3 +87,41 @@
     font-feature-settings: "rlig" 1, "calt" 1;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   PRINT MEDIA RULES (UNIVERSAL DOCUMENT GENERATOR)
+   ═══════════════════════════════════════════════════════════════ */
+@media print {
+  body {
+    background: white !important;
+    color: black !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  aside,
+  nav,
+  header,
+  .no-print {
+    display: none !important;
+  }
+
+  .pks-document-container {
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 100% !important;
+  }
+
+  .pks-page {
+    margin: 0 !important;
+    box-shadow: none !important;
+    page-break-after: always !important;
+    break-after: page !important;
+  }
+
+  @page {
+    size: A4 portrait;
+    margin: 0;
+  }
+}
+

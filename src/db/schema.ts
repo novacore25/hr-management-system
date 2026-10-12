@@ -1215,5 +1215,132 @@ export type Attendance = typeof attendance.$inferSelect;
 export type LeaveRequest = typeof leaveRequests.$inferSelect;
 export type OvertimeRequest = typeof overtimeRequests.$inferSelect;
 export type Payroll = typeof payrolls.$inferSelect;
+
+// ═══════════════════════════════════════════════════════════════
+// CLIENTS & DOCUMENT CONTRACTS (PKS KLIEN MCN)
+// ═══════════════════════════════════════════════════════════════
+
+/** Master profil brand / klien perusahaan. */
+export const clients = pgTable(
+  "clients",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    brandName: text("brand_name"),
+    entityType: text("entity_type").default("PT").notNull(),
+    address: text("address"),
+    phone: text("phone"),
+    email: text("email"),
+    bankName: text("bank_name"),
+    bankAccountNo: text("bank_account_no"),
+    bankAccountName: text("bank_account_name"),
+    notes: text("notes"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    nameIdx: index("clients_name_idx").on(t.name),
+    brandIdx: index("clients_brand_idx").on(t.brandName),
+  }),
+);
+
+/** Riwayat kontak dan penandatangan klien (bisa dipilih per perjanjian). */
+export const clientContacts = pgTable(
+  "client_contacts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clientId: uuid("client_id")
+      .notNull()
+      .references(() => clients.id, { onDelete: "cascade" }),
+    signeeName: text("signee_name").notNull(),
+    signeePosition: text("signee_position").notNull(),
+    signeeBasis: text("signee_basis").default("Direksi").notNull(),
+    address: text("address"),
+    phone: text("phone"),
+    email: text("email"),
+    isPrimary: boolean("is_primary").default(false).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    clientContactIdx: index("client_contacts_client_id_idx").on(t.clientId),
+  }),
+);
+
+/** Arsip kontrak digital PKS Klien MCN dengan snapshot utuh. */
+export const clientContracts = pgTable(
+  "client_contracts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clientId: uuid("client_id")
+      .notNull()
+      .references(() => clients.id, { onDelete: "cascade" }),
+    letterId: uuid("letter_id").references(() => companyLetters.id, {
+      onDelete: "set null",
+    }),
+    contractType: text("contract_type").default("PKS_KLIEN_MCN").notNull(),
+    contractNumber: text("contract_number").notNull(),
+    company: text("company").notNull(),
+    signDate: date("sign_date").notNull(),
+    startDate: date("start_date"),
+    endDate: date("end_date"),
+    contractValue: numeric("contract_value", { precision: 15, scale: 2 }).notNull(),
+    taxType: text("tax_type").default("pph_0_5").notNull(),
+    taxAmount: numeric("tax_amount", { precision: 15, scale: 2 })
+      .default("0")
+      .notNull(),
+    totalAmount: numeric("total_amount", { precision: 15, scale: 2 }).notNull(),
+    programName: text("program_name")
+      .default("Live Exclusive Creator MCN")
+      .notNull(),
+    platform: text("platform").default("TikTok Live").notNull(),
+    creators: jsonb("creators"),
+    totalSessions: integer("total_sessions").default(20).notNull(),
+    sessionDuration: integer("session_duration").default(120).notNull(),
+    bankDetails: jsonb("bank_details"),
+    signeeName: text("signee_name").notNull(),
+    signeePosition: text("signee_position").notNull(),
+    clientAddress: text("client_address"),
+    tntSigneeName: text("tnt_signee_name").default("RUBEN ARIANTO").notNull(),
+    tntSigneePosition: text("tnt_signee_position")
+      .default("DIREKTUR UTAMA")
+      .notNull(),
+    courtJurisdiction: text("court_jurisdiction")
+      .default("Pengadilan Negeri Tangerang")
+      .notNull(),
+    documentPayload: jsonb("document_payload").notNull(),
+    status: text("status").default("active").notNull(),
+    notes: text("notes"),
+    createdBy: varchar("created_by", { length: 255 }).references(
+      () => users.id,
+      { onDelete: "set null" },
+    ),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    contractClientIdx: index("client_contracts_client_id_idx").on(t.clientId),
+    contractNumIdx: index("client_contracts_num_idx").on(t.contractNumber),
+  }),
+);
+
+export type Client = typeof clients.$inferSelect;
+export type NewClient = typeof clients.$inferInsert;
+export type ClientContact = typeof clientContacts.$inferSelect;
+export type NewClientContact = typeof clientContacts.$inferInsert;
+export type ClientContract = typeof clientContracts.$inferSelect;
+export type NewClientContract = typeof clientContracts.$inferInsert;
 export type KpiRole = (typeof kpiRoleEnum.enumValues)[number];
 export type AbsensiRole = (typeof absensiRoleEnum.enumValues)[number];

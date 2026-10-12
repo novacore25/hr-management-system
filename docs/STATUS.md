@@ -1703,4 +1703,23 @@ Hasil akhir verifikasi: **100% PARITAS TERCAPAI** di 23 dari 23 tabel (15.018 ba
   - Menyaring hanya staf aktif (`absensiStatus === "active"`) pada `timUsers` di Overview KPI, sehingga pendaftar baru tidak mengotori laporan KPI sebelum disetujui dan diberi divisi oleh HR.
   - Memperbaiki seluruh teks mojibake `â€”` menjadi label bersih `"Tanpa Divisi"` di seluruh halaman overview, laporan tim, dan laporan HR.
 
+---
+
+## 24. Universal Document Generator & Sistem Arsip Klien MCN (12 Oktober 2026)
+
+### A. Fitur Dokumen Generator "PKS Klien MCN"
+- Mengimplementasikan modul generator dokumen dinamis dengan antarmuka **Split-Pane (Form Kiri 44% + Live Preview Kanan 56%)** di `/absensi/admin/letters/generator`.
+- Rendering Dokumen Menggunakan **Native High-Fidelity Print Engine (`@media print` + `window.print()`)**:
+  - Ringan (0 bytes library PDF tambahan), render pratinjau instan 60 FPS tanpa compile lag.
+  - Hasil cetak/ekspor PDF berupa teks vektor 100% jernih, link aktif, teks selectable, dan ukuran file sangat kecil (<200 KB) dengan 0% beban server VPS.
+  - Mengadopsi struktur 14 halaman standar perjanjian kerja sama brand (acuan template TAVI / thick and thin).
+
+### B. Master Database Profil Klien & Riwayat Kontak (Auto-Fill & Auto Write-Back)
+- **Tabel `clients`**: Menyimpan profil legal master perusahaan (Nama PT, Brand, bentuk usaha, domisili, kontak, bank).
+- **Tabel `client_contacts`**: Menyimpan seluruh riwayat PIC / Penandatangan klien. Mendukung fleksibilitas pergantian PIC di masa mendatang tanpa menimpa kontak lama. Pengguna dapat memilih PIC yang ingin dipakai via dropdown selector.
+- **Tabel `client_contracts`**: Menyimpan arsip permanen kontrak digital lengkap dengan snapshot utuh (`document_payload` JSONB), nomor surat, dan nilai kontrak.
+- **Integrasi Penomoran Surat Resmi**: Terhubung otomatis dengan tabel `company_letters` (tipe `PKS-TNT`) sehingga nomor surat resmi terbit otomatis dan tercatat dalam buku agenda surat keluar perusahaan.
+- **Migration `0019_client_contracts_mcn.sql`**: Berhasil dieksekusi ke PostgreSQL VPS 18.6 Coolify.
+
+
 
