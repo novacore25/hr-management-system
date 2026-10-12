@@ -1848,6 +1848,30 @@ Hasil akhir verifikasi: **100% PARITAS TERCAPAI** di 23 dari 23 tabel (15.018 ba
 ### B. Format Penomoran Halaman Ringkas (`1/5`)
 - Format footer halaman di [`DynamicPksPaginator.tsx`](file:///c:/Users/Banzilla/Documents/DEV/hr-system-vps/Task-Management-NovaCore/src/components/documents/DynamicPksPaginator.tsx) disederhanakan dari sebelumnya `"Halaman {X} dari {Y}"` menjadi cukup `"{X}/{Y}"` (cth: `1/5`, `2/5`, ..., `5/5`).
 
+---
+
+## 29. Interactive Live Session Date Allocation Builder & Counter Kuota Sesi (12 Oktober 2026)
+
+### A. Fitur Alokasi Tanggal Sesi Fleksibel
+- **Masalah & Kebutuhan**:
+  - Pengguna ingin dapat mengatur tanggal spesifik siaran langsung untuk setiap kreator (misal 1 sesi per hari, 2 sesi di tanggal tertentu, 4 sesi di tanggal promo, atau langsung 10 sesi dalam satu tanggal).
+  - Diperlukan indikator counter visual untuk memastikan total sesi yang dialokasikan pada tanggal-tanggal cocok dengan target kuota sesi kreator (misal 10 sesi).
+- **Implementasi**:
+  - Komponen [`UniversalContractGenerator.tsx`](file:///c:/Users/Banzilla/Documents/DEV/hr-system-vps/Task-Management-NovaCore/src/components/documents/UniversalContractGenerator.tsx) kini dilengkapi:
+    - **Session Counter Badge**: Menghitung secara otomatis akumulasi sesi dari seluruh tanggal terdaftar (`allocatedSessions / targetSessions Sesi`).
+      - Hijau: `10 / 10 Sesi (Pas ✓)`
+      - Kuning: `7 / 10 Sesi (Kurang 3)`
+      - Merah: `12 / 10 Sesi (Lebih 2)`
+    - **Dropdown Pilihan Tanggal**: Pilihan tanggal 1 s.d. 31 serta opsi tanggal bulan sebelumnya (`30 (Akhir Bln Lalu)`).
+    - **Input Jumlah Sesi**: Angka sesi per tanggal (1, 2, 4, dst.).
+    - **Input Jenis Program / SOW**: Keterangan sesi (cth: `exc tavi`, `mix tavi & IP`, `exc IP`, atau teks custom).
+    - **Tombol Tambah & Hapus**: Tombol `+ Tambah Tanggal Sesi` dan tombol Hapus per baris tanggal.
+  - Nilai alokasi tanggal langsung sinkron ke visual kalender dokumen A4:
+    - Tanggal 6 (2 sesi) -> Badge sel kalender: `2 sesi exc tavi`.
+    - Tanggal 15 (4 sesi) -> Badge sel kalender: `4 sesi exc tavi`.
+    - Tanggal 25 (3 sesi) -> Badge sel kalender: `3 sesi mix tavi & IP`.
+
+
 
 
 

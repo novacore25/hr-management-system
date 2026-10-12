@@ -45,6 +45,33 @@ const COMPANIES = [
   { code: "NOVA", name: "PT NOVA CORE DIGITAL", trade: "NovaCore" },
 ] as const;
 
+const DATE_OPTIONS: Array<{ key: string; label: string }> = [
+  { key: "prev_30", label: "30 (Akhir Bln Lalu)" },
+  ...Array.from({ length: 31 }, (_, i) => ({
+    key: String(i + 1),
+    label: `Tanggal ${i + 1}`,
+  })),
+];
+
+function parseSlotValue(val: string): { count: number; type: string } {
+  if (!val) return { count: 1, type: "exc tavi" };
+  const match = val.match(/^(\d+)\s+sesi\s*(.*)$/i);
+  if (match) {
+    return {
+      count: parseInt(match[1], 10) || 1,
+      type: match[2].trim() || "exc tavi",
+    };
+  }
+  return { count: 1, type: val.trim() || "exc tavi" };
+}
+
+function calculateAllocatedSessions(slots: Record<string, string>): number {
+  return Object.values(slots).reduce((sum, val) => {
+    const { count } = parseSlotValue(val);
+    return sum + count;
+  }, 0);
+}
+
 interface Props {
   backHref?: string;
 }
@@ -1559,6 +1586,160 @@ function UniversalContractGeneratorInner({ backHref = "/absensi/letters" }: Prop
                                   </select>
                                 </div>
                               </div>
+
+                              {/* Tanggal & Alokasi Sesi Live */}
+                              {(() => {
+                                const creatorInfo =
+                                  (formDataMcn.deliverables.creators || []).find(
+                                    (c) =>
+                                      c.name.trim().toLowerCase() ===
+                                      (roster.creatorName || "").trim().toLowerCase(),
+                                  ) || (formDataMcn.deliverables.creators || [])[rIdx];
+                                const targetSessions = creatorInfo?.sessions || 10;
+                                const allocated = calculateAllocatedSessions(roster.slots || {});
+
+                                return (
+                                  <div className="pt-2 border-t border-slate-100 dark:border-slate-700/50 space-y-2">
+                                    <div className="flex justify-between items-center">
+                                      <div>
+                                        <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 block">
+                                          Alokasi Tanggal Sesi Live:
+                                        </span>
+                                        <span className="text-[10px] text-slate-400">
+                                          Atur tanggal dan berapa sesi per hari (cth: 1, 2, atau 4 sesi)
+                                        </span>
+                                      </div>
+                                      <span
+                                        className={`px-2 py-0.5 rounded-full text-[10.5px] font-bold font-mono ${
+                                          allocated === targetSessions
+                                            ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300"
+                                            : allocated < targetSessions
+                                              ? "bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300"
+                                              : "bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300"
+                                        }`}
+                                      >
+                                        {allocated} / {targetSessions} Sesi
+                                        {allocated === targetSessions
+                                          ? " (Pas ✓)"
+                                          : allocated < targetSessions
+                                            ? ` (Kurang ${targetSessions - allocated})`
+                                            : ` (Lebih ${allocated - targetSessions})`}
+                                      </span>
+                                    </div>
+
+                                    {/* List Baris Tanggal Sesi */}
+                                    <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
+                                      {Object.entries(roster.slots || {}).map(([dateKey, slotVal], sIdx) => {
+                                        const { count, type } = parseSlotValue(slotVal);
+
+                                        return (
+                                          <div
+                                            key={sIdx}
+                                            className="flex items-center gap-1.5 p-1.5 bg-slate-50 dark:bg-slate-900 rounded-lg border border-slate-200/60 dark:border-slate-800 text-[11px]"
+                                          >
+                                            {/* Pilihan Tanggal */}
+                                            <select
+                                              value={dateKey}
+                                              onChange={(e) => {
+                                                const newKey = e.target.value;
+                                                if (newKey === dateKey) return;
+                                                const next = [...(formDataMcn.calendarRosters || [])];
+                                                const nextSlots = { ...next[rIdx].slots };
+                                                const curVal = nextSlots[dateKey];
+                                                delete nextSlots[dateKey];
+                                                nextSlots[newKey] = curVal;
+                                                next[rIdx] = { ...next[rIdx], slots: nextSlots };
+                                                setFormDataMcn((p) => ({ ...p, calendarRosters: next }));
+                                              }}
+                                              className="w-32 px-1.5 py-1 bg-white dark:bg-slate-800 border rounded font-semibold text-[11px]"
+                                            >
+                                              {DATE_OPTIONS.map((opt) => (
+                                                <option key={opt.key} value={opt.key}>
+                                                  {opt.label}
+                                                </option>
+                                              ))}
+                                            </select>
+
+                                            {/* Input Jumlah Sesi */}
+                                            <div className="flex items-center gap-1">
+                                              <input
+                                                type="number"
+                                                min="1"
+                                                max="20"
+                                                value={count}
+                                                onChange={(e) => {
+                                                  const newCount = Math.max(1, parseInt(e.target.value, 10) || 1);
+                                                  const next = [...(formDataMcn.calendarRosters || [])];
+                                                  const nextSlots = { ...next[rIdx].slots };
+                                                  nextSlots[dateKey] = `${newCount} sesi ${type}`;
+                                                  next[rIdx] = { ...next[rIdx], slots: nextSlots };
+                                                  setFormDataMcn((p) => ({ ...p, calendarRosters: next }));
+                                                }}
+                                                className="w-12 px-1.5 py-1 bg-white dark:bg-slate-800 border rounded text-center font-bold text-[11px]"
+                                              />
+                                              <span className="text-[10px] text-slate-500 font-bold">Sesi</span>
+                                            </div>
+
+                                            {/* Jenis Program / Keterangan */}
+                                            <input
+                                              type="text"
+                                              value={type}
+                                              placeholder="Jenis (cth: exc tavi / mix IP)"
+                                              onChange={(e) => {
+                                                const next = [...(formDataMcn.calendarRosters || [])];
+                                                const nextSlots = { ...next[rIdx].slots };
+                                                nextSlots[dateKey] = `${count} sesi ${e.target.value}`;
+                                                next[rIdx] = { ...next[rIdx], slots: nextSlots };
+                                                setFormDataMcn((p) => ({ ...p, calendarRosters: next }));
+                                              }}
+                                              className="flex-1 px-1.5 py-1 bg-white dark:bg-slate-800 border rounded text-[11px]"
+                                            />
+
+                                            {/* Tombol Hapus Baris Tanggal */}
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                const next = [...(formDataMcn.calendarRosters || [])];
+                                                const nextSlots = { ...next[rIdx].slots };
+                                                delete nextSlots[dateKey];
+                                                next[rIdx] = { ...next[rIdx], slots: nextSlots };
+                                                setFormDataMcn((p) => ({ ...p, calendarRosters: next }));
+                                              }}
+                                              className="text-rose-500 hover:text-rose-700 p-1"
+                                              title="Hapus Tanggal Ini"
+                                            >
+                                              <Trash2 size={12} />
+                                            </button>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+
+                                    {/* Tombol Tambah Tanggal Sesi Baru */}
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const next = [...(formDataMcn.calendarRosters || [])];
+                                        const nextSlots = { ...next[rIdx].slots };
+                                        let candidateKey = "1";
+                                        for (let day = 1; day <= 31; day++) {
+                                          if (!nextSlots[String(day)]) {
+                                            candidateKey = String(day);
+                                            break;
+                                          }
+                                        }
+                                        nextSlots[candidateKey] = "1 sesi exc tavi";
+                                        next[rIdx] = { ...next[rIdx], slots: nextSlots };
+                                        setFormDataMcn((p) => ({ ...p, calendarRosters: next }));
+                                      }}
+                                      className="text-[10.5px] font-bold text-primary flex items-center gap-1 hover:underline pt-0.5"
+                                    >
+                                      <Plus size={12} />
+                                      <span>+ Tambah Tanggal Sesi</span>
+                                    </button>
+                                  </div>
+                                );
+                              })()}
 
                               {/* Promo Notes List */}
                               <div className="pt-2 border-t border-slate-100 dark:border-slate-700/50">
