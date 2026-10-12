@@ -1827,6 +1827,28 @@ Hasil akhir verifikasi: **100% PARITAS TERCAPAI** di 23 dari 23 tabel (15.018 ba
     - Begitu kapasitas halaman tercapai, engine secara otomatis membuat lembar Halaman Lampiran baru untuk kreator ke-3 dan ke-4, lalu ke-5 dan ke-6, dan seterusnya secara berkesinambungan.
   - Ditambahkan tombol **"+ Tambah Kalender Creator"** dan **"⟳ Sinkronkan dari Tab Deliverables"** pada generator untuk memudahkan penambahan banyak talent secara instan.
 
+---
+
+## 28. Perbaikan Cetak / Print PDF A4 & Format Penomoran Halaman Ringkas (12 Oktober 2026)
+
+### A. Solusi Blank White Print Preview pada `@media print`
+- **Penyebab Masalah**:
+  - Halaman generator dibungkus oleh layout absensi induk (`AbsensiLayout`) yang menerapkan `height: 100vh` dan `overflow: hidden`, serta viewport preview yang memiliki `overflow-y: auto` dan `transform: scale(zoom)`.
+  - Saat `window.print()` dipanggil, browser print engine (Chromium) meng-clip viewport ke batas container flexbox yang tersembunyi, sehingga menghasilkan cetakan putih kosong (*blank sheets*).
+  - Selain itu, elemen pengukuran tersembunyi (`measureContainerRef` pada `-99999px`) ikut terdeteksi oleh print layout engine.
+- **Solusi yang Diterapkan**:
+  - Di `src/app/globals.css`:
+    - Mengaplikasikan teknik absolute print positioning: `.pks-document-container` ditarik langsung ke koordinat `position: absolute; left: 0; top: 0; width: 100%` saat `@media print`, lepas dari belenggu flex layout dan sidebar induk.
+    - Menyetel `visibility: hidden` pada `body *`, dan secara tegas mengaktifkan `visibility: visible !important` hanya untuk `.pks-document-container` dan isinya.
+    - Mereset seluruh batasan overflow dan height pada parent wrapper (`overflow: visible !important; height: auto !important`).
+    - Mereset `transform` skala zoom kembali ke 100% ukuran asli fisik A4 (`210mm x 297mm`).
+    - Menyembunyikan `div[aria-hidden="true"]` dan measurement container dengan `display: none !important; visibility: hidden !important`.
+  - Hasil: Dialog print browser (dan tombol Print pada preview modal) kini langsung menampilkan seluruh lembaran A4 dokumen secara utuh, bersih, dan tajam tanpa ada halaman kosong.
+
+### B. Format Penomoran Halaman Ringkas (`1/5`)
+- Format footer halaman di [`DynamicPksPaginator.tsx`](file:///c:/Users/Banzilla/Documents/DEV/hr-system-vps/Task-Management-NovaCore/src/components/documents/DynamicPksPaginator.tsx) disederhanakan dari sebelumnya `"Halaman {X} dari {Y}"` menjadi cukup `"{X}/{Y}"` (cth: `1/5`, `2/5`, ..., `5/5`).
+
+
 
 
 
