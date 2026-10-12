@@ -57,6 +57,7 @@ export type UpsertClientInput = {
 
 export type SaveContractInput = {
   clientId?: string;
+  contractType?: string;
   clientData: {
     name: string;
     brandName?: string | null;
@@ -405,12 +406,15 @@ export async function saveClientContract(
 
   // 2. Hubungkan nomor surat resmi ke company_letters jika diminta
   let letterId: string | null = null;
+  const contractType = input.contractType || "PKS_KLIEN_MCN";
+  const letterCode = contractType === "PKS_KLIEN_TNT" ? "PKS-TNT" : "PKS-MCN";
+
   if (input.registerLetterNumber) {
     try {
       const [typeRow] = await db
         .select()
         .from(letterTypes)
-        .where(or(eq(letterTypes.code, "PKS-TNT"), eq(letterTypes.code, "PKS-MCN")))
+        .where(eq(letterTypes.code, letterCode))
         .limit(1);
 
       if (typeRow) {
@@ -456,24 +460,28 @@ export async function saveClientContract(
     }
   }
 
-  // 3. Simpan record kontrak baru atau update yang sedang aktif
+  // 3. Simpan record kontrak baru
+  const safeContractVal = Number(input.contractValue) || 0;
+  const safeTaxAmount = Number(input.taxAmount) || 0;
+  const safeTotalAmount = Number(input.totalAmount) || 0;
+
   const [contract] = await db
     .insert(clientContracts)
     .values({
       clientId: client.id,
       letterId,
-      contractType: "PKS_KLIEN_MCN",
+      contractType,
       contractNumber: input.contractNumber.trim(),
       company: input.company,
       signDate: input.signDate,
       startDate: input.startDate || null,
       endDate: input.endDate || null,
-      contractValue: String(input.contractValue),
+      contractValue: String(safeContractVal),
       taxType: input.taxType || "pph_0_5",
-      taxAmount: String(input.taxAmount || 0),
-      totalAmount: String(input.totalAmount),
-      programName: input.programName || "Live Exclusive Creator MCN",
-      platform: input.platform || "TikTok Live",
+      taxAmount: String(safeTaxAmount),
+      totalAmount: String(safeTotalAmount),
+      programName: input.programName || (contractType === "PKS_KLIEN_TNT" ? "Affiliate Booster" : "Live Exclusive Creator MCN"),
+      platform: input.platform || "TikTok",
       creators: input.creators as never,
       totalSessions: input.totalSessions ?? 20,
       sessionDuration: input.sessionDuration ?? 120,
@@ -494,11 +502,12 @@ export async function saveClientContract(
     .returning();
 
   if (actorId) {
+    const label = contractType === "PKS_KLIEN_TNT" ? "PKS TNT" : "PKS MCN";
     await writeLog({
       actorId,
       action: "create_client_contract",
       targetUserId: actorId,
-      details: `PKS MCN: ${contract.contractNumber} · ${client.name} (Rp ${input.totalAmount.toLocaleString("id-ID")})`,
+      details: `${label}: ${contract.contractNumber} · ${client.name} (Rp ${safeTotalAmount.toLocaleString("id-ID")})`,
     });
   }
 

@@ -33,7 +33,10 @@ export function PksMcnDocument({ data }: Props) {
           : "Bebas Pajak";
 
   return (
-    <div className="pks-document text-black font-serif text-[13.5px] leading-[1.65] select-text">
+    <div
+      className="pks-document text-black text-[13.5px] leading-[1.65] select-text"
+      style={{ fontFamily: '"Times New Roman", Times, serif' }}
+    >
       {/* ─────────────────────────────────────────────────────────────
           HALAMAN 1 : KOMPARISI PARA PIHAK
       ───────────────────────────────────────────────────────────── */}
@@ -1116,12 +1119,8 @@ export function PksMcnDocument({ data }: Props) {
                 {client.brandName ? ` ("${client.brandName}")` : ""}
               </p>
 
-              {/* Kotak Materai */}
-              <div className="w-24 h-28 border border-dashed border-slate-300 rounded mx-auto my-6 flex flex-col items-center justify-center text-[10px] text-slate-400">
-                <span>MATERAI</span>
-                <span>TEMPEL</span>
-                <span className="font-bold">10.000</span>
-              </div>
+              {/* Ruang Tanda Tangan Bersih */}
+              <div className="h-24 my-4" />
 
               <p className="font-bold text-[14px] uppercase underline">
                 {client.signeeName}
@@ -1138,12 +1137,8 @@ export function PksMcnDocument({ data }: Props) {
                 {agency.companyLegalName}
               </p>
 
-              {/* Kotak Materai */}
-              <div className="w-24 h-28 border border-dashed border-slate-300 rounded mx-auto my-6 flex flex-col items-center justify-center text-[10px] text-slate-400">
-                <span>MATERAI</span>
-                <span>TEMPEL</span>
-                <span className="font-bold">10.000</span>
-              </div>
+              {/* Ruang Tanda Tangan Bersih */}
+              <div className="h-24 my-4" />
 
               <p className="font-bold text-[14px] uppercase underline">
                 {agency.signeeName}

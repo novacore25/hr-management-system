@@ -125,3 +125,8 @@
   }
 }
 
+.pks-document,
+.pks-page {
+  font-family: "Times New Roman", Times, Georgia, serif !important;
+}
+

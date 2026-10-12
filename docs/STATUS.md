@@ -1721,5 +1721,36 @@ Hasil akhir verifikasi: **100% PARITAS TERCAPAI** di 23 dari 23 tabel (15.018 ba
 - **Integrasi Penomoran Surat Resmi**: Terhubung otomatis dengan tabel `company_letters` (tipe `PKS-TNT`) sehingga nomor surat resmi terbit otomatis dan tercatat dalam buku agenda surat keluar perusahaan.
 - **Migration `0019_client_contracts_mcn.sql`**: Berhasil dieksekusi ke PostgreSQL VPS 18.6 Coolify.
 
+---
 
+## 25. Dokumen Generator PKS Klien TNT, Times New Roman, & Perbaikan Server 500 (12 Oktober 2026)
+
+### A. Penyebab Error 500 Saat Menyimpan Kontrak & Solusi Permanen
+- **Penyebab**: File migration `drizzle/0019_client_contracts_mcn.sql` baru dibuat di git, namun belum pernah dieksekusi di database container PostgreSQL VPS (`vlu8rdt1abda7g69vbiwsk4p`). Akibatnya query `SELECT/INSERT FROM clients` melempar error `relation "clients" does not exist` (500).
+- **Solusi**:
+  - Migration 0019 berhasil dieksekusi langsung ke VPS PostgreSQL.
+  - Tabel `clients`, `client_contacts`, dan `client_contracts` kini telah aktif dan diverifikasi berjalan normal.
+  - Tipe surat resmi di `letter_types` didaftarkan lengkap untuk kedua dokumen: `PKS Klien MCN` (`PKS-MCN`) dan `PKS Klien TNT` (`PKS-TNT`).
+
+### B. Template Baru: "PKS Klien TNT" (Affiliate Booster & TikTok Yellow Cart)
+- Komponen `src/components/documents/PksTntDocument.tsx`:
+  - 13 Pasal utuh sesuai draf final:
+    - Ruang Lingkup: Target Creators, Target Video Keranjang Kuning (Yellow Cart).
+    - Creator Tiers: Mega (>1M), Macro (100k-999.9k), Micro (10k-99.9k), Nano (1k-9.9k).
+    - Jangka Waktu: Masa Persiapan (X hari kalender) + Masa Running Campaign (Y hari kalender sejak First VT).
+    - Nilai Kontrak sudah include seluruh biaya KOL & Affiliator.
+    - Pasal 6: Aturan persetujuan list creator dan drafting video maksimal 3x revisi, batas respon 3 hari kerja (*deemed approved*), dan perpanjangan otomatis maksimal 14 hari kalender.
+- Standar Tipografi:
+  - Seluruh teks, header, pasal, dan tanda tangan wajib menggunakan font **Times New Roman** (`"Times New Roman", Times, serif`).
+  - Diterapkan secara universal baik pada PKS Klien TNT maupun PKS Klien MCN.
+
+### C. Pembersihan Kotak Materai Tempel 10.000
+- Seluruh kotak placeholder *"MATERAI TEMPEL 10.000"* dihilangkan sesuai arahan user.
+- Menggunakan ruang tanda tangan bersih (*clean signature whitespace*) yang rapi dan profesional.
+
+### D. Sistem Profil Klien Multi-Versi & Dropdown Kontak (Bi-Directional Auto-Sync)
+- Komponen `UniversalContractGenerator.tsx`:
+  - Selector template dinamis: Toggle antara `PKS Klien TNT` dan `PKS Klien MCN`.
+  - Dropdown Varian Kontak/Penandatangan: Saat nama klien dipilih, jika klien memiliki riwayat PIC atau alamat berbeda di database, sistem menampilkan dropdown pilihan profil sehingga user bebas memilih varian mana yang ingin dipakai untuk PKS saat ini, atau memilih opsi `+ Input Profil / Penandatangan Baru`.
+  - Auto Write-Back: Setiap perubahan nama legal, brand, atau penandatangan otomatis diperbarui dan dicatat ke master database `clients` & `client_contacts` saat dokumen disimpan.
 
