@@ -80,7 +80,7 @@ export function DynamicPksPaginator({
       <div
         ref={measureContainerRef}
         aria-hidden="true"
-        className="pointer-events-none select-none"
+        className="no-print pointer-events-none select-none print:hidden"
         style={{
           position: "absolute",
           left: "-99999px",
@@ -122,7 +122,7 @@ export function DynamicPksPaginator({
                 {pageIdx === 0 ? "" : "Perjanjian Kerjasama (PKS)"}
               </span>
               <span className="font-semibold text-right">
-                Halaman {pageIdx + 1} dari {pages.length}
+                {pageIdx + 1}/{pages.length}
               </span>
             </div>
           </section>
