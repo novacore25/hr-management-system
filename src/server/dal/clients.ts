@@ -570,3 +570,178 @@ export async function getClientContractById(id: string) {
     brandName: row.brandName,
   };
 }
+
+/**
+ * Perbarui data arsip kontrak PKS Klien yang sudah ada.
+ */
+export async function updateClientContract(
+  id: string,
+  input: SaveContractInput,
+  actorId?: string,
+): Promise<{ contract: ClientContract; client: Client }> {
+  const now = new Date();
+  const [existing] = await db
+    .select()
+    .from(clientContracts)
+    .where(eq(clientContracts.id, id))
+    .limit(1);
+
+  if (!existing) {
+    throw new Error("Kontrak tidak ditemukan.");
+  }
+
+  // 1. Update profil klien & penandatangan
+  const { client } = await upsertClient({
+    id: input.clientId || existing.clientId,
+    name: input.clientData.name,
+    brandName: input.clientData.brandName,
+    entityType: input.clientData.entityType,
+    address: input.clientData.address,
+    phone: input.clientData.phone,
+    email: input.clientData.email,
+    contact: {
+      signeeName: input.clientData.signeeName,
+      signeePosition: input.clientData.signeePosition,
+      signeeBasis: input.clientData.signeeBasis,
+      address: input.clientData.address,
+    },
+  });
+
+  const safeContractVal = Number(input.contractValue) || 0;
+  const safeTaxAmount = Number(input.taxAmount) || 0;
+  const safeTotalAmount = Number(input.totalAmount) || 0;
+
+  // 2. Update record kontrak
+  const [updatedContract] = await db
+    .update(clientContracts)
+    .set({
+      contractType: input.contractType || existing.contractType,
+      contractNumber: input.contractNumber.trim(),
+      company: input.company,
+      signDate: input.signDate,
+      startDate: input.startDate || null,
+      endDate: input.endDate || null,
+      contractValue: String(safeContractVal),
+      taxType: input.taxType || "pph_0_5",
+      taxAmount: String(safeTaxAmount),
+      totalAmount: String(safeTotalAmount),
+      programName: input.programName || existing.programName,
+      platform: input.platform || existing.platform,
+      creators: input.creators as never,
+      totalSessions: input.totalSessions ?? existing.totalSessions,
+      sessionDuration: input.sessionDuration ?? existing.sessionDuration,
+      bankDetails: input.bankDetails as never,
+      signeeName: input.signeeName,
+      signeePosition: input.signeePosition,
+      clientAddress: input.clientAddress || null,
+      tntSigneeName: input.tntSigneeName || existing.tntSigneeName,
+      tntSigneePosition: input.tntSigneePosition || existing.tntSigneePosition,
+      courtJurisdiction: input.courtJurisdiction || existing.courtJurisdiction,
+      documentPayload: input.documentPayload as never,
+      status: input.status || existing.status,
+      notes: input.notes || null,
+      updatedAt: now,
+    })
+    .where(eq(clientContracts.id, id))
+    .returning();
+
+  if (actorId) {
+    await writeLog({
+      actorId,
+      action: "update_client_contract",
+      targetUserId: actorId,
+      details: `Kontrak diperbarui: ${updatedContract.contractNumber} · ${client.name}`,
+    });
+  }
+
+  return { contract: updatedContract, client };
+}
+
+/**
+ * Hapus arsip kontrak PKS Klien beserta nomor surat resminya jika ada.
+ */
+export async function deleteClientContract(
+  id: string,
+  actorId?: string,
+): Promise<void> {
+  const [contract] = await db
+    .select()
+    .from(clientContracts)
+    .where(eq(clientContracts.id, id))
+    .limit(1);
+
+  if (!contract) return;
+
+  if (contract.letterId) {
+    await db.delete(companyLetters).where(eq(companyLetters.id, contract.letterId));
+  } else if (contract.contractNumber) {
+    await db
+      .delete(companyLetters)
+      .where(eq(companyLetters.fullNumber, contract.contractNumber));
+  }
+
+  await db.delete(clientContracts).where(eq(clientContracts.id, id));
+
+  if (actorId) {
+    await writeLog({
+      actorId,
+      action: "delete_client_contract",
+      targetUserId: actorId,
+      details: `Kontrak PKS dihapus: ${contract.contractNumber}`,
+    });
+  }
+}
+
+/**
+ * Hapus master klien. Seluruh kontak dan kontrak akan ikut terhapus secara cascade.
+ */
+export async function deleteClient(
+  id: string,
+  actorId?: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const [client] = await db.select().from(clients).where(eq(clients.id, id)).limit(1);
+  if (!client) return { ok: false, error: "Klien tidak ditemukan." };
+
+  await db.delete(clients).where(eq(clients.id, id));
+
+  if (actorId) {
+    await writeLog({
+      actorId,
+      action: "delete_client",
+      targetUserId: actorId,
+      details: `Klien dihapus: ${client.name}`,
+    });
+  }
+
+  return { ok: true };
+}
+
+/**
+ * Hapus salah satu kontak PIC klien.
+ */
+export async function deleteClientContact(
+  id: string,
+  actorId?: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const [ct] = await db
+    .select()
+    .from(clientContacts)
+    .where(eq(clientContacts.id, id))
+    .limit(1);
+
+  if (!ct) return { ok: false, error: "Kontak PIC tidak ditemukan." };
+
+  await db.delete(clientContacts).where(eq(clientContacts.id, id));
+
+  if (actorId) {
+    await writeLog({
+      actorId,
+      action: "delete_client_contact",
+      targetUserId: actorId,
+      details: `Kontak PIC dihapus: ${ct.signeeName}`,
+    });
+  }
+
+  return { ok: true };
+}
+

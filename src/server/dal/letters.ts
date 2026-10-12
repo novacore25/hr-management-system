@@ -1,7 +1,13 @@
 import "server-only";
 import { db } from "@/db";
-import { and, eq, desc, sql } from "drizzle-orm";
-import { letterTypes, companyLetters, users } from "@/db/schema";
+import { and, eq, desc, or, sql } from "drizzle-orm";
+import {
+  letterTypes,
+  companyLetters,
+  users,
+  clientContracts,
+  clients,
+} from "@/db/schema";
 import { writeLog } from "./absensi";
 
 /** Kode perusahaan yang dipakai pada nomor surat resmi. */
@@ -48,6 +54,11 @@ export type CompanyLetter = {
   issuedToName: string | null;
   fileUrl: string | null;
   createdAt: string;
+  contractId?: string | null;
+  contractType?: string | null;
+  contractStatus?: string | null;
+  clientName?: string | null;
+  brandName?: string | null;
 };
 
 export async function listLetterTypes(): Promise<LetterType[]> {
@@ -119,10 +130,23 @@ export async function listCompanyLetters(params?: {
       issuedToName: users.name,
       fileUrl: companyLetters.fileUrl,
       createdAt: companyLetters.createdAt,
+      contractId: clientContracts.id,
+      contractType: clientContracts.contractType,
+      contractStatus: clientContracts.status,
+      clientName: clients.name,
+      brandName: clients.brandName,
     })
     .from(companyLetters)
     .innerJoin(letterTypes, eq(companyLetters.letterTypeId, letterTypes.id))
     .leftJoin(users, eq(companyLetters.issuedTo, users.id))
+    .leftJoin(
+      clientContracts,
+      or(
+        eq(clientContracts.letterId, companyLetters.id),
+        eq(clientContracts.contractNumber, companyLetters.fullNumber),
+      ),
+    )
+    .leftJoin(clients, eq(clientContracts.clientId, clients.id))
     .where(conds.length ? and(...conds) : undefined)
     .orderBy(
       desc(companyLetters.year),
@@ -147,6 +171,11 @@ function toCompanyLetter(row: {
   issuedToName: string | null;
   fileUrl: string | null;
   createdAt: Date;
+  contractId?: string | null;
+  contractType?: string | null;
+  contractStatus?: string | null;
+  clientName?: string | null;
+  brandName?: string | null;
 }): CompanyLetter {
   return {
     id: row.id,
@@ -162,6 +191,11 @@ function toCompanyLetter(row: {
     issuedToName: row.issuedToName,
     fileUrl: row.fileUrl,
     createdAt: row.createdAt.toISOString(),
+    contractId: row.contractId ?? null,
+    contractType: row.contractType ?? null,
+    contractStatus: row.contractStatus ?? null,
+    clientName: row.clientName ?? null,
+    brandName: row.brandName ?? null,
   };
 }
 
@@ -363,12 +397,52 @@ export async function deleteCompanyLetter(
     .where(eq(companyLetters.id, id))
     .limit(1);
 
+  if (row?.fullNumber) {
+    // Bersihkan juga arsip kontrak terkait jika surat ini adalah PKS
+    await db
+      .delete(clientContracts)
+      .where(
+        or(
+          eq(clientContracts.letterId, id),
+          eq(clientContracts.contractNumber, row.fullNumber),
+        ),
+      );
+  }
+
   await db.delete(companyLetters).where(eq(companyLetters.id, id));
   await writeLog({
     actorId,
     action: "letter_deleted",
     details: row?.fullNumber ?? id,
   });
+}
+
+export async function updateCompanyLetter(
+  id: string,
+  input: {
+    issuedTo?: string | null;
+    fileUrl?: string | null;
+  },
+  actorId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const [row] = await db
+    .update(companyLetters)
+    .set({
+      issuedTo: input.issuedTo !== undefined ? input.issuedTo : undefined,
+      fileUrl: input.fileUrl !== undefined ? input.fileUrl : undefined,
+    })
+    .where(eq(companyLetters.id, id))
+    .returning();
+
+  if (!row) return { ok: false, error: "Surat tidak ditemukan." };
+
+  await writeLog({
+    actorId,
+    action: "letter_updated",
+    details: row.fullNumber,
+  });
+
+  return { ok: true };
 }
 
 export async function updateLetterFile(

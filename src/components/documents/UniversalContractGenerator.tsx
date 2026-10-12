@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
   Printer,
@@ -21,6 +22,7 @@ import {
   ShieldAlert,
   FileCheck2,
   Layers,
+  Edit3,
 } from "lucide-react";
 import { toast } from "sonner";
 import { PksMcnDocument } from "@/components/documents/PksMcnDocument";
@@ -47,7 +49,12 @@ interface Props {
   backHref?: string;
 }
 
-export function UniversalContractGenerator({ backHref = "/absensi/letters" }: Props) {
+function UniversalContractGeneratorInner({ backHref = "/absensi/letters" }: Props) {
+  const searchParams = useSearchParams();
+  const contractIdParam = searchParams.get("contractId");
+  const clientIdParam = searchParams.get("clientId");
+  const typeParam = searchParams.get("type");
+
   // ── Template Selection ───────────────────────────────────────────
   const [templateType, setTemplateType] = useState<PksTemplateType>("PKS_KLIEN_TNT");
 
@@ -55,6 +62,9 @@ export function UniversalContractGenerator({ backHref = "/absensi/letters" }: Pr
   const [formDataTnt, setFormDataTnt] = useState<PksTntData>(DEFAULT_PKS_TNT_DATA);
   const [formDataMcn, setFormDataMcn] = useState<PksMcnData>(DEFAULT_PKS_MCN_DATA);
   const [zoom, setZoom] = useState<number>(0.85);
+
+  // ── Editing Existing Contract State ──────────────────────────────
+  const [editingContractId, setEditingContractId] = useState<string | null>(null);
 
   // ── Client Search & Multi-Profile State ─────────────────────────
   const [searchQuery, setSearchQuery] = useState("");
@@ -72,6 +82,51 @@ export function UniversalContractGenerator({ backHref = "/absensi/letters" }: Pr
   const [activeSection, setActiveSection] = useState<
     "parties" | "scope" | "financial" | "terms" | "schedule_or_sla"
   >("parties");
+
+  // ── Auto-load from URL Query Params ──────────────────────────────
+  useEffect(() => {
+    if (typeParam === "PKS_KLIEN_TNT" || typeParam === "PKS_KLIEN_MCN") {
+      setTemplateType(typeParam as PksTemplateType);
+    }
+  }, [typeParam]);
+
+  useEffect(() => {
+    if (contractIdParam) {
+      setIsSaving(true);
+      fetch(`/api/absensi/contracts?id=${encodeURIComponent(contractIdParam)}`)
+        .then((res) => res.json())
+        .then((json) => {
+          if (json.ok && json.data?.contract) {
+            const c = json.data.contract;
+            setEditingContractId(c.id);
+            if (c.contractType) {
+              setTemplateType(c.contractType as PksTemplateType);
+            }
+            if (c.contractType === "PKS_KLIEN_TNT") {
+              setFormDataTnt(c.documentPayload as PksTntData);
+            } else {
+              setFormDataMcn(c.documentPayload as PksMcnData);
+            }
+            toast.success(`Memuat kontrak untuk diedit: ${c.contractNumber}`);
+          }
+        })
+        .catch((err) => {
+          console.error("Gagal load kontrak:", err);
+          toast.error("Gagal memuat dokumen kontrak.");
+        })
+        .finally(() => setIsSaving(false));
+    } else if (clientIdParam) {
+      fetch(`/api/absensi/clients?id=${encodeURIComponent(clientIdParam)}`)
+        .then((res) => res.json())
+        .then((json) => {
+          if (json.ok && json.data?.client) {
+            handleSelectClient(json.data.client);
+            toast.success(`Klien terpilih: ${json.data.client.name}`);
+          }
+        })
+        .catch((err) => console.error("Gagal load klien:", err));
+    }
+  }, [contractIdParam, clientIdParam]);
 
   // ── Debounce search clients ─────────────────────────────────────
   useEffect(() => {
@@ -312,13 +367,18 @@ export function UniversalContractGenerator({ backHref = "/absensi/letters" }: Pr
           ? formDataTnt.legal.courtJurisdiction
           : formDataMcn.legal.courtJurisdiction,
         documentPayload: isTnt ? formDataTnt : formDataMcn,
-        registerLetterNumber: true,
+        registerLetterNumber: !editingContractId,
       };
 
+      const method = editingContractId ? "PUT" : "POST";
+      const payloadToSend = editingContractId
+        ? { id: editingContractId, ...payload }
+        : payload;
+
       const res = await fetch("/api/absensi/contracts", {
-        method: "POST",
+        method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(payloadToSend),
       });
 
       const json = await res.json();
@@ -329,7 +389,9 @@ export function UniversalContractGenerator({ backHref = "/absensi/letters" }: Pr
       setSaveSuccess(true);
       setSavedContractNumber(activeHeader.contractNumber);
       toast.success(
-        `Dokumen "${activeHeader.contractNumber}" (${templateType === "PKS_KLIEN_TNT" ? "PKS TNT" : "PKS MCN"}) & data klien berhasil diarsipkan ke database!`,
+        editingContractId
+          ? `Perubahan pada kontrak "${activeHeader.contractNumber}" berhasil disimpan!`
+          : `Dokumen "${activeHeader.contractNumber}" (${templateType === "PKS_KLIEN_TNT" ? "PKS TNT" : "PKS MCN"}) & data klien berhasil diarsipkan ke database!`,
       );
     } catch (err: unknown) {
       console.error(err);
@@ -357,9 +419,15 @@ export function UniversalContractGenerator({ backHref = "/absensi/letters" }: Pr
               <h1 className="text-base font-black text-slate-900 dark:text-white tracking-tight">
                 Generator Dokumen: {templateType === "PKS_KLIEN_TNT" ? "PKS Klien TNT" : "PKS Klien MCN"}
               </h1>
-              <span className="px-2 py-0.5 text-[10px] font-black uppercase tracking-wider bg-primary/10 text-primary rounded-full">
-                0% Server Load · Times New Roman
-              </span>
+              {editingContractId ? (
+                <span className="px-2 py-0.5 text-[10px] font-black uppercase tracking-wider bg-amber-500/10 text-amber-600 border border-amber-500/20 rounded-full flex items-center gap-1">
+                  <Edit3 size={11} /> Mode Edit Kontrak
+                </span>
+              ) : (
+                <span className="px-2 py-0.5 text-[10px] font-black uppercase tracking-wider bg-primary/10 text-primary rounded-full">
+                  Dokumen Baru · Times New Roman
+                </span>
+              )}
             </div>
             <p className="text-xs text-slate-500">
               Form kiri, Live Preview A4 kanan, dan Auto Write-Back ke database master klien.
@@ -413,16 +481,28 @@ export function UniversalContractGenerator({ backHref = "/absensi/letters" }: Pr
           <button
             onClick={handleSaveContract}
             disabled={isSaving}
-            className="px-4 py-2 text-xs font-bold bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-white hover:bg-slate-50 rounded-xl shadow-sm transition-all flex items-center gap-2 disabled:opacity-50"
+            className={`px-4 py-2 text-xs font-bold rounded-xl shadow-sm transition-all flex items-center gap-2 disabled:opacity-50 ${
+              editingContractId
+                ? "bg-amber-600 hover:bg-amber-700 text-white shadow-amber-500/20"
+                : "bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-white hover:bg-slate-50"
+            }`}
           >
             {isSaving ? (
               <Loader2 size={14} className="animate-spin text-primary" />
             ) : saveSuccess ? (
               <CheckCircle2 size={14} className="text-emerald-500" />
+            ) : editingContractId ? (
+              <Edit3 size={14} className="text-white" />
             ) : (
               <Save size={14} className="text-primary" />
             )}
-            <span>{isSaving ? "Menyimpan..." : "Simpan & Arsipkan"}</span>
+            <span>
+              {isSaving
+                ? "Menyimpan..."
+                : editingContractId
+                  ? "Perbarui Kontrak"
+                  : "Simpan & Arsipkan"}
+            </span>
           </button>
 
           <button
@@ -1477,5 +1557,22 @@ export function UniversalContractGenerator({ backHref = "/absensi/letters" }: Pr
         </div>
       </div>
     </div>
+  );
+}
+
+export function UniversalContractGenerator(props: Props) {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-slate-100 dark:bg-slate-950 flex flex-col items-center justify-center p-8">
+          <Loader2 className="w-8 h-8 animate-spin text-primary mb-3" />
+          <p className="text-xs font-bold uppercase tracking-widest text-slate-500">
+            Menyiapkan Generator Dokumen...
+          </p>
+        </div>
+      }
+    >
+      <UniversalContractGeneratorInner {...props} />
+    </Suspense>
   );
 }

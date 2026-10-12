@@ -379,6 +379,11 @@ export interface CompanyLetter {
   issuedToName?: string | null;
   fileUrl?: string | null;
   createdAt: string;
+  contractId?: string | null;
+  contractType?: string | null;
+  contractStatus?: string | null;
+  clientName?: string | null;
+  brandName?: string | null;
 }
 
 export type PayrollCompany = 'TNT' | 'Hype' | 'Nova';

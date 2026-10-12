@@ -1753,4 +1753,38 @@ Hasil akhir verifikasi: **100% PARITAS TERCAPAI** di 23 dari 23 tabel (15.018 ba
   - Selector template dinamis: Toggle antara `PKS Klien TNT` dan `PKS Klien MCN`.
   - Dropdown Varian Kontak/Penandatangan: Saat nama klien dipilih, jika klien memiliki riwayat PIC atau alamat berbeda di database, sistem menampilkan dropdown pilihan profil sehingga user bebas memilih varian mana yang ingin dipakai untuk PKS saat ini, atau memilih opsi `+ Input Profil / Penandatangan Baru`.
   - Auto Write-Back: Setiap perubahan nama legal, brand, atau penandatangan otomatis diperbarui dan dicatat ke master database `clients` & `client_contacts` saat dokumen disimpan.
+
+---
+
+## 26. Dynamic A4 Pagination Engine, PKS Preview/Edit/Hapus, & Manajemen Data Klien (12 Oktober 2026)
+
+### A. Dynamic A4 Auto-Flow Pagination Engine (`DynamicPksPaginator.tsx`)
+- Menggantikan sistem pembagian pasal hardcoded yang sebelumnya rawan *overflow* dan menyisakan *blank space* besar.
+- Engine mengukur `offsetHeight` setiap blok konten (Pasal 1 s.d. 13 + Penutup + Tanda Tangan) pada container terisolasi `159.2mm` (A4 dikurangi margin 25.4mm kiri-kanan).
+- Konten dialirkan secara fleksibel (*auto-flow*) ke lembar halaman baru saat akumulasi tinggi mencapai batas aman (`maxPageHeightPx: 870px`).
+- Penomoran halaman dinamis otomatis terpasang di footer: `Halaman {currentPage} dari {totalPages}`.
+- Reset CSS `@media print` ditambahkan ke `src/app/globals.css` sehingga skala cetak/PDF selalu 1:1 (100%) dan tidak menyisakan halaman kosong di akhir dokumen (`.pks-page:last-child { break-after: auto }`).
+
+### B. Aksi Preview, Edit, dan Hapus pada Surat Menyurat (`/absensi/admin/letters`)
+- Di tabel daftar surat, setiap baris kini dilengkapi tombol aksi lengkap:
+  - **Preview (`Eye`)**:
+    - Untuk surat PKS (PKS-TNT / PKS-MCN): Membuka `PksPreviewModal` interaktif dengan tampilan dokumen utuh A4, tombol Zoom In/Out, tombol **"Cetak / PDF"** (`window.print()`), dan shortcut edit.
+    - Untuk surat biasa: Membuka modal detail nomor surat, tanggal, penerima, dan link file lampiran.
+  - **Edit (`Edit`)**:
+    - Untuk surat PKS: Membuka generator `/absensi/admin/letters/generator?contractId={id}` dalam **Mode Edit**, memuat seluruh draf yang tersimpan, dan menyimpan perubahan via `PUT /api/absensi/contracts`.
+    - Untuk surat biasa: Membuka modal edit penerima (`issuedTo`) dan link file lampiran (`fileUrl`) via `PATCH /api/absensi/letters`.
+  - **Hapus (`Trash2`)**:
+    - Dialog konfirmasi interaktif.
+    - Menghapus nomor surat di `company_letters` sekaligus membersihkan arsip kontrak terkait di `client_contracts` via `DELETE /api/absensi/letters?id={id}`.
+
+### C. Halaman Manajemen Master Data Klien & Mitra (`/absensi/admin/clients`)
+- Halaman komprehensif baru untuk mengelola seluruh data klien yang tersimpan di sistem:
+  - Kartu Metrik: Total Perusahaan Klien, Total PIC Penandatangan, Total Kontrak PKS Terbit.
+  - Fitur Pencarian Real-Time berdasarkan nama PT, nama brand, alamat, atau nama PIC penandatangan.
+  - Profil Legal Lengkap: Bentuk entitas (PT/CV/UD/Firma), Nama PT, Nama Brand, Alamat Legal, Telepon, Email, Rekening Bank.
+  - Manajemen Kontak PIC: Menampilkan PIC aktif dan dropdown varian kontak penandatangan lainnya jika klien memiliki lebih dari 1 perwakilan legal.
+  - Riwayat PKS: Menampilkan jumlah kontrak yang pernah diterbitkan dan preview nomor serta nominal kontrak terakhir.
+  - Tombol **"Buat PKS"**: Tombol langsung untuk memulai draf perjanjian baru di generator dengan data klien yang otomatis terisi instan (`/absensi/admin/letters/generator?clientId={id}`).
+  - Integrasi Menu Sidebar: Ditambahkan ke kelompok menu `Admin` untuk role `hr` dan `executive` di `src/components/layout/Sidebar.tsx`.
+
 

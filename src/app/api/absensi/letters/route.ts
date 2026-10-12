@@ -12,6 +12,7 @@ import {
   previewLetterNumber,
   createCompanyLetter,
   deleteCompanyLetter,
+  updateCompanyLetter,
 } from "@/server/dal/letters";
 
 export const dynamic = "force-dynamic";
@@ -131,20 +132,35 @@ export async function POST(request: Request) {
   });
 }
 
-/** PATCH /api/absensi/letters — ubah template tipe surat. */
+/** PATCH /api/absensi/letters — ubah metadata surat atau template tipe surat. */
 export async function PATCH(request: Request) {
   return withAuth(async () => {
-    await requireAbsensiAdmin();
-    const { id, templateUrl } = await request.json();
+    const admin = await requireAbsensiAdmin();
+    const body = await request.json();
 
-    if (!id) {
+    if (!body?.id) {
       return Response.json(
         { ok: false, error: "Parameter 'id' wajib diisi." },
         { status: 400 },
       );
     }
 
-    await setLetterTypeTemplate(id, templateUrl ?? null);
+    if (body.kind === "letter") {
+      const res = await updateCompanyLetter(
+        body.id,
+        {
+          issuedTo: body.issuedTo,
+          fileUrl: body.fileUrl,
+        },
+        admin.id,
+      );
+      if (!res.ok) {
+        return Response.json({ ok: false, error: res.error }, { status: 400 });
+      }
+      return { ok: true };
+    }
+
+    await setLetterTypeTemplate(body.id, body.templateUrl ?? null);
     return { letterTypes: await listLetterTypes() };
   });
 }

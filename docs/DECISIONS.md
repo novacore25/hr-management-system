@@ -232,3 +232,16 @@ dua tempat harus konsisten — dan tidak ada tooling untuk itu.
 - `session.strategy` sudah JWT, jadi tidak ada sesi lama yang dibawa.
 - `users.email` adalah identitas login — harus tetap unik dan cocok
   dengan email Google yang dipakai user.
+
+---
+
+## 13. Dynamic A4 Pagination Engine & Arsitektur Profil Klien
+
+**Pilihan:**
+1. Dynamic measured DOM pagination (`DynamicPksPaginator.tsx`) mengukur tinggi aktual setiap blok DOM legal (`offsetHeight`) pada container terisolasi `159.2mm` dan mengalirkan konten dinamis ke lembar halaman baru saat mencapai batas batas toleransi aman `870px` (~230mm at 96 DPI).
+2. Master profil perusahaan (`clients`) dipisahkan dari daftar varian penandatangan (`client_contacts`) dengan relasi One-to-Many cascade. Setiap kontrak digital (`client_contracts`) menyimpan snapshot payload utuh (`document_payload` JSONB) serta foreign key ke master klien dan nomor surat resmi.
+
+**Alasan:**
+1. Pendekatan statis hardcoded pembagian pasal per halaman sebelumnya menyebabkan dua masalah fatal: timbulnya ruang kosong (*blank space*) artifisial yang tidak wajar pada pasal pendek, dan *text overflow* terpotong pada pasal yang memiliki rincian panjang. Dengan engine dinamis berbasis akumulasi tinggi, dokumen mengisi lembaran A4 secara natural tanpa memaksakan potong halaman, menghasilkan dokumen legal formal yang rapi dan profesional.
+2. Banyak klien perusahaan menunjuk perwakilan penandatangan yang berbeda-beda untuk program yang berbeda (misal Direktur Utama untuk PKS MCN, CMO / Brand Manager untuk PKS TNT). Jika kontak di-overwrite pada level klien, histori penandatangan lama akan hilang. Dengan tabel `client_contacts`, sistem menyajikan dropdown pilihan kontak tersimpan sekaligus opsi input kontak baru dengan auto write-back idempoten.
+

@@ -1,5 +1,11 @@
 import { withAuth, requireAbsensiAdmin } from "@/server/dal/guards";
-import { searchClients, getClientById, upsertClient } from "@/server/dal/clients";
+import {
+  searchClients,
+  getClientById,
+  upsertClient,
+  deleteClient,
+  deleteClientContact,
+} from "@/server/dal/clients";
 
 export const dynamic = "force-dynamic";
 
@@ -39,5 +45,39 @@ export async function POST(request: Request) {
     }
     const result = await upsertClient(body, admin.id);
     return result;
+  });
+}
+
+/**
+ * DELETE /api/absensi/clients?id=uuid&kind=client|contact
+ * Hapus klien atau salah satu kontak PIC klien.
+ */
+export async function DELETE(request: Request) {
+  return withAuth(async () => {
+    const admin = await requireAbsensiAdmin();
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get("id");
+    const kind = searchParams.get("kind") ?? "client";
+
+    if (!id) {
+      return Response.json(
+        { ok: false, error: "Parameter 'id' wajib diisi." },
+        { status: 400 },
+      );
+    }
+
+    if (kind === "contact") {
+      const result = await deleteClientContact(id, admin.id);
+      if (!result.ok) {
+        return Response.json({ ok: false, error: result.error }, { status: 400 });
+      }
+      return { ok: true, deleted: id, kind };
+    }
+
+    const result = await deleteClient(id, admin.id);
+    if (!result.ok) {
+      return Response.json({ ok: false, error: result.error }, { status: 400 });
+    }
+    return { ok: true, deleted: id, kind };
   });
 }
