@@ -7,7 +7,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { getKpiRole } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { formatPercentage } from "@/lib/utils";
+import { formatPercentage, getBrandColor, cn } from "@/lib/utils";
 import { PerformanceBadge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import type { PerformanceCategory } from "@/types";
@@ -25,6 +25,8 @@ interface QualityRow {
   userName: string;
   departmentName: string;
   kpiTitle: string;
+  kpiBrand?: string | null;
+  kpiType?: string;
   monthlyTarget: number;
   actualTotal: number;
   achievementPercentage: number;
@@ -165,7 +167,20 @@ export default function HrQualityPage() {
             >
               <div className="flex flex-col sm:flex-row sm:items-center gap-3">
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium">{row.kpiTitle}</p>
+                  <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                    <span className="text-[10px] px-1.5 py-0.5 rounded font-medium text-purple-700 bg-purple-50 border border-purple-200 shrink-0">
+                      Quality
+                    </span>
+                    <span
+                      className={cn(
+                        "text-[10px] px-1.5 py-0.5 rounded border font-semibold shrink-0",
+                        getBrandColor(row.kpiBrand),
+                      )}
+                    >
+                      {row.kpiBrand || "Umum"}
+                    </span>
+                    <p className="text-sm font-medium">{row.kpiTitle}</p>
+                  </div>
                   <p className="text-xs text-muted-foreground">
                     {row.userName} · {row.departmentName}
                   </p>

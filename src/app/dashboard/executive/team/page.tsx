@@ -14,17 +14,36 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
+  cn,
   getPerformanceCategory,
   calcWeightedScore,
   formatPercentage,
   formatNumber,
   formatCurrency,
+  getBrandColor,
+  cleanKpiTitle,
   monthName,
   todayISODate,
 } from "@/lib/utils";
 import { useAllKpiSettings } from "@/hooks/useKpiSettings";
 import { getKpiRole } from "@/types";
 import type { User } from "@/types";
+
+const typeLabel: Record<string, string> = {
+  result: "Result",
+  activity: "Activity",
+  quality: "Quality",
+  lead_tim: "Lead Tim",
+  hr: "HR",
+};
+
+const typeColor: Record<string, string> = {
+  result: "text-blue-700 bg-blue-50 border-blue-200",
+  activity: "text-amber-700 bg-amber-50 border-amber-200",
+  quality: "text-purple-700 bg-purple-50 border-purple-200",
+  lead_tim: "text-sky-700 bg-sky-50 border-sky-200",
+  hr: "text-emerald-700 bg-emerald-50 border-emerald-200",
+};
 
 const kpiRoleLabel: Record<string, string> = {
   executive: "Executive",
@@ -149,11 +168,23 @@ export default function ExecutiveTeamPage() {
                   <div key={a.id} className="rounded-lg border border-border p-3 space-y-2">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <p className="text-sm font-medium truncate">
-                          {kpi?.title ?? a.kpiId}
-                        </p>
-                        <p className="text-xs text-muted-foreground capitalize">
-                          {kpi?.type ?? "-"} • {kpi?.period ?? "-"}
+                        <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                          {kpi?.type && (
+                            <span className={cn("text-[10px] px-1.5 py-0.5 rounded font-medium border", typeColor[kpi.type])}>
+                              {typeLabel[kpi.type] || kpi.type}
+                            </span>
+                          )}
+                          <span className={cn("text-[10px] px-1.5 py-0.5 rounded border font-semibold", getBrandColor(kpi?.brand))}>
+                            {kpi?.brand || "Umum"}
+                          </span>
+                          {kpi?.period === "daily" && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded border font-semibold text-emerald-700 bg-emerald-50 border-emerald-200">
+                              Harian
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-sm font-semibold truncate">
+                          {cleanKpiTitle(kpi?.title) || a.kpiId}
                         </p>
                       </div>
                       <PerformanceBadge category={cat} />

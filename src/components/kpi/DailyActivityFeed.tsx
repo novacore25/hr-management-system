@@ -9,14 +9,33 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import {
+  cn,
   formatNumber,
   formatCurrency,
   formatPercentage,
   formatDateDisplay,
+  getBrandColor,
+  cleanKpiTitle,
   todayISODate,
 } from "@/lib/utils";
 import { Calendar, MessageSquare, Search, Filter } from "lucide-react";
 import type { DailyReport, KPI } from "@/types";
+
+const typeLabel: Record<string, string> = {
+  result: "Result",
+  activity: "Activity",
+  quality: "Quality",
+  lead_tim: "Lead Tim",
+  hr: "HR",
+};
+
+const typeColor: Record<string, string> = {
+  result: "text-blue-700 bg-blue-50 border-blue-200",
+  activity: "text-amber-700 bg-amber-50 border-amber-200",
+  quality: "text-purple-700 bg-purple-50 border-purple-200",
+  lead_tim: "text-sky-700 bg-sky-50 border-sky-200",
+  hr: "text-emerald-700 bg-emerald-50 border-emerald-200",
+};
 
 type PresetKey = "today" | "yesterday" | "last3" | "last7" | "thisMonth" | "custom";
 
@@ -294,7 +313,19 @@ export function DailyActivityFeed() {
                           <span className="text-sm font-medium">{u?.name ?? r.userId}</span>
                           <span className="text-xs text-muted-foreground">{u?.department ?? "—"}</span>
                         </div>
-                        <p className="text-xs text-muted-foreground truncate">{kpi?.title ?? r.kpiId}</p>
+                        <div className="flex items-center gap-1.5 flex-wrap my-1">
+                          {kpi?.type && (
+                            <span className={cn("text-[10px] px-1.5 py-0.5 rounded font-medium", typeColor[kpi.type])}>
+                              {typeLabel[kpi.type] || kpi.type}
+                            </span>
+                          )}
+                          <span className={cn("text-[10px] px-1.5 py-0.5 rounded border font-semibold", getBrandColor(kpi?.brand))}>
+                            {kpi?.brand || "Umum"}
+                          </span>
+                          <span className="text-xs text-muted-foreground font-medium truncate">
+                            {cleanKpiTitle(kpi?.title) || r.kpiId}
+                          </span>
+                        </div>
                         {r.notes && (
                           <p className="text-xs text-foreground/70 mt-1 flex items-start gap-1">
                             <MessageSquare className="h-3 w-3 mt-0.5 shrink-0 text-muted-foreground" />

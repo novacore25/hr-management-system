@@ -322,16 +322,17 @@ export default function ExecutiveQualityPage() {
                                   <div className="flex flex-col sm:flex-row sm:items-center gap-3">
                                     <div className="flex-1 min-w-0">
                                       <div className="flex items-center gap-1.5 flex-wrap mb-1">
-                                        {item.kpiBrand && (
-                                          <span
-                                            className={cn(
-                                              "text-[10px] px-1.5 py-0.5 rounded border font-semibold shrink-0",
-                                              getBrandColor(item.kpiBrand),
-                                            )}
-                                          >
-                                            {item.kpiBrand}
-                                          </span>
-                                        )}
+                                        <span className="text-[10px] px-1.5 py-0.5 rounded font-medium text-purple-700 bg-purple-50 border border-purple-200 shrink-0">
+                                          Quality
+                                        </span>
+                                        <span
+                                          className={cn(
+                                            "text-[10px] px-1.5 py-0.5 rounded border font-semibold shrink-0",
+                                            getBrandColor(item.kpiBrand),
+                                          )}
+                                        >
+                                          {item.kpiBrand || "Umum"}
+                                        </span>
                                         <p className="text-sm font-medium">
                                           {item.kpiTitle}
                                         </p>

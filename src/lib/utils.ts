@@ -255,7 +255,7 @@ export function pesanKpiReadonly(
   return `Akan diinput oleh ${penilai}`;
 }
 
-export function getBrandColor(brand: string | undefined): string {
+export function getBrandColor(brand: string | null | undefined): string {
   if (!brand || brand.toLowerCase() === "umum") {
     return "text-slate-600 bg-slate-100 border-slate-200";
   }

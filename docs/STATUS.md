@@ -1913,6 +1913,16 @@ Hasil akhir verifikasi: **100% PARITAS TERCAPAI** di 23 dari 23 tabel (15.018 ba
     ```
   - User kini tetap dalam keadaan login selama 30 hari di browser/perangkat kerja tanpa harus logout sendiri setiap hari.
 
+### C. Standardisasi Visibilitas Brand & Tipe di SELURUH Tampilan Sistem
+- Memperbaiki DAL [`period.ts`](file:///c:/Users/Banzilla/Documents/DEV/hr-system-vps/Task-Management-NovaCore/src/server/dal/period.ts) dengan menambahkan seleksi `kpiBrand: kpis.brand` ke `select`, `Row`, `toAssignment()`, dan `kpisMap`.
+- Memperbarui komponen & halaman:
+  1. [`ExpandableStaffGrid.tsx`](file:///c:/Users/Banzilla/Documents/DEV/hr-system-vps/Task-Management-NovaCore/src/components/kpi/ExpandableStaffGrid.tsx) (dipakai di `/dashboard/executive/overview` dan `/dashboard/head/team`): Setiap baris KPI kini menampilkan badge Brand (`Umum`, `Nayya Clinic`, `Urban Wellness`, dll.) dan badge Tipe (`Result`, `Activity`, `Quality`, dll.) bersandingan dengan judul.
+  2. [`DailyActivityFeed.tsx`](file:///c:/Users/Banzilla/Documents/DEV/hr-system-vps/Task-Management-NovaCore/src/components/kpi/DailyActivityFeed.tsx) (dipakai di `/dashboard/executive/activity` dan `/dashboard/hr/activity`): Feed aktivitas harian kini menampilkan badge Tipe, badge Brand, dan judul tugas yang bersih.
+  3. [`executive/quality/page.tsx`](file:///c:/Users/Banzilla/Documents/DEV/hr-system-vps/Task-Management-NovaCore/src/app/dashboard/executive/quality/page.tsx), [`hr/quality/page.tsx`](file:///c:/Users/Banzilla/Documents/DEV/hr-system-vps/Task-Management-NovaCore/src/app/dashboard/hr/quality/page.tsx), [`head/quality/page.tsx`](file:///c:/Users/Banzilla/Documents/DEV/hr-system-vps/Task-Management-NovaCore/src/app/dashboard/head/quality/page.tsx): Setiap baris input KPI kualitas menampilkan badge `Quality` dan badge Brand.
+  4. [`tim/history/page.tsx`](file:///c:/Users/Banzilla/Documents/DEV/hr-system-vps/Task-Management-NovaCore/src/app/dashboard/tim/history/page.tsx): Ringkasan capaian dan daftar riwayat input staf menampilkan badge Tipe dan badge Brand.
+  5. [`executive/team/page.tsx`](file:///c:/Users/Banzilla/Documents/DEV/hr-system-vps/Task-Management-NovaCore/src/app/dashboard/executive/team/page.tsx): Modal rincian KPI anggota tim menampilkan badge Tipe dan badge Brand.
+  6. [`utils.ts`](file:///c:/Users/Banzilla/Documents/DEV/hr-system-vps/Task-Management-NovaCore/src/lib/utils.ts): `getBrandColor(brand: string | null | undefined)` kini secara aman menerima nilai null.
+
 
 
 

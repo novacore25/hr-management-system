@@ -258,16 +258,14 @@ export function ExpandableStaffGrid({
                                   {typeLabel[kpi.type]}
                                 </span>
                               )}
-                              {kpi.brand && (
-                                  <span
-                                    className={cn(
-                                      "text-[10px] px-1.5 py-0.5 rounded border font-semibold shrink-0",
-                                      getBrandColor(kpi.brand)
-                                    )}
-                                  >
-                                    {kpi.brand}
-                                  </span>
+                              <span
+                                className={cn(
+                                  "text-[10px] px-1.5 py-0.5 rounded border font-semibold shrink-0",
+                                  getBrandColor(kpi.brand)
                                 )}
+                              >
+                                {kpi.brand || "Umum"}
+                              </span>
                               <p className="text-xs font-medium truncate">
                                 {kpi.title}
                               </p>

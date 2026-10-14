@@ -13,6 +13,7 @@ import {
   cn,
   formatPercentage,
   getPerformanceCategory,
+  getBrandColor,
   monthName,
 } from "@/lib/utils";
 import { toast } from "sonner";
@@ -25,6 +26,7 @@ interface QualityRow {
   userName: string;
   departmentName: string;
   kpiTitle: string;
+  kpiBrand?: string | null;
   monthlyTarget: number;
   actualTotal: number;
   achievementPercentage: number;
@@ -337,9 +339,22 @@ export default function HeadQualityPage() {
                                 >
                                   <div className="flex flex-col sm:flex-row sm:items-center gap-3">
                                     <div className="flex-1 min-w-0">
-                                      <p className="text-sm font-medium">
-                                        {item.kpiTitle}
-                                      </p>
+                                      <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                                        <span className="text-[10px] px-1.5 py-0.5 rounded font-medium text-purple-700 bg-purple-50 border border-purple-200 shrink-0">
+                                          Quality
+                                        </span>
+                                        <span
+                                          className={cn(
+                                            "text-[10px] px-1.5 py-0.5 rounded border font-semibold shrink-0",
+                                            getBrandColor(item.kpiBrand),
+                                          )}
+                                        >
+                                          {item.kpiBrand || "Umum"}
+                                        </span>
+                                        <p className="text-sm font-medium">
+                                          {item.kpiTitle}
+                                        </p>
+                                      </div>
                                       <p className="text-xs text-muted-foreground">
                                         Aktual: {formatPercentage(item.actualTotal)} /{" "}
                                         {formatPercentage(item.monthlyTarget)}

@@ -3,7 +3,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { useApiQuery, useApiMutation } from "@/hooks/useApi";
 import { withQuery } from "@/lib/api-client";
-import { formatDateDisplay, formatNumber, monthName } from "@/lib/utils";
+import { formatDateDisplay, formatNumber, monthName, getBrandColor, cleanKpiTitle, cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,6 +16,22 @@ import {
 } from "@/components/ui/dialog";
 import { Pencil } from "lucide-react";
 import type { DailyReport, KPI } from "@/types";
+
+const typeLabel: Record<string, string> = {
+  result: "Result",
+  activity: "Activity",
+  quality: "Quality",
+  lead_tim: "Lead Tim",
+  hr: "HR",
+};
+
+const typeColor: Record<string, string> = {
+  result: "text-blue-700 bg-blue-50 border-blue-200",
+  activity: "text-amber-700 bg-amber-50 border-amber-200",
+  quality: "text-purple-700 bg-purple-50 border-purple-200",
+  lead_tim: "text-sky-700 bg-sky-50 border-sky-200",
+  hr: "text-emerald-700 bg-emerald-50 border-emerald-200",
+};
 
 function getMonthRange(monthValue: string) {
   const [year, month] = monthValue.split("-").map(Number);
@@ -189,7 +205,17 @@ export default function TimHistoryPage() {
                 const pct = target > 0 ? Math.min((s.total / target) * 100, 100) : 0;
                 return (
                   <div key={s.kpiId} className="rounded-lg border border-border bg-background p-3 space-y-1.5">
-                    <p className="text-xs font-medium truncate">{s.title}</p>
+                    <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                      {kpi?.type && (
+                        <span className={cn("text-[9px] px-1.5 py-0.5 rounded font-medium", typeColor[kpi.type])}>
+                          {typeLabel[kpi.type] || kpi.type}
+                        </span>
+                      )}
+                      <span className={cn("text-[9px] px-1.5 py-0.5 rounded border font-semibold", getBrandColor(kpi?.brand))}>
+                        {kpi?.brand || "Umum"}
+                      </span>
+                    </div>
+                    <p className="text-xs font-semibold truncate text-foreground">{cleanKpiTitle(s.title)}</p>
                     <div className="flex items-end justify-between gap-2">
                       <p className="text-lg font-bold tabular-nums">{formatted}</p>
                       {target > 0 && (
@@ -233,8 +259,23 @@ export default function TimHistoryPage() {
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium truncate">
-                        {kpi?.title ?? "—"}
+                      <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                        {kpi?.type && (
+                          <span className={cn("text-[10px] px-1.5 py-0.5 rounded font-medium", typeColor[kpi.type])}>
+                            {typeLabel[kpi.type] || kpi.type}
+                          </span>
+                        )}
+                        <span className={cn("text-[10px] px-1.5 py-0.5 rounded border font-semibold", getBrandColor(kpi?.brand))}>
+                          {kpi?.brand || "Umum"}
+                        </span>
+                        {kpi?.period === "daily" && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded border font-semibold text-emerald-700 bg-emerald-50 border-emerald-200">
+                            Harian
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-sm font-semibold truncate">
+                        {cleanKpiTitle(kpi?.title) || "—"}
                       </p>
                       <p className="text-xs text-muted-foreground">
                         {formatDateDisplay(r.date)}
