@@ -6,8 +6,24 @@ import { useDivisionMembers } from "@/hooks/useUsers";
 import { useKpis } from "@/hooks/useKpis";
 import { PerformanceBadge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { formatPercentage } from "@/lib/utils";
+import { formatPercentage, getBrandColor, cleanKpiTitle, cn } from "@/lib/utils";
 import { getManagedDepartments } from "@/types";
+
+const typeLabel: Record<string, string> = {
+  result: "Result",
+  activity: "Activity",
+  quality: "Quality",
+  lead_tim: "Lead Tim",
+  hr: "HR",
+};
+
+const typeColor: Record<string, string> = {
+  result: "text-blue-700 bg-blue-50 border-blue-200",
+  activity: "text-amber-700 bg-amber-50 border-amber-200",
+  quality: "text-purple-700 bg-purple-50 border-purple-200",
+  lead_tim: "text-sky-700 bg-sky-50 border-sky-200",
+  hr: "text-emerald-700 bg-emerald-50 border-emerald-200",
+};
 
 export default function HeadKpiPage() {
   const { user } = useAuth();
@@ -54,9 +70,17 @@ export default function HeadKpiPage() {
                   <p className="text-sm font-medium truncate">
                     {userMap[a.userId] ?? a.userId}
                   </p>
-                  <p className="text-xs text-muted-foreground truncate">
-                    {kpiMap[a.kpiId] ?? "—"}
-                  </p>
+                  <div className="flex items-center gap-1.5 flex-wrap my-0.5">
+                    <span className={cn("inline-block px-1.5 py-0.5 rounded text-[10px] font-black uppercase tracking-wider border", getBrandColor(a.kpi?.brand))}>
+                      {a.kpi?.brand || "Umum"}
+                    </span>
+                    <span className={cn("inline-block px-1.5 py-0.5 rounded text-[10px] font-black uppercase tracking-wider border", typeColor[a.kpi?.type || "result"] || "text-slate-600 bg-slate-50 border-slate-200")}>
+                      {typeLabel[a.kpi?.type || "result"] || a.kpi?.type}
+                    </span>
+                    <span className="text-xs text-muted-foreground truncate">
+                      {cleanKpiTitle(a.kpi?.title || kpiMap[a.kpiId]) || "—"}
+                    </span>
+                  </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <span className="text-sm font-semibold tabular-nums">

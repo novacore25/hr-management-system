@@ -111,11 +111,9 @@ export function KpiCard({ assignment, onClick, showNotes = true, period, readonl
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap gap-1.5 mb-2">
-              {kpi.brand && (
-                <span className={cn("inline-block px-2 py-0.5 rounded-lg border text-[10px] font-black uppercase tracking-wider", getBrandColor(kpi.brand))}>
-                  {kpi.brand}
-                </span>
-              )}
+              <span className={cn("inline-block px-2 py-0.5 rounded-lg border text-[10px] font-black uppercase tracking-wider", getBrandColor(kpi.brand))}>
+                {kpi.brand || "Umum"}
+              </span>
               <span className={cn("inline-block px-2 py-0.5 rounded-lg border text-[10px] font-black uppercase tracking-wider", typeColor[kpi.type] || "text-slate-600 bg-slate-50 border-slate-200")}>
                 {typeLabel[kpi.type] || kpi.type}
               </span>

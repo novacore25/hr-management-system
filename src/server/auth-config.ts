@@ -62,12 +62,14 @@ export const authConfig = {
    * keduanya.
    *
    * Konsekuensi JWT: sesi tidak bisa dicabut dari sisi server
-   * (tidak ada "logout semua perangkat" instan). efetivo dikompensasi
-   * dengan maxAge 8 jam, bukan 12.
+   * (tidak ada "logout semua perangkat" instan). Masa aktif diatur
+   * 30 hari dengan auto-refresh setiap 24 jam agar user tidak perlu
+   * berulang kali login setiap hari.
    */
   session: {
     strategy: "jwt",
-    maxAge: 60 * 60 * 8, // 8 jam
+    maxAge: 30 * 24 * 60 * 60, // 30 hari (2.592.000 detik)
+    updateAge: 24 * 60 * 60, // Perpanjang token setiap 24 jam saat aktif
   },
 
   callbacks: {

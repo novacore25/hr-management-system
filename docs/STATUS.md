@@ -1871,6 +1871,48 @@ Hasil akhir verifikasi: **100% PARITAS TERCAPAI** di 23 dari 23 tabel (15.018 ba
     - Tanggal 15 (4 sesi) -> Badge sel kalender: `4 sesi exc tavi`.
     - Tanggal 25 (3 sesi) -> Badge sel kalender: `3 sesi mix tavi & IP`.
 
+---
+
+## 30. Perbaikan Visibilitas Brand & Tipe KPI User serta Perpanjangan Sesi Login (14 Oktober 2026)
+
+### A. Tampilan Brand & Tipe KPI di Sisi User / Karyawan
+- **Keluhan HR**: *"Di manajemen KPI ada nama brand, tapi di KPI user kok tidak muncul nama brand-nya? Rasanya setiap KPI harus ada brand-nya dan tipe KPI-nya apa juga."*
+- **Akar Masalah Teknis**:
+  1. Di DAL [`assignments.ts`](file:///c:/Users/Banzilla/Documents/DEV/hr-system-vps/Task-Management-NovaCore/src/server/dal/assignments.ts):
+     - Kolom `brand` dari tabel `kpis` (`kpis.brand`) tidak di-select di objek `assignmentSelect`.
+     - Tipe `AssignmentRow` tidak memiliki field `kpiBrand: string | null`.
+     - Fungsi `toAssignment()` tidak memetakan properti `brand` ke objek `kpi` (sehingga `kpi.brand` selalu bernilai `undefined`).
+  2. Di komponen [`KpiCard.tsx`](file:///c:/Users/Banzilla/Documents/DEV/hr-system-vps/Task-Management-NovaCore/src/components/kpi/KpiCard.tsx):
+     - Pengecekan hanya `{kpi.brand && ...}`. Karena nilainya undefined, badge brand tidak pernah muncul di kartu KPI dashboard user.
+  3. Di halaman Input Harian [`src/app/dashboard/tim/input/page.tsx`](file:///c:/Users/Banzilla/Documents/DEV/hr-system-vps/Task-Management-NovaCore/src/app/dashboard/tim/input/page.tsx):
+     - Setiap baris item KPI hanya menampilkan judul dan target, tanpa badge brand maupun badge tipe KPI.
+  4. Di modal popup [`DailyInputForm.tsx`](file:///c:/Users/Banzilla/Documents/DEV/hr-system-vps/Task-Management-NovaCore/src/components/kpi/DailyInputForm.tsx):
+     - Header dialog hanya menampilkan judul KPI tanpa identitas brand dan tipe.
+  5. Di halaman Head KPI [`src/app/dashboard/head/kpi/page.tsx`](file:///c:/Users/Banzilla/Documents/DEV/hr-system-vps/Task-Management-NovaCore/src/app/dashboard/head/kpi/page.tsx):
+     - List KPI divisi hanya menampilkan judul polosan tanpa brand dan tipe.
+- **Solusi & Perbaikan**:
+  1. `assignments.ts`: Menambahkan `kpiBrand: kpis.brand` ke `assignmentSelect`, `AssignmentRow`, dan memetakannya ke `brand: row.kpiBrand ?? undefined` di objek `kpi`.
+  2. `KpiCard.tsx`: Brand badge kini selalu tampil konsisten dengan warna dinamis `getBrandColor(kpi.brand)` dan fallback `"Umum"`.
+  3. `DailyInputForm.tsx`: DialogHeader kini menampilkan badge Brand (`Umum`, `TNT`, `Iswhite`, dll.), badge Tipe KPI (`Result`, `Activity`, dll.), dan tag `Harian`.
+  4. `tim/input/page.tsx`: Baris daftar tugas kini dilengkapi badge Brand, Tipe KPI, dan tag status periode sebelum judul tugas.
+  5. `head/kpi/page.tsx`: Item KPI divisi kini menampilkan badge Brand dan Tipe KPI.
+
+### B. Perpanjangan Masa Aktif Sesi Login (Persistent 30 Hari)
+- **Keluhan HR**: *"Kenapa harus login terus ya, biasanya kalau sudah login ya langsung tersimpan jadi user tinggal menggunakannya saja."*
+- **Akar Masalah Teknis**:
+  - Di [`src/server/auth-config.ts`](file:///c:/Users/Banzilla/Documents/DEV/hr-system-vps/Task-Management-NovaCore/src/server/auth-config.ts), sesi JWT sebelumnya dikonfigurasi dengan `maxAge: 60 * 60 * 8` (hanya 8 jam).
+  - Ketika karyawan pulang kerja dan kembali esok hari (> 8 jam), cookie sesi otomatis expired. Panggilan `/api/me` saat `focus` menghasilkan HTTP 401 dan langsung mengarahkan user kembali ke `/login`.
+- **Solusi & Perbaikan**:
+  - Konfigurasi `session` diubah menjadi:
+    ```ts
+    session: {
+      strategy: "jwt",
+      maxAge: 30 * 24 * 60 * 60, // 30 hari (2.592.000 detik)
+      updateAge: 24 * 60 * 60,   // Token diperpanjang otomatis tiap 24 jam saat aktif
+    }
+    ```
+  - User kini tetap dalam keadaan login selama 30 hari di browser/perangkat kerja tanpa harus logout sendiri setiap hari.
+
 
 
 

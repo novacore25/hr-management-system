@@ -7,9 +7,25 @@ import { DailyInputForm } from "@/components/kpi/DailyInputForm";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PerformanceBadge } from "@/components/ui/badge";
-import { formatNumber, formatCurrency, formatPercentage, getLiveWorkingDaysRemaining, pesanKpiReadonly } from "@/lib/utils";
+import { formatNumber, formatCurrency, formatPercentage, getLiveWorkingDaysRemaining, pesanKpiReadonly, getBrandColor, cleanKpiTitle, cn } from "@/lib/utils";
 import type { KpiAssignmentWithDetails } from "@/types";
 import { Search } from "lucide-react";
+
+const typeLabel: Record<string, string> = {
+  result: "Result",
+  activity: "Activity",
+  quality: "Quality",
+  lead_tim: "Lead Tim",
+  hr: "HR",
+};
+
+const typeColor: Record<string, string> = {
+  result: "text-blue-700 bg-blue-50 border-blue-200",
+  activity: "text-amber-700 bg-amber-50 border-amber-200",
+  quality: "text-purple-700 bg-purple-50 border-purple-200",
+  lead_tim: "text-sky-700 bg-sky-50 border-sky-200",
+  hr: "text-emerald-700 bg-emerald-50 border-emerald-200",
+};
 
 function fmtValue(value: number, unit: string): string {
   if (unit === "currency") return formatCurrency(value);
@@ -85,8 +101,23 @@ export default function TimInputPage() {
                   className="flex items-center justify-between rounded-xl border border-border bg-card px-4 py-3"
                 >
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{a.kpi?.title}</p>
-                    <p className="text-xs text-muted-foreground">
+                    <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                      <span className={cn("inline-block px-2 py-0.5 rounded-md border text-[10px] font-black uppercase tracking-wider", getBrandColor(a.kpi?.brand))}>
+                        {a.kpi?.brand || "Umum"}
+                      </span>
+                      <span className={cn("inline-block px-2 py-0.5 rounded-md border text-[10px] font-black uppercase tracking-wider", typeColor[a.kpi?.type || "result"] || "text-slate-600 bg-slate-50 border-slate-200")}>
+                        {typeLabel[a.kpi?.type || "result"] || a.kpi?.type}
+                      </span>
+                      {a.kpi?.period === "daily" && (
+                        <span className="inline-block px-2 py-0.5 rounded-md border text-[10px] font-black uppercase tracking-wider text-emerald-700 bg-emerald-50 border-emerald-200">
+                          Harian
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-sm font-semibold truncate text-[var(--ab-text-main)]">
+                      {cleanKpiTitle(a.kpi?.title)}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
                       Target: {fmtValue(displayTarget, unit)}
                     </p>
                   </div>

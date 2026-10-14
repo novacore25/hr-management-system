@@ -15,9 +15,25 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useApiMutation } from "@/hooks/useApi";
 import { withQuery } from "@/lib/api-client";
-import { todayISODate, formatNumber, formatCurrency, formatPercentage, getLiveWorkingDaysRemaining, extractKpiDate, cleanKpiTitle, formatDateDisplay } from "@/lib/utils";
+import { todayISODate, formatNumber, formatCurrency, formatPercentage, getLiveWorkingDaysRemaining, extractKpiDate, cleanKpiTitle, formatDateDisplay, getBrandColor, cn } from "@/lib/utils";
 import type { KpiAssignmentWithDetails } from "@/types";
 import { CalendarDays } from "lucide-react";
+
+const typeLabel: Record<string, string> = {
+  result: "Result",
+  activity: "Activity",
+  quality: "Quality",
+  lead_tim: "Lead Tim",
+  hr: "HR",
+};
+
+const typeColor: Record<string, string> = {
+  result: "text-blue-700 bg-blue-50 border-blue-200",
+  activity: "text-amber-700 bg-amber-50 border-amber-200",
+  quality: "text-purple-700 bg-purple-50 border-purple-200",
+  lead_tim: "text-sky-700 bg-sky-50 border-sky-200",
+  hr: "text-emerald-700 bg-emerald-50 border-emerald-200",
+};
 
 function formatValue(value: number, unit: string): string {
   if (unit === "currency") return formatCurrency(value);
@@ -251,6 +267,19 @@ export function DailyInputForm({
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-sm">
         <DialogHeader>
+          <div className="flex items-center gap-1.5 flex-wrap mb-1.5">
+            <span className={cn("inline-block px-2 py-0.5 rounded-md border text-[10px] font-black uppercase tracking-wider", getBrandColor(kpi.brand))}>
+              {kpi.brand || "Umum"}
+            </span>
+            <span className={cn("inline-block px-2 py-0.5 rounded-md border text-[10px] font-black uppercase tracking-wider", typeColor[kpi.type] || "text-slate-600 bg-slate-50 border-slate-200")}>
+              {typeLabel[kpi.type] || kpi.type}
+            </span>
+            {isDailyKpi && (
+              <span className="inline-block px-2 py-0.5 rounded-md border text-[10px] font-black uppercase tracking-wider text-emerald-700 bg-emerald-50 border-emerald-200">
+                Harian
+              </span>
+            )}
+          </div>
           <DialogTitle className="text-base leading-snug">
             {cleanKpiTitle(kpi.title)}
           </DialogTitle>

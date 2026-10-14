@@ -257,4 +257,16 @@ dua tempat harus konsisten — dan tidak ada tooling untuk itu.
 1. Dalam kaidah penyusunan dokumen hukum dan kontrak kerjasama korporat, bagian Lampiran (*Appendix / Schedule*) merupakan adendum terpisah yang tidak boleh disambung secara canggung di bawah kolom tanda tangan para pihak, melainkan harus dicetak pada lembaran kertas berikutnya. Deteksi `data-page-break="true"` memberikan fleksibilitas gabungan: alur dinamis tanpa ruang kosong untuk pasal-pasal perjanjian utama, sekaligus isolasi tegas untuk dokumen lampiran.
 2. Format kalender bulanan per creator memberikan kejelasan visual langsung bagi brand dan talent mengenai jadwal siaran langsung dan momentum promo penting (Payday, Mega Sales, Weekly events) dibandingkan tabel daftar linear biasa.
 
+---
+
+## 15. Visibilitas Brand & Tipe KPI pada Seluruh Antarmuka User serta Perpanjangan Sesi JWT 30 Hari
+
+**Pilihan:**
+1. DAL `assignments.ts` memetakan kolom `kpis.brand` ke objek `kpi` di seluruh query penugasan. Seluruh antarmuka staf (`tim/input`, `tim/page`, `DailyInputForm`, `tim/kpi`) dan antarmuka Head (`head/kpi`) wajib menampilkan badge Brand (dengan fallback `"Umum"`) dan badge Tipe KPI (`Result`, `Activity`, `Quality`, `Lead Tim`, `HR`) dengan skema warna yang terstandarisasi.
+2. Sesi login Auth.js v5 (`auth-config.ts`) dinaikkan dari `maxAge: 8 jam` menjadi `maxAge: 30 hari` (`2.592.000` detik) dengan `updateAge: 24 jam`.
+
+**Alasan:**
+1. Karyawan sering memegang tugas KPI untuk berbagai brand/klien sekaligus (misal `TNT`, `Hype`, `Iswhite`, `Msglow`, dll.) dengan deskripsi pekerjaan yang serupa. Tanpa identitas brand di daftar input harian dan kartu tugas, karyawan kebingungan membedakan target capaian antar-brand. Selain itu, sebelumnya field `brand` tidak di-select saat join penugasan sehingga kartu user tidak pernah menampilkan label brand meskipun data di database terisi.
+2. Konfigurasi 8 jam sebelumnya menyebabkan staf ter-logout setiap pergantian hari kerja (saat jeda semalam dari sore ke pagi), sehingga mengganggu alur operasional absensi dan pelaporan harian yang semestinya langsung siap digunakan di browser masing-masing tanpa harus login Google berulang kali.
+
 

@@ -37,6 +37,7 @@ type AssignmentRow = typeof kpiAssignments.$inferSelect & {
   kpiPeriod: string | null;
   kpiDepartmentId: string | null;
   kpiHideActual: boolean | null;
+  kpiBrand: string | null;
   userName: string | null;
   userPhoto: string | null;
   userKpiRole: string | null;
@@ -56,6 +57,7 @@ function toAssignment(
     period: row.kpiPeriod as never,
     status: "active" as never,
     department: row.departmentName ?? "",
+    brand: row.kpiBrand ?? undefined,
     createdBy: "",
     monthlyTarget: 0,
     year: row.year,
@@ -149,6 +151,7 @@ const assignmentSelect = {
   kpiPeriod: kpis.period,
   kpiDepartmentId: kpis.departmentId,
   kpiHideActual: kpis.hideActual,
+  kpiBrand: kpis.brand,
   userName: users.name,
   userPhoto: users.photoUrl,
   userKpiRole: users.kpiRole,
