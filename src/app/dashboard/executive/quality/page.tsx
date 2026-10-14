@@ -12,6 +12,7 @@ import {
   formatPercentage,
   getPerformanceCategory,
   getBrandColor,
+  cleanKpiTitle,
   monthName,
 } from "@/lib/utils";
 import { toast } from "sonner";
@@ -23,6 +24,7 @@ interface QualityRow {
   userId: string;
   userName: string;
   departmentName: string;
+  kpiType: "quality" | "lead_tim" | "hr";
   kpiTitle: string;
   kpiBrand: string | null;
   monthlyTarget: number;
@@ -32,6 +34,18 @@ interface QualityRow {
   notes: string;
   hasScore: boolean;
 }
+
+const typeLabel: Record<string, string> = {
+  quality: "Quality",
+  lead_tim: "Lead Tim",
+  hr: "HR",
+};
+
+const typeColor: Record<string, string> = {
+  quality: "text-purple-700 bg-purple-50 border-purple-200",
+  lead_tim: "text-sky-700 bg-sky-50 border-sky-200",
+  hr: "text-emerald-700 bg-emerald-50 border-emerald-200",
+};
 
 type Grouped = Record<
   string,
@@ -46,6 +60,9 @@ export default function ExecutiveQualityPage() {
   const selectedYear = parseInt(filterMonth.split("-")[0], 10);
   const selectedMonthNum = parseInt(filterMonth.split("-")[1], 10);
 
+  const [selectedType, setSelectedType] = useState<
+    "all" | "quality" | "lead_tim" | "hr"
+  >("all");
   const [inputValues, setInputValues] = useState<Record<string, string>>({});
   const [noteValues, setNoteValues] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState<string | null>(null);
@@ -57,6 +74,7 @@ export default function ExecutiveQualityPage() {
     () =>
       withQuery("/api/kpi/quality", {
         scope: "all",
+        kpiTypes: "quality,lead_tim,hr",
         year: String(selectedYear),
         month: String(selectedMonthNum),
       }),
@@ -68,8 +86,6 @@ export default function ExecutiveQualityPage() {
     [selectedYear, selectedMonthNum],
   );
 
-  // Dipakai hanya untuk urutan tampil divisi: divisi yang ada assignment-nya
-  // tapi tidak terdaftar di master tetap muncul, di paling akhir.
   const { data: deptData } = useApiQuery<{ names: string[] }>(
     useCallback(() => withQuery("/api/departments", { names: "1" }), []),
     [],
@@ -82,6 +98,11 @@ export default function ExecutiveQualityPage() {
 
   const rows = useMemo<QualityRow[]>(() => data?.rows ?? [], [data]);
 
+  const filteredRows = useMemo(() => {
+    if (selectedType === "all") return rows;
+    return rows.filter((r) => r.kpiType === selectedType);
+  }, [rows, selectedType]);
+
   const notesFromServer = useMemo(() => {
     const map: Record<string, string> = {};
     for (const r of rows) if (r.notes) map[r.assignmentId] = r.notes;
@@ -90,7 +111,7 @@ export default function ExecutiveQualityPage() {
 
   const grouped = useMemo<Grouped>(() => {
     const map: Grouped = {};
-    for (const row of rows) {
+    for (const row of filteredRows) {
       const dept = row.departmentName || "—";
       if (!map[dept]) map[dept] = {};
       if (!map[dept][row.userId]) {
@@ -99,7 +120,7 @@ export default function ExecutiveQualityPage() {
       map[dept][row.userId].items.push(row);
     }
     return map;
-  }, [rows]);
+  }, [filteredRows]);
 
   const deptNames = useMemo(() => {
     const order = [...(deptData?.names ?? [])];
@@ -109,35 +130,38 @@ export default function ExecutiveQualityPage() {
     return order.filter((d) => grouped[d]);
   }, [deptData, grouped]);
 
-  /**
-   * formerly: dua operasi dari browser (upsert monthly_scores + update
-   * kpi_assignments) dengan percentage dihitung di client dan
-   * `monthly_scores.monthly_target` tidak pernah ditulis.
-   *
-   * sekarang: satu request; percentage, target, dan catatan dihitung
-   * serta disimpan server.
-   */
-  async function handleSave(assignmentId: string) {
-    const value = parseFloat(inputValues[assignmentId]);
+  async function handleSave(item: QualityRow) {
+    const rawVal = inputValues[item.assignmentId];
+    const value =
+      rawVal !== undefined && rawVal.trim() !== ""
+        ? parseFloat(rawVal)
+        : item.hasScore
+        ? item.actualTotal
+        : NaN;
 
     if (!Number.isFinite(value) || value < 0) {
       toast.error("Nilai harus angka dan tidak boleh negatif.");
       return;
     }
 
-    setSaving(assignmentId);
+    const noteToSave =
+      noteValues[item.assignmentId] !== undefined
+        ? noteValues[item.assignmentId]
+        : (notesFromServer[item.assignmentId] ?? null);
+
+    setSaving(item.assignmentId);
     const res = await saveScore.mutate({
-      assignmentId,
+      assignmentId: item.assignmentId,
       year: selectedYear,
       month: selectedMonthNum,
       actualTotal: value,
-      notes: noteValues[assignmentId] ?? null,
+      notes: noteToSave,
     });
     setSaving(null);
 
     if (res.ok) {
-      toast.success("Nilai KPI kualitas disimpan.");
-      setInputValues((prev) => ({ ...prev, [assignmentId]: "" }));
+      toast.success("Nilai & catatan KPI disimpan.");
+      setInputValues((prev) => ({ ...prev, [item.assignmentId]: "" }));
       void refetch();
     } else {
       toast.error(res.error ?? "Gagal menyimpan nilai.");
@@ -182,15 +206,40 @@ export default function ExecutiveQualityPage() {
           <p className="text-sm text-muted-foreground">
             {isLoading
               ? "Memuat..."
-              : `${rows.length} KPI kualitas · ${monthName(selectedMonthNum)} ${selectedYear}`}
+              : `${filteredRows.length} KPI (${selectedType === "all" ? "Semua" : typeLabel[selectedType]}) · ${monthName(selectedMonthNum)} ${selectedYear}`}
           </p>
         </div>
-        <input
-          type="month"
-          value={filterMonth}
-          onChange={(e) => setFilterMonth(e.target.value)}
-          className="h-9 rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring self-start"
-        />
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center rounded-lg border border-border p-1 bg-muted/40 text-xs">
+            {(
+              [
+                { id: "all", label: "Semua" },
+                { id: "quality", label: "Quality" },
+                { id: "lead_tim", label: "Lead Tim" },
+                { id: "hr", label: "HR" },
+              ] as const
+            ).map((t) => (
+              <button
+                key={t.id}
+                onClick={() => setSelectedType(t.id)}
+                className={cn(
+                  "px-2.5 py-1 rounded-md font-medium transition-colors",
+                  selectedType === t.id
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+          <input
+            type="month"
+            value={filterMonth}
+            onChange={(e) => setFilterMonth(e.target.value)}
+            className="h-9 rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring self-start"
+          />
+        </div>
       </div>
 
       {!isLoading && deptNames.length > 0 && (
@@ -274,141 +323,158 @@ export default function ExecutiveQualityPage() {
 
                 {isDeptOpen && (
                   <div className="border-t border-border bg-muted/20 divide-y divide-border">
-                    {Object.entries(usersInDept).map(([uid, { userName, items }]) => {
-                      const isUserOpen = expandedUsers.has(dept + uid);
-                      const avgPct =
-                        items.length > 0
-                          ? items.reduce((s, i) => s + i.achievementPercentage, 0) /
-                            items.length
-                          : 0;
+                    {Object.entries(usersInDept).map(
+                      ([uid, { userName, items }]) => {
+                        const isUserOpen = expandedUsers.has(dept + uid);
+                        const avgPct =
+                          items.length > 0
+                            ? items.reduce(
+                                (s, i) => s + i.achievementPercentage,
+                                0,
+                              ) / items.length
+                            : 0;
 
-                      return (
-                        <div key={uid}>
-                          <button
-                            onClick={() => toggleUser(dept, uid)}
-                            className="w-full flex items-center gap-3 px-6 py-3 hover:bg-accent/40 transition-colors text-left"
-                          >
-                            <ChevronDown
-                              className={cn(
-                                "h-3.5 w-3.5 text-muted-foreground shrink-0 transition-transform duration-200",
-                                isUserOpen && "rotate-180",
-                              )}
-                            />
-                            <div className="flex-1 min-w-0">
-                              <span className="text-sm font-medium">
-                                {userName}
-                              </span>
-                              <span className="text-xs text-muted-foreground ml-2">
-                                {items.length} KPI kualitas
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-2 shrink-0">
-                              <span className="text-sm font-semibold tabular-nums">
-                                {formatPercentage(avgPct)}
-                              </span>
-                              <PerformanceBadge
-                                category={getPerformanceCategory(avgPct)}
+                        return (
+                          <div key={uid}>
+                            <button
+                              onClick={() => toggleUser(dept, uid)}
+                              className="w-full flex items-center gap-3 px-6 py-3 hover:bg-accent/40 transition-colors text-left"
+                            >
+                              <ChevronDown
+                                className={cn(
+                                  "h-3.5 w-3.5 text-muted-foreground shrink-0 transition-transform duration-200",
+                                  isUserOpen && "rotate-180",
+                                )}
                               />
-                            </div>
-                          </button>
+                              <div className="flex-1 min-w-0">
+                                <span className="text-sm font-medium">
+                                  {userName}
+                                </span>
+                                <span className="text-xs text-muted-foreground ml-2">
+                                  {items.length} KPI kualitas
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2 shrink-0">
+                                <span className="text-sm font-semibold tabular-nums">
+                                  {formatPercentage(avgPct)}
+                                </span>
+                                <PerformanceBadge
+                                  category={getPerformanceCategory(avgPct)}
+                                />
+                              </div>
+                            </button>
 
-                          {isUserOpen && (
-                            <div className="px-6 pb-3 space-y-2 bg-background/50">
-                              {items.map((item) => (
-                                <div
-                                  key={item.assignmentId}
-                                  className="rounded-lg border border-border bg-card px-4 py-3 flex flex-col gap-3"
-                                >
-                                  <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-                                    <div className="flex-1 min-w-0">
-                                      <div className="flex items-center gap-1.5 flex-wrap mb-1">
-                                        <span className="text-[10px] px-1.5 py-0.5 rounded font-medium text-purple-700 bg-purple-50 border border-purple-200 shrink-0">
-                                          Quality
-                                        </span>
-                                        <span
-                                          className={cn(
-                                            "text-[10px] px-1.5 py-0.5 rounded border font-semibold shrink-0",
-                                            getBrandColor(item.kpiBrand),
+                            {isUserOpen && (
+                              <div className="px-6 pb-3 space-y-2 bg-background/50">
+                                {items.map((item) => (
+                                  <div
+                                    key={item.assignmentId}
+                                    className="rounded-lg border border-border bg-card px-4 py-3 flex flex-col gap-3"
+                                  >
+                                    <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                                      <div className="flex-1 min-w-0">
+                                        <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                                          <span
+                                            className={cn(
+                                              "text-[10px] px-1.5 py-0.5 rounded font-bold border shrink-0",
+                                              typeColor[item.kpiType] ??
+                                                "text-purple-700 bg-purple-50 border-purple-200",
+                                            )}
+                                          >
+                                            {typeLabel[item.kpiType] ??
+                                              item.kpiType}
+                                          </span>
+                                          <span
+                                            className={cn(
+                                              "text-[10px] px-1.5 py-0.5 rounded border font-semibold shrink-0",
+                                              getBrandColor(item.kpiBrand),
+                                            )}
+                                          >
+                                            {item.kpiBrand || "Umum"}
+                                          </span>
+                                          <p className="text-sm font-medium">
+                                            {cleanKpiTitle(item.kpiTitle)}
+                                          </p>
+                                        </div>
+                                        <p className="text-xs text-muted-foreground">
+                                          Aktual:{" "}
+                                          {formatPercentage(item.actualTotal)} /{" "}
+                                          {formatPercentage(item.monthlyTarget)}
+                                          {!item.hasScore && (
+                                            <span className="ml-2 text-[10px] uppercase tracking-widest">
+                                              belum diinput
+                                            </span>
                                           )}
-                                        >
-                                          {item.kpiBrand || "Umum"}
-                                        </span>
-                                        <p className="text-sm font-medium">
-                                          {item.kpiTitle}
                                         </p>
                                       </div>
-                                      <p className="text-xs text-muted-foreground">
-                                        Aktual:{" "}
-                                        {formatPercentage(item.actualTotal)} /{" "}
-                                        {formatPercentage(item.monthlyTarget)}
-                                        {!item.hasScore && (
-                                          <span className="ml-2 text-[10px] uppercase tracking-widest">
-                                            belum diinput
-                                          </span>
-                                        )}
-                                      </p>
+                                      <div className="flex items-center gap-2 shrink-0">
+                                        <PerformanceBadge
+                                          category={item.performanceCategory}
+                                        />
+                                        <Input
+                                          type="number"
+                                          inputMode="decimal"
+                                          step="any"
+                                          min="0"
+                                          className="w-24 h-8 text-sm"
+                                          placeholder={
+                                            item.hasScore
+                                              ? `${item.actualTotal}%`
+                                              : "Nilai %"
+                                          }
+                                          value={
+                                            inputValues[item.assignmentId] ?? ""
+                                          }
+                                          onChange={(e) =>
+                                            setInputValues((prev) => ({
+                                              ...prev,
+                                              [item.assignmentId]: e.target.value,
+                                            }))
+                                          }
+                                        />
+                                        <Button
+                                          size="sm"
+                                          className="h-8"
+                                          disabled={
+                                            saving === item.assignmentId ||
+                                            (!item.hasScore &&
+                                              (!inputValues[item.assignmentId] ||
+                                                inputValues[item.assignmentId].trim() === ""))
+                                          }
+                                          onClick={() =>
+                                            handleSave(item)
+                                          }
+                                        >
+                                          {saving === item.assignmentId
+                                            ? "..."
+                                            : "Simpan"}
+                                        </Button>
+                                      </div>
                                     </div>
-                                    <div className="flex items-center gap-2 shrink-0">
-                                      <PerformanceBadge
-                                        category={item.performanceCategory}
-                                      />
-                                      <Input
-                                        type="number"
-                                        inputMode="decimal"
-                                        step="any"
-                                        min="0"
-                                        className="w-24 h-8 text-sm"
-                                        placeholder="Nilai %"
-                                        value={
-                                          inputValues[item.assignmentId] ?? ""
-                                        }
-                                        onChange={(e) =>
-                                          setInputValues((prev) => ({
-                                            ...prev,
-                                            [item.assignmentId]: e.target.value,
-                                          }))
-                                        }
-                                      />
-                                      <Button
-                                        size="sm"
-                                        className="h-8"
-                                        disabled={
-                                          saving === item.assignmentId ||
-                                          !inputValues[item.assignmentId]
-                                        }
-                                        onClick={() =>
-                                          handleSave(item.assignmentId)
-                                        }
-                                      >
-                                        {saving === item.assignmentId
-                                          ? "..."
-                                          : "Simpan"}
-                                      </Button>
-                                    </div>
+                                    <textarea
+                                      rows={2}
+                                      placeholder="Catatan evaluasi (opsional)..."
+                                      className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none"
+                                      value={
+                                        noteValues[item.assignmentId] ??
+                                        notesFromServer[item.assignmentId] ??
+                                        ""
+                                      }
+                                      onChange={(e) =>
+                                        setNoteValues((prev) => ({
+                                          ...prev,
+                                          [item.assignmentId]: e.target.value,
+                                        }))
+                                      }
+                                    />
                                   </div>
-                                  <textarea
-                                    rows={2}
-                                    placeholder="Catatan evaluasi (opsional)..."
-                                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none"
-                                    value={
-                                      noteValues[item.assignmentId] ??
-                                      notesFromServer[item.assignmentId] ??
-                                      ""
-                                    }
-                                    onChange={(e) =>
-                                      setNoteValues((prev) => ({
-                                        ...prev,
-                                        [item.assignmentId]: e.target.value,
-                                      }))
-                                    }
-                                  />
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      },
+                    )}
                   </div>
                 )}
               </div>

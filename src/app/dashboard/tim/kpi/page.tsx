@@ -186,7 +186,7 @@ export default function TimKpiPage() {
                   readonlyMessage={
                     pesanKpiReadonly(
                       a.kpi,
-                      a.kpi?.type === "quality" ? "Head" : "HR",
+                      a.kpi?.type === "hr" ? "HR" : "Head",
                     ) ?? undefined
                   }
                 />

@@ -106,7 +106,11 @@ function toAssignment(
     workingDaysElapsed: row.workingDaysElapsed,
     workingDaysRemaining: row.workingDaysRemaining,
     activeDays: row.activeDays,
-    qualityNotes: row.qualityNotes ?? "",
+    qualityNotes:
+      scores[`${row.year}-${String(row.month).padStart(2, "0")}`]
+        ?.qualityNotes ||
+      row.qualityNotes ||
+      "",
     year: row.year,
     month: row.month,
     heldAt: row.heldAt ? row.heldAt.toISOString() : null,

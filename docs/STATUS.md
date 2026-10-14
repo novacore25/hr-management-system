@@ -1923,8 +1923,42 @@ Hasil akhir verifikasi: **100% PARITAS TERCAPAI** di 23 dari 23 tabel (15.018 ba
   5. [`executive/team/page.tsx`](file:///c:/Users/Banzilla/Documents/DEV/hr-system-vps/Task-Management-NovaCore/src/app/dashboard/executive/team/page.tsx): Modal rincian KPI anggota tim menampilkan badge Tipe dan badge Brand.
   6. [`utils.ts`](file:///c:/Users/Banzilla/Documents/DEV/hr-system-vps/Task-Management-NovaCore/src/lib/utils.ts): `getBrandColor(brand: string | null | undefined)` kini secara aman menerima nilai null.
 
+---
 
+## 31. Penilaian KPI Evaluasi (Quality, Lead Tim, HR) & Sinkronisasi Catatan ke Staf (2026-10-14)
 
+### A. Permintaan & Masalah
+- **Head & HR**:
+  1. Head harus bisa menilai KPI bertipe `quality` dan `lead_tim` (Head Tim).
+  2. Semua anggota tim Head harus muncul lengkap dengan badge Nama KPI, Tipe KPI, dan Brand.
+  3. Catatan evaluasi harus bisa diisi/diperbarui dengan lancar (tanpa memaksa user mengetik ulang angka skor jika sudah ada skor sebelumnya).
+  4. Catatan evaluasi dari Head atau HR wajib muncul di tampilan staf masing-masing (di Dashboard Staf `/dashboard/tim`, Halaman KPI `/dashboard/tim/kpi`, dan Halaman Input `/dashboard/tim/input`).
+  5. HR bisa mengisi KPI evaluasi bertipe `hr` (serta `quality` dan `lead_tim`) dengan logika yang sama.
 
+### B. Akar Masalah Teknis
+1. **Scoping Head di DAL `quality.ts`**:
+   - Filter `params.departmentIds` sebelumnya hanya mencocokkan `kpiAssignments.departmentId`. Jika suatu assignment tidak terisi `department_id`-nya (null), staf tersebut hilang dari daftar penilaian Head meskipun user tersebut terdaftar di divisi yang dikelola Head (`users.departmentId`).
+   - Di fungsi otorisasi `assertCanScore`, penolakan terjadi jika `assignment.departmentId` null, tanpa memeriksa `users.departmentId`.
+2. **Sinkronisasi Kolom Catatan (`qualityNotes`)**:
+   - `setQualityScore` sebelumnya hanya meng-upsert catatan ke tabel `monthly_scores.notes`, tetapi tidak mengupdate kolom denormalisasi `kpi_assignments.quality_notes`. Akibatnya komponen staf yang membaca langsung `kpi_assignments` tidak mendapatkan catatan terbaru.
+   - Di DAL `period.ts`, hydration nilai bulanan `monthlyScores` hanya diterapkan pada KPI bertipe `quality`, mengabaikan `lead_tim` dan `hr`.
+3. **Komponen Tampilan Staf (`KpiCard.tsx`)**:
+   - Bagian catatan evaluasi sebelumnya hanya dicek untuk `kpi?.type === "quality" && assignment.qualityNotes`. Akibatnya catatan untuk KPI bertipe `lead_tim` dan `hr` tidak dirender sama sekali.
+4. **UX Input Form Penilaian**:
+   - Tombol "Simpan" sebelumnya didisable dengan kondisi `!inputValues[assignmentId]`. Jika user hanya ingin mengisi/mengubah catatan pada KPI yang sudah memiliki skor, tombol simpan terkunci dan tidak bisa diklik.
 
+### C. Solusi & Perbaikan
+1. **DAL Layer (`quality.ts`, `period.ts`, `assignments.ts`)**:
+   - Filter query `listQualityRows` dan otorisasi `assertCanScore` kini mendukung fallback ke `users.departmentId`. Join divisi memakai `COALESCE(kpi_assignments.department_id, users.department_id)`.
+   - `setQualityScore` kini memperbarui `kpi_assignments.quality_notes` bersamaan dengan `monthly_scores`.
+   - `period.ts` dan `assignments.ts` kini menyinkronkan skor dan catatan bulanan untuk seluruh tipe evaluasi (`quality`, `lead_tim`, `hr`).
+2. **Tampilan Staf (`KpiCard.tsx`, `tim/input/page.tsx`, `tim/page.tsx`, `tim/kpi/page.tsx`)**:
+   - `KpiCard` kini menampilkan blok catatan untuk `quality` (Catatan Kualitas), `lead_tim` (Catatan Lead Tim), dan `hr` (Catatan HR) dengan styling warna khas masing-masing.
+   - `tim/input/page.tsx` menampilkan catatan evaluator di bawah target KPI.
+   - Pesan read-only menggunakan penilai yang tepat (`Head` untuk `quality` & `lead_tim`, `HR` untuk `hr`).
+3. **Form Penilaian Head, HR & Executive**:
+   - [`head/quality/page.tsx`](file:///c:/Users/Banzilla/Documents/DEV/hr-system-vps/Task-Management-NovaCore/src/app/dashboard/head/quality/page.tsx): Ditambahkan tab filter tipe (`Semua`, `Quality`, `Lead Tim`), badge tipe dinamis, badge brand, pembersih tanggal judul (`cleanKpiTitle`), dan penyimpanan pintar (dapat menyimpan catatan tanpa harus mengetik ulang skor jika skor sudah ada).
+   - [`hr/quality/page.tsx`](file:///c:/Users/Banzilla/Documents/DEV/hr-system-vps/Task-Management-NovaCore/src/app/dashboard/hr/quality/page.tsx): Dirombak total menjadi model accordion divisi & staf lengkap dengan tab filter tipe (`Semua`, `Quality`, `Lead Tim`, `HR`), pemilih bulan, badge tipe, badge brand, dan textarea catatan.
+   - [`hr/evaluasi-hr/page.tsx`](file:///c:/Users/Banzilla/Documents/DEV/hr-system-vps/Task-Management-NovaCore/src/app/dashboard/hr/evaluasi-hr/page.tsx): Ditambahkan pemilih bulan, badge brand, badge tipe, dan penyimpanan catatan pintar.
+   - [`executive/quality/page.tsx`](file:///c:/Users/Banzilla/Documents/DEV/hr-system-vps/Task-Management-NovaCore/src/app/dashboard/executive/quality/page.tsx): Ditambahkan tab filter tipe, badge tipe dinamis, dan penyimpanan catatan pintar.
 

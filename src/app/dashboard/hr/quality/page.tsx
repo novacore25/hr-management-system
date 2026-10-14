@@ -7,43 +7,55 @@ import { useAuth } from "@/contexts/AuthContext";
 import { getKpiRole } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { formatPercentage, getBrandColor, cn } from "@/lib/utils";
 import { PerformanceBadge } from "@/components/ui/badge";
+import { ChevronDown } from "lucide-react";
+import {
+  cn,
+  formatPercentage,
+  getPerformanceCategory,
+  getBrandColor,
+  cleanKpiTitle,
+  monthName,
+} from "@/lib/utils";
 import { toast } from "sonner";
 import type { PerformanceCategory } from "@/types";
 
-/**
- * Baris dari GET /api/kpi/quality.
- *
- * formerly halaman ini menyusun sendiri objek `KpiAssignment` dan `KPI`
- * dari hasil nested-select Supabase, lalu mencocokkan nama user lewat
- * `Map` yang dibangun dari daftar user terpisah. Sekarang server yang
- * merakitnya, jadi tidak ada ada dua sumber untuk angka yang sama.
- */
+/** Baris dari GET /api/kpi/quality — lihat src/server/dal/quality.ts. */
 interface QualityRow {
   assignmentId: string;
+  userId: string;
   userName: string;
   departmentName: string;
+  kpiType: "quality" | "lead_tim" | "hr";
   kpiTitle: string;
-  kpiBrand?: string | null;
-  kpiType?: string;
+  kpiBrand: string | null;
   monthlyTarget: number;
   actualTotal: number;
   achievementPercentage: number;
   performanceCategory: PerformanceCategory;
+  notes: string;
   hasScore: boolean;
 }
 
+const typeLabel: Record<string, string> = {
+  quality: "Quality",
+  lead_tim: "Lead Tim",
+  hr: "HR",
+};
+
+const typeColor: Record<string, string> = {
+  quality: "text-purple-700 bg-purple-50 border-purple-200",
+  lead_tim: "text-sky-700 bg-sky-50 border-sky-200",
+  hr: "text-emerald-700 bg-emerald-50 border-emerald-200",
+};
+
+type Grouped = Record<
+  string,
+  Record<string, { userName: string; items: QualityRow[] }>
+>;
+
 export default function HrQualityPage() {
   const { user } = useAuth();
-  const now = new Date();
-
-  const year = now.getFullYear();
-  const month = now.getMonth() + 1;
-
-  const [inputValues, setInputValues] = useState<Record<string, string>>({});
-  const [saving, setSaving] = useState<string | null>(null);
-
   const role = user ? getKpiRole(user) : null;
   const allowed =
     role === null ||
@@ -51,29 +63,44 @@ export default function HrQualityPage() {
     role === "executive" ||
     role === "developer";
 
-  /**
-   * `scope=all` wajib di sini, bukan default `self`.
-   *
-   * formerly halaman ini query `kpi_assignments` tanpa filter user, jadi HR
-   * melihat SEMUA KPI kualitas bulan itu. Kalau `self`, HR hanya melihat KPI
-   * miliknya sendiri — lebih sedikit dari sebelumnya, dan itu perubahan
-   * perilaku yang tidak diminta.
-   */
+  const [filterMonth, setFilterMonth] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  });
+  const selectedYear = parseInt(filterMonth.split("-")[0], 10);
+  const selectedMonthNum = parseInt(filterMonth.split("-")[1], 10);
+
+  const [selectedType, setSelectedType] = useState<
+    "all" | "quality" | "lead_tim" | "hr"
+  >("all");
+  const [inputValues, setInputValues] = useState<Record<string, string>>({});
+  const [noteValues, setNoteValues] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState<string | null>(null);
+
+  const [expandedDepts, setExpandedDepts] = useState<Set<string>>(new Set());
+  const [expandedUsers, setExpandedUsers] = useState<Set<string>>(new Set());
+
   const build = useCallback(
     () =>
       allowed
         ? withQuery("/api/kpi/quality", {
             scope: "all",
-            year: String(year),
-            month: String(month),
+            kpiTypes: "quality,lead_tim,hr",
+            year: String(selectedYear),
+            month: String(selectedMonthNum),
           })
         : null,
-    [allowed, year, month],
+    [allowed, selectedYear, selectedMonthNum],
   );
 
   const { data, isLoading, refetch } = useApiQuery<{ rows: QualityRow[] }>(
     build,
-    [allowed, year, month],
+    [allowed, selectedYear, selectedMonthNum],
+  );
+
+  const { data: deptData } = useApiQuery<{ names: string[] }>(
+    useCallback(() => withQuery("/api/departments", { names: "1" }), []),
+    [],
   );
 
   const saveScore = useApiMutation<Record<string, unknown>, unknown>(
@@ -81,52 +108,106 @@ export default function HrQualityPage() {
     "PUT",
   );
 
-  const rows = useMemo(() => data?.rows ?? [], [data]);
+  const rows = useMemo<QualityRow[]>(() => data?.rows ?? [], [data]);
 
-  /**
-   * formerly: 2 operasi dari browser — upsert ke monthly_scores lalu
-   * update kpi_assignments, dengan `achievement_percentage` dihitung di
-   * client. Form mengetik "80" lalu menulis apa pun yang diketik, termasuk
-   * di luar 0-100. `monthly_scores.monthly_target` juga tidak pernah
-   * ditulis, jadi kolom itu selalu 0 padahal kolomnya ada dan dipakai
-   * untuk laporan.
-   *
-   * sekarang: satu request, percentage dan target dihitung server.
-   */
-  async function handleSave(assignmentId: string) {
-    const value = parseFloat(inputValues[assignmentId]);
+  const filteredRows = useMemo(() => {
+    if (selectedType === "all") return rows;
+    return rows.filter((r) => r.kpiType === selectedType);
+  }, [rows, selectedType]);
+
+  const notesFromServer = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const r of rows) if (r.notes) map[r.assignmentId] = r.notes;
+    return map;
+  }, [rows]);
+
+  const grouped = useMemo<Grouped>(() => {
+    const map: Grouped = {};
+    for (const row of filteredRows) {
+      const dept = row.departmentName || "—";
+      if (!map[dept]) map[dept] = {};
+      if (!map[dept][row.userId]) {
+        map[dept][row.userId] = { userName: row.userName, items: [] };
+      }
+      map[dept][row.userId].items.push(row);
+    }
+    return map;
+  }, [filteredRows]);
+
+  const deptNames = useMemo(() => {
+    const order = [...(deptData?.names ?? [])];
+    Object.keys(grouped).forEach((d) => {
+      if (!order.includes(d)) order.push(d);
+    });
+    return order.filter((d) => grouped[d]);
+  }, [deptData, grouped]);
+
+  async function handleSave(item: QualityRow) {
+    const rawVal = inputValues[item.assignmentId];
+    const value =
+      rawVal !== undefined && rawVal.trim() !== ""
+        ? parseFloat(rawVal)
+        : item.hasScore
+        ? item.actualTotal
+        : NaN;
 
     if (!Number.isFinite(value) || value < 0) {
       toast.error("Nilai harus angka dan tidak boleh negatif.");
       return;
     }
 
-    setSaving(assignmentId);
+    const noteToSave =
+      noteValues[item.assignmentId] !== undefined
+        ? noteValues[item.assignmentId]
+        : (notesFromServer[item.assignmentId] ?? null);
 
-    const res = await saveScore.mutate({ assignmentId, year, month, actualTotal: value });
-
+    setSaving(item.assignmentId);
+    const res = await saveScore.mutate({
+      assignmentId: item.assignmentId,
+      year: selectedYear,
+      month: selectedMonthNum,
+      actualTotal: value,
+      notes: noteToSave,
+    });
     setSaving(null);
 
     if (res.ok) {
-      toast.success("Nilai KPI kualitas disimpan.");
-      setInputValues((prev) => ({ ...prev, [assignmentId]: "" }));
+      toast.success("Nilai & catatan KPI disimpan.");
+      setInputValues((prev) => ({ ...prev, [item.assignmentId]: "" }));
       void refetch();
     } else {
       toast.error(res.error ?? "Gagal menyimpan nilai.");
     }
   }
 
-  // Pengecekan role dipindah ke BAWAH semua hook.
-  //
-  // formerly `return` bersyarat ada sebelum pemanggilan useState, padahal
-  // `role` baru terisi setelah AuthContext selesai memuat profil. Render
-  // pertama: role = null, jadi lolos ke bawah dan hook dipanggil.
-  // Render kedua: role = "tim", jadi return lebih awal — jumlah hook
-  // berubah dan React melempar "Rendered fewer hooks than expected",
-  // yang membuat seluruh halaman putih.
-  //
-  // Pengecekan yang sebenarnya sekarang juga ada di server
-  // (requireKpiRole), jadi baris ini cuma untuk UX.
+  function toggleDept(dept: string) {
+    setExpandedDepts((prev) => {
+      const next = new Set(prev);
+      if (next.has(dept)) {
+        next.delete(dept);
+        const uids = Object.keys(grouped[dept] ?? {});
+        setExpandedUsers((p) => {
+          const n = new Set(p);
+          uids.forEach((id) => n.delete(dept + id));
+          return n;
+        });
+      } else {
+        next.add(dept);
+      }
+      return next;
+    });
+  }
+
+  function toggleUser(dept: string, uid: string) {
+    const key = dept + uid;
+    setExpandedUsers((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
   if (!allowed) {
     return (
       <div className="flex h-40 items-center justify-center rounded-xl border border-dashed border-border">
@@ -135,97 +216,289 @@ export default function HrQualityPage() {
     );
   }
 
-  if (isLoading) {
-    return (
-      <div className="flex h-40 items-center justify-center">
-        <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-base font-semibold">Input KPI Kualitas</h2>
-        <p className="text-sm text-muted-foreground">
-          {rows.length} KPI kualitas aktif bulan ini
-        </p>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h2 className="text-base font-semibold">
+            Input KPI Kualitas &amp; Evaluasi
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            {isLoading
+              ? "Memuat..."
+              : `${filteredRows.length} KPI (${selectedType === "all" ? "Semua" : typeLabel[selectedType]}) • ${monthName(selectedMonthNum)} ${selectedYear}`}
+          </p>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center rounded-lg border border-border p-1 bg-muted/40 text-xs">
+            {(
+              [
+                { id: "all", label: "Semua" },
+                { id: "quality", label: "Quality" },
+                { id: "lead_tim", label: "Lead Tim" },
+                { id: "hr", label: "HR" },
+              ] as const
+            ).map((t) => (
+              <button
+                key={t.id}
+                onClick={() => setSelectedType(t.id)}
+                className={cn(
+                  "px-2.5 py-1 rounded-md font-medium transition-colors",
+                  selectedType === t.id
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+          <input
+            type="month"
+            value={filterMonth}
+            onChange={(e) => setFilterMonth(e.target.value)}
+            className="h-9 rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring self-start"
+          />
+        </div>
       </div>
 
-      {rows.length === 0 ? (
+      {!isLoading && deptNames.length > 0 && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setExpandedDepts(new Set(deptNames))}
+          >
+            Expand Tim
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setExpandedDepts(new Set(deptNames));
+              const allKeys = deptNames.flatMap((d) =>
+                Object.keys(grouped[d] ?? {}).map((uid) => d + uid),
+              );
+              setExpandedUsers(new Set(allKeys));
+            }}
+          >
+            Expand Staff
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setExpandedDepts(new Set());
+              setExpandedUsers(new Set());
+            }}
+          >
+            Collapse All
+          </Button>
+        </div>
+      )}
+
+      {isLoading ? (
+        <div className="flex h-40 items-center justify-center">
+          <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+        </div>
+      ) : deptNames.length === 0 ? (
         <div className="flex h-40 items-center justify-center rounded-xl border border-dashed border-border">
           <p className="text-sm text-muted-foreground">
-            Tidak ada KPI kualitas aktif bulan ini
+            Tidak ada KPI evaluasi aktif bulan ini
           </p>
         </div>
       ) : (
-        <div className="space-y-2">
-          {rows.map((row) => (
-            <div
-              key={row.assignmentId}
-              className="rounded-xl border border-border bg-card px-4 py-3"
-            >
-              <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-1.5 flex-wrap mb-1">
-                    <span className="text-[10px] px-1.5 py-0.5 rounded font-medium text-purple-700 bg-purple-50 border border-purple-200 shrink-0">
-                      Quality
-                    </span>
-                    <span
-                      className={cn(
-                        "text-[10px] px-1.5 py-0.5 rounded border font-semibold shrink-0",
-                        getBrandColor(row.kpiBrand),
-                      )}
-                    >
-                      {row.kpiBrand || "Umum"}
-                    </span>
-                    <p className="text-sm font-medium">{row.kpiTitle}</p>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    {row.userName} · {row.departmentName}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    Aktual: {formatPercentage(row.actualTotal)} /{" "}
-                    {formatPercentage(row.monthlyTarget)}
-                    {!row.hasScore && (
-                      <span className="ml-2 text-[10px] uppercase tracking-widest">
-                        belum diinput
-                      </span>
+        <div className="space-y-3">
+          {deptNames.map((dept) => {
+            const usersInDept = grouped[dept] ?? {};
+            const isDeptOpen = expandedDepts.has(dept);
+            const totalKpi = Object.values(usersInDept).reduce(
+              (s, u) => s + u.items.length,
+              0,
+            );
+
+            return (
+              <div
+                key={dept}
+                className="rounded-xl border border-border overflow-hidden"
+              >
+                <button
+                  onClick={() => toggleDept(dept)}
+                  className="w-full flex items-center gap-3 px-4 py-3 bg-card hover:bg-accent/50 transition-colors text-left"
+                >
+                  <ChevronDown
+                    className={cn(
+                      "h-4 w-4 text-muted-foreground shrink-0 transition-transform duration-200",
+                      isDeptOpen && "rotate-180",
                     )}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <PerformanceBadge category={row.performanceCategory} />
-                  <Input
-                    type="number"
-                    inputMode="decimal"
-                    step="any"
-                    min="0"
-                    className="w-24 h-8 text-sm"
-                    placeholder="Nilai %"
-                    value={inputValues[row.assignmentId] ?? ""}
-                    onChange={(e) =>
-                      setInputValues((prev) => ({
-                        ...prev,
-                        [row.assignmentId]: e.target.value,
-                      }))
-                    }
                   />
-                  <Button
-                    size="sm"
-                    className="h-8"
-                    disabled={
-                      saving === row.assignmentId ||
-                      !inputValues[row.assignmentId]
-                    }
-                    onClick={() => handleSave(row.assignmentId)}
-                  >
-                    {saving === row.assignmentId ? "..." : "Simpan"}
-                  </Button>
-                </div>
+                  <div className="flex-1 min-w-0">
+                    <span className="text-sm font-semibold">{dept}</span>
+                    <span className="text-xs text-muted-foreground ml-2">
+                      {Object.keys(usersInDept).length} staff · {totalKpi} KPI
+                    </span>
+                  </div>
+                </button>
+
+                {isDeptOpen && (
+                  <div className="border-t border-border bg-muted/20 divide-y divide-border">
+                    {Object.entries(usersInDept).map(
+                      ([uid, { userName, items }]) => {
+                        const isUserOpen = expandedUsers.has(dept + uid);
+                        const avgPct =
+                          items.length > 0
+                            ? items.reduce(
+                                (s, i) => s + i.achievementPercentage,
+                                0,
+                              ) / items.length
+                            : 0;
+
+                        return (
+                          <div key={uid}>
+                            <button
+                              onClick={() => toggleUser(dept, uid)}
+                              className="w-full flex items-center gap-3 px-6 py-3 hover:bg-accent/40 transition-colors text-left"
+                            >
+                              <ChevronDown
+                                className={cn(
+                                  "h-3.5 w-3.5 text-muted-foreground shrink-0 transition-transform duration-200",
+                                  isUserOpen && "rotate-180",
+                                )}
+                              />
+                              <div className="flex-1 min-w-0">
+                                <span className="text-sm font-medium">
+                                  {userName}
+                                </span>
+                                <span className="text-xs text-muted-foreground ml-2">
+                                  {items.length} KPI
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2 shrink-0">
+                                <span className="text-sm font-semibold tabular-nums">
+                                  {formatPercentage(avgPct)}
+                                </span>
+                                <PerformanceBadge
+                                  category={getPerformanceCategory(avgPct)}
+                                />
+                              </div>
+                            </button>
+
+                            {isUserOpen && (
+                              <div className="px-6 pb-3 space-y-2 bg-background/50">
+                                {items.map((item) => (
+                                  <div
+                                    key={item.assignmentId}
+                                    className="rounded-lg border border-border bg-card px-4 py-3 flex flex-col gap-3"
+                                  >
+                                    <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                                      <div className="flex-1 min-w-0">
+                                        <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                                          <span
+                                            className={cn(
+                                              "text-[10px] px-1.5 py-0.5 rounded font-bold border shrink-0",
+                                              typeColor[item.kpiType] ??
+                                                "text-purple-700 bg-purple-50 border-purple-200",
+                                            )}
+                                          >
+                                            {typeLabel[item.kpiType] ??
+                                              item.kpiType}
+                                          </span>
+                                          <span
+                                            className={cn(
+                                              "text-[10px] px-1.5 py-0.5 rounded border font-semibold shrink-0",
+                                              getBrandColor(item.kpiBrand),
+                                            )}
+                                          >
+                                            {item.kpiBrand || "Umum"}
+                                          </span>
+                                          <p className="text-sm font-medium">
+                                            {cleanKpiTitle(item.kpiTitle)}
+                                          </p>
+                                        </div>
+                                        <p className="text-xs text-muted-foreground">
+                                          Aktual:{" "}
+                                          {formatPercentage(item.actualTotal)} /{" "}
+                                          {formatPercentage(item.monthlyTarget)}
+                                          {!item.hasScore && (
+                                            <span className="ml-2 text-[10px] uppercase tracking-widest">
+                                              belum diinput
+                                            </span>
+                                          )}
+                                        </p>
+                                      </div>
+                                      <div className="flex items-center gap-2 shrink-0">
+                                        <PerformanceBadge
+                                          category={item.performanceCategory}
+                                        />
+                                        <Input
+                                          type="number"
+                                          inputMode="decimal"
+                                          step="any"
+                                          min="0"
+                                          className="w-24 h-8 text-sm"
+                                          placeholder={
+                                            item.hasScore
+                                              ? `${item.actualTotal}%`
+                                              : "Nilai %"
+                                          }
+                                          value={
+                                            inputValues[item.assignmentId] ?? ""
+                                          }
+                                          onChange={(e) =>
+                                            setInputValues((prev) => ({
+                                              ...prev,
+                                              [item.assignmentId]: e.target.value,
+                                            }))
+                                          }
+                                        />
+                                        <Button
+                                          size="sm"
+                                          className="h-8"
+                                          disabled={
+                                            saving === item.assignmentId ||
+                                            (!item.hasScore &&
+                                              (!inputValues[item.assignmentId] ||
+                                                inputValues[item.assignmentId].trim() === ""))
+                                          }
+                                          onClick={() =>
+                                            handleSave(item)
+                                          }
+                                        >
+                                          {saving === item.assignmentId
+                                            ? "..."
+                                            : "Simpan"}
+                                        </Button>
+                                      </div>
+                                    </div>
+                                    <textarea
+                                      rows={2}
+                                      placeholder="Catatan evaluasi (opsional)..."
+                                      className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none"
+                                      value={
+                                        noteValues[item.assignmentId] ??
+                                        notesFromServer[item.assignmentId] ??
+                                        ""
+                                      }
+                                      onChange={(e) =>
+                                        setNoteValues((prev) => ({
+                                          ...prev,
+                                          [item.assignmentId]: e.target.value,
+                                        }))
+                                      }
+                                    />
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      },
+                    )}
+                  </div>
+                )}
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

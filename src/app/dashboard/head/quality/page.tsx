@@ -14,6 +14,7 @@ import {
   formatPercentage,
   getPerformanceCategory,
   getBrandColor,
+  cleanKpiTitle,
   monthName,
 } from "@/lib/utils";
 import { toast } from "sonner";
@@ -25,6 +26,7 @@ interface QualityRow {
   userId: string;
   userName: string;
   departmentName: string;
+  kpiType: "quality" | "lead_tim" | "hr";
   kpiTitle: string;
   kpiBrand?: string | null;
   monthlyTarget: number;
@@ -34,6 +36,18 @@ interface QualityRow {
   notes: string;
   hasScore: boolean;
 }
+
+const typeLabel: Record<string, string> = {
+  quality: "Quality",
+  lead_tim: "Lead Tim",
+  hr: "HR",
+};
+
+const typeColor: Record<string, string> = {
+  quality: "text-purple-700 bg-purple-50 border-purple-200",
+  lead_tim: "text-sky-700 bg-sky-50 border-sky-200",
+  hr: "text-emerald-700 bg-emerald-50 border-emerald-200",
+};
 
 type Grouped = Record<string, Record<string, { userName: string; items: QualityRow[] }>>;
 
@@ -51,6 +65,7 @@ export default function HeadQualityPage() {
   const selectedYear = parseInt(filterMonth.split("-")[0], 10);
   const selectedMonthNum = parseInt(filterMonth.split("-")[1], 10);
 
+  const [selectedType, setSelectedType] = useState<"all" | "quality" | "lead_tim">("all");
   const [inputValues, setInputValues] = useState<Record<string, string>>({});
   const [noteValues, setNoteValues] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState<string | null>(null);
@@ -58,15 +73,6 @@ export default function HeadQualityPage() {
   const [expandedDepts, setExpandedDepts] = useState<Set<string>>(new Set());
   const [expandedUsers, setExpandedUsers] = useState<Set<string>>(new Set());
 
-  /**
-   * formerly: halaman mengambil `user.managedDepartments` dari AuthContext,
-   * menyaring daftar user di browser, lalu mengirim `user_id` mana yang
-   * boleh ditanyakan. Divisi itu datang dari browser, jadi Head bisa
-   * mengubahnya dan membaca divisi orang lain.
-   *
-   * sekarang: `scope=managed` — server yang membaca `managed_departments`
-   * dari baris `users` milik aktornya dan menyaring di SQL.
-   */
   const build = useCallback(
     () =>
       allowed
@@ -91,6 +97,11 @@ export default function HeadQualityPage() {
 
   const rows = useMemo<QualityRow[]>(() => data?.rows ?? [], [data]);
 
+  const filteredRows = useMemo(() => {
+    if (selectedType === "all") return rows;
+    return rows.filter((r) => r.kpiType === selectedType);
+  }, [rows, selectedType]);
+
   const notesFromServer = useMemo(() => {
     const map: Record<string, string> = {};
     for (const r of rows) if (r.notes) map[r.assignmentId] = r.notes;
@@ -99,7 +110,7 @@ export default function HeadQualityPage() {
 
   const grouped = useMemo<Grouped>(() => {
     const map: Grouped = {};
-    for (const row of rows) {
+    for (const row of filteredRows) {
       const dept = row.departmentName || "—";
       if (!map[dept]) map[dept] = {};
       if (!map[dept][row.userId]) {
@@ -108,39 +119,42 @@ export default function HeadQualityPage() {
       map[dept][row.userId].items.push(row);
     }
     return map;
-  }, [rows]);
+  }, [filteredRows]);
 
   const deptNames = useMemo(() => Object.keys(grouped).sort((a, b) => a.localeCompare(b)), [grouped]);
 
-  /**
-   * formerly: upsert ke monthly_scores lalu update kpi_assignments — dua
-   * request dari browser, dengan `achievement_percentage` dihitung di
-   * client dan `monthly_scores.monthly_target` tidak pernah ditulis.
-   *
-   * sekarang: satu request; percentage, target, dan kelayakan divisi
-   * semuanya diputuskan server.
-   */
-  async function handleSave(assignmentId: string) {
-    const value = parseFloat(inputValues[assignmentId]);
+  async function handleSave(item: QualityRow) {
+    const rawVal = inputValues[item.assignmentId];
+    const value =
+      rawVal !== undefined && rawVal.trim() !== ""
+        ? parseFloat(rawVal)
+        : item.hasScore
+        ? item.actualTotal
+        : NaN;
 
     if (!Number.isFinite(value) || value < 0) {
       toast.error("Nilai harus angka dan tidak boleh negatif.");
       return;
     }
 
-    setSaving(assignmentId);
+    const noteToSave =
+      noteValues[item.assignmentId] !== undefined
+        ? noteValues[item.assignmentId]
+        : (notesFromServer[item.assignmentId] ?? null);
+
+    setSaving(item.assignmentId);
     const res = await saveScore.mutate({
-      assignmentId,
+      assignmentId: item.assignmentId,
       year: selectedYear,
       month: selectedMonthNum,
       actualTotal: value,
-      notes: noteValues[assignmentId] ?? null,
+      notes: noteToSave,
     });
     setSaving(null);
 
     if (res.ok) {
-      toast.success("Nilai KPI kualitas disimpan.");
-      setInputValues((prev) => ({ ...prev, [assignmentId]: "" }));
+      toast.success("Nilai & catatan KPI disimpan.");
+      setInputValues((prev) => ({ ...prev, [item.assignmentId]: "" }));
       void refetch();
     } else {
       toast.error(res.error ?? "Gagal menyimpan nilai.");
@@ -197,15 +211,39 @@ export default function HeadQualityPage() {
           <p className="text-sm text-muted-foreground">
             {isLoading
               ? "Memuat..."
-              : `${totalItems} KPI Kualitas & Lead Tim • ${monthName(selectedMonthNum)} ${selectedYear} • ${deptNames.join(", ") || "—"}`}
+              : `${filteredRows.length} KPI (${selectedType === "all" ? "Semua" : typeLabel[selectedType]}) • ${monthName(selectedMonthNum)} ${selectedYear} • ${deptNames.join(", ") || "—"}`}
           </p>
         </div>
-        <input
-          type="month"
-          value={filterMonth}
-          onChange={(e) => setFilterMonth(e.target.value)}
-          className="h-9 rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring self-start"
-        />
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center rounded-lg border border-border p-1 bg-muted/40 text-xs">
+            {(
+              [
+                { id: "all", label: "Semua" },
+                { id: "quality", label: "Quality" },
+                { id: "lead_tim", label: "Lead Tim" },
+              ] as const
+            ).map((t) => (
+              <button
+                key={t.id}
+                onClick={() => setSelectedType(t.id)}
+                className={cn(
+                  "px-2.5 py-1 rounded-md font-medium transition-colors",
+                  selectedType === t.id
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+          <input
+            type="month"
+            value={filterMonth}
+            onChange={(e) => setFilterMonth(e.target.value)}
+            className="h-9 rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring self-start"
+          />
+        </div>
       </div>
 
       {!isLoading && deptNames.length > 0 && (
@@ -340,8 +378,15 @@ export default function HeadQualityPage() {
                                   <div className="flex flex-col sm:flex-row sm:items-center gap-3">
                                     <div className="flex-1 min-w-0">
                                       <div className="flex items-center gap-1.5 flex-wrap mb-1">
-                                        <span className="text-[10px] px-1.5 py-0.5 rounded font-medium text-purple-700 bg-purple-50 border border-purple-200 shrink-0">
-                                          Quality
+                                        <span
+                                          className={cn(
+                                            "text-[10px] px-1.5 py-0.5 rounded font-bold border shrink-0",
+                                            typeColor[item.kpiType] ??
+                                              "text-purple-700 bg-purple-50 border-purple-200",
+                                          )}
+                                        >
+                                          {typeLabel[item.kpiType] ??
+                                            item.kpiType}
                                         </span>
                                         <span
                                           className={cn(
@@ -352,7 +397,7 @@ export default function HeadQualityPage() {
                                           {item.kpiBrand || "Umum"}
                                         </span>
                                         <p className="text-sm font-medium">
-                                          {item.kpiTitle}
+                                          {cleanKpiTitle(item.kpiTitle)}
                                         </p>
                                       </div>
                                       <p className="text-xs text-muted-foreground">
@@ -375,7 +420,11 @@ export default function HeadQualityPage() {
                                         step="any"
                                         min="0"
                                         className="w-24 h-8 text-sm"
-                                        placeholder="Nilai %"
+                                        placeholder={
+                                          item.hasScore
+                                            ? `${item.actualTotal}%`
+                                            : "Nilai %"
+                                        }
                                         value={inputValues[item.assignmentId] ?? ""}
                                         onChange={(e) =>
                                           setInputValues((prev) => ({
@@ -389,9 +438,11 @@ export default function HeadQualityPage() {
                                         className="h-8"
                                         disabled={
                                           saving === item.assignmentId ||
-                                          !inputValues[item.assignmentId]
+                                          (!item.hasScore &&
+                                            (!inputValues[item.assignmentId] ||
+                                              inputValues[item.assignmentId].trim() === ""))
                                         }
-                                        onClick={() => handleSave(item.assignmentId)}
+                                        onClick={() => handleSave(item)}
                                       >
                                         {saving === item.assignmentId
                                           ? "..."

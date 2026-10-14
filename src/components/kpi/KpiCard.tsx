@@ -233,26 +233,63 @@ export function KpiCard({ assignment, onClick, showNotes = true, period, readonl
           </>
         )}
 
-        {/* Quality Notes — shown for quality KPIs */}
-        {kpi?.type === "quality" && assignment.qualityNotes && (
-          <div className="mt-5 pt-4 border-t border-slate-100">
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-              <MessageSquare className="h-3.5 w-3.5" />
-              Catatan Kualitas
-            </p>
-            <div className="relative">
-              <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-purple-300 rounded-full" />
-              <div className="ml-2.5 bg-purple-50/60 rounded-r-lg rounded-bl-sm py-2 px-3 border border-purple-100/50">
-                <p className="text-xs text-purple-900/90 whitespace-pre-wrap break-words leading-relaxed italic">
-                  "{assignment.qualityNotes}"
-                </p>
+        {/* Quality / Evaluation Notes — shown for quality, lead_tim, hr KPIs */}
+        {(kpi?.type === "quality" ||
+          kpi?.type === "lead_tim" ||
+          kpi?.type === "hr") &&
+          assignment.qualityNotes && (
+            <div className="mt-5 pt-4 border-t border-slate-100">
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                <MessageSquare className="h-3.5 w-3.5" />
+                {kpi?.type === "quality"
+                  ? "Catatan Kualitas"
+                  : kpi?.type === "lead_tim"
+                  ? "Catatan Lead Tim"
+                  : "Catatan HR"}
+              </p>
+              <div className="relative">
+                <div
+                  className={cn(
+                    "absolute left-0 top-0 bottom-0 w-[3px] rounded-full",
+                    kpi?.type === "quality"
+                      ? "bg-purple-400"
+                      : kpi?.type === "lead_tim"
+                      ? "bg-sky-400"
+                      : "bg-emerald-400",
+                  )}
+                />
+                <div
+                  className={cn(
+                    "ml-2.5 rounded-r-lg rounded-bl-sm py-2 px-3 border",
+                    kpi?.type === "quality"
+                      ? "bg-purple-50/70 border-purple-100/60"
+                      : kpi?.type === "lead_tim"
+                      ? "bg-sky-50/70 border-sky-100/60"
+                      : "bg-emerald-50/70 border-emerald-100/60",
+                  )}
+                >
+                  <p
+                    className={cn(
+                      "text-xs whitespace-pre-wrap break-words leading-relaxed italic",
+                      kpi?.type === "quality"
+                        ? "text-purple-950"
+                        : kpi?.type === "lead_tim"
+                        ? "text-sky-950"
+                        : "text-emerald-950",
+                    )}
+                  >
+                    "{assignment.qualityNotes}"
+                  </p>
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          )}
 
         {/* Day-by-Day Reports Section (Timeline Design) */}
-        {showNotes && kpi?.type !== "quality" && (
+        {showNotes &&
+          kpi?.type !== "quality" &&
+          kpi?.type !== "lead_tim" &&
+          kpi?.type !== "hr" && (
           <div className="mt-5 pt-4 border-t border-slate-100">
             <button
               type="button"

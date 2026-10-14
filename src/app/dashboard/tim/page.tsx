@@ -303,7 +303,7 @@ export default function TimDashboard() {
                     readonlyMessage={
                       pesanKpiReadonly(
                         a.kpi,
-                        a.kpi?.type === "quality" ? "Head" : "HR",
+                        a.kpi?.type === "hr" ? "HR" : "Head",
                       ) ?? undefined
                     }
                   />

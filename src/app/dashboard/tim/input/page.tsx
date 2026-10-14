@@ -120,19 +120,27 @@ export default function TimInputPage() {
                     <p className="text-xs text-muted-foreground mt-0.5">
                       Target: {fmtValue(displayTarget, unit)}
                     </p>
+                    {a.qualityNotes && (
+                      <div className="mt-2 text-xs bg-muted/60 border border-border/80 rounded-md px-2.5 py-1.5 italic text-foreground">
+                        <span className="font-semibold not-italic text-muted-foreground mr-1">
+                          Catatan {a.kpi?.type === "hr" ? "HR" : "Head"}:
+                        </span>
+                        "{a.qualityNotes}"
+                      </div>
+                    )}
                   </div>
                   <div className="ml-4 flex items-center gap-3">
                     <PerformanceBadge category={a.performanceCategory} />
-                    {pesanKpiReadonly(a.kpi, a.kpi?.type === "quality" ? "Head" : "HR") ? (
+                    {pesanKpiReadonly(a.kpi, a.kpi?.type === "hr" ? "HR" : "Head") ? (
                       // Badge ini menampilkan deskripsi KPI kalau ada, supaya
                       // staf tahu apa yang sebenarnya dinilai HR. Kalau
                       // deskripsinya kosong, jatuh ke kalimat pendek -- bukan
                       // badge kosong yang terlihat normal.
                       <span
-                        title={pesanKpiReadonly(a.kpi, a.kpi?.type === "quality" ? "Head" : "HR") ?? undefined}
+                        title={pesanKpiReadonly(a.kpi, a.kpi?.type === "hr" ? "HR" : "Head") ?? undefined}
                         className="text-[10px] uppercase font-bold text-slate-500 bg-slate-100 px-2 py-1.5 rounded-md max-w-[22rem] truncate"
                       >
-                        {pesanKpiReadonly(a.kpi, a.kpi?.type === "quality" ? "Head" : "HR")}
+                        {pesanKpiReadonly(a.kpi, a.kpi?.type === "hr" ? "HR" : "Head")}
                       </span>
                     ) : (
                       <Button size="sm" onClick={() => setSelected(a)}>

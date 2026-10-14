@@ -1,6 +1,6 @@
 import "server-only";
 import { db } from "@/db";
-import { and, eq, or, desc, inArray } from "drizzle-orm";
+import { and, eq, or, desc, inArray, sql } from "drizzle-orm";
 import {
   kpiAssignments,
   kpis,
@@ -104,23 +104,28 @@ export async function listQualityRows(params: {
   if (kpiTypes.length === 0) return [];
 
   if (params.departmentId) {
-    conds.push(eq(kpiAssignments.departmentId, params.departmentId));
+    conds.push(
+      or(
+        eq(kpiAssignments.departmentId, params.departmentId),
+        eq(users.departmentId, params.departmentId),
+      )!,
+    );
   }
   if (params.departmentIds) {
     const alsoMine = params.alsoIncludeUserIds ?? [];
 
     if (params.departmentIds.length === 0 && alsoMine.length === 0) return [];
 
+    const deptFilter = or(
+      inArray(kpiAssignments.departmentId, params.departmentIds),
+      inArray(users.departmentId, params.departmentIds),
+    )!;
+
     if (alsoMine.length === 0) {
-      conds.push(inArray(kpiAssignments.departmentId, params.departmentIds));
+      conds.push(deptFilter);
     } else {
-      // Divisi yang dikelola OR assignment milik Head sendiri.
-      conds.push(
-        or(
-          inArray(kpiAssignments.departmentId, params.departmentIds),
-          inArray(kpiAssignments.userId, alsoMine),
-        )!,
-      );
+      // Divisi yang dikelola (via assignment atau user) OR assignment milik Head sendiri.
+      conds.push(or(deptFilter, inArray(kpiAssignments.userId, alsoMine))!);
     }
   }
   if (params.userId) {
@@ -149,7 +154,10 @@ export async function listQualityRows(params: {
     .from(kpiAssignments)
     .innerJoin(kpis, eq(kpiAssignments.kpiId, kpis.id))
     .innerJoin(users, eq(kpiAssignments.userId, users.id))
-    .leftJoin(departments, eq(kpiAssignments.departmentId, departments.id))
+    .leftJoin(
+      departments,
+      sql`COALESCE(${kpiAssignments.departmentId}, ${users.departmentId}) = ${departments.id}`,
+    )
     .leftJoin(
       monthlyScores,
       and(
@@ -211,8 +219,10 @@ async function assertCanScore(
     .select({
       userId: kpiAssignments.userId,
       departmentId: kpiAssignments.departmentId,
+      userDepartmentId: users.departmentId,
     })
     .from(kpiAssignments)
+    .innerJoin(users, eq(kpiAssignments.userId, users.id))
     .where(eq(kpiAssignments.id, assignmentId))
     .limit(1);
 
@@ -228,9 +238,7 @@ async function assertCanScore(
   if (actor.kpiRole === "head") {
     if (assignment.userId === actor.id) return { ok: true };
 
-    // Assignment tanpa divisi tidak bisa dicocokkan dengan daftar yang
-    // dikelola, jadi tolak — lebih ketat lebih baik daripada meloloskan.
-    const targetDept = assignment.departmentId;
+    const targetDept = assignment.departmentId || assignment.userDepartmentId;
     if (!targetDept || !actor.managedDepartments.includes(targetDept)) {
       return {
         ok: false,
@@ -368,6 +376,7 @@ export async function setQualityScore(
     .set({
       actualTotal: String(params.actualTotal),
       achievementPercentage: String(pct),
+      qualityNotes: params.notes ?? null,
       updatedAt: now,
     })
     .where(eq(kpiAssignments.id, params.assignmentId));

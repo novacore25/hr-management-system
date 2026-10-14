@@ -285,8 +285,13 @@ export async function getAssignmentsForPeriod(params: {
         endScoreKey
       ];
 
-      // KPI quality: pakai skor bulan akhir
-      if (a.kpiType === "quality" && ms) {
+      // KPI evaluasi (quality, lead_tim, hr): pakai skor bulan akhir
+      if (
+        (a.kpiType === "quality" ||
+          a.kpiType === "lead_tim" ||
+          a.kpiType === "hr") &&
+        ms
+      ) {
         return {
           ...a,
           actualTotal: ms.actualTotal,
@@ -313,7 +318,13 @@ export async function getAssignmentsForPeriod(params: {
   } else if (period.type === "month") {
     const key = `${period.year}-${String(period.month).padStart(2, "0")}`;
     assignments = assignments.map((a) => {
-      if (a.kpiType !== "quality") return a;
+      if (
+        a.kpiType !== "quality" &&
+        a.kpiType !== "lead_tim" &&
+        a.kpiType !== "hr"
+      ) {
+        return a;
+      }
       const ms = (a.monthlyScores as Record<string, QualityMonthScore>)?.[key];
       if (!ms) return a;
       return {
