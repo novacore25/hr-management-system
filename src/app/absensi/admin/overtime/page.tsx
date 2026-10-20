@@ -722,14 +722,39 @@ export default function AdminOvertimePage() {
                                 {/* Right: Duration Badge */}
                                 <div className="text-right shrink-0">
                                   <span className="text-[8px] font-black uppercase tracking-widest text-[var(--ab-text-dim)] block">
-                                    Durasi Diakui
+                                    {session.status === "finalized"
+                                      ? "Durasi Sah"
+                                      : session.status === "reported"
+                                      ? "Durasi Riil"
+                                      : session.status === "approved"
+                                      ? "Jadwal Disetujui"
+                                      : session.status === "rejected"
+                                      ? "Ditolak"
+                                      : "Estimasi Diajukan"}
                                   </span>
-                                  <span className="text-xs font-black text-amber-600 dark:text-amber-400">
+                                  <span
+                                    className={`text-xs font-black ${
+                                      session.status === "finalized"
+                                        ? "text-emerald-600 dark:text-emerald-400"
+                                        : session.status === "reported"
+                                        ? "text-purple-600 dark:text-purple-400"
+                                        : session.status === "approved"
+                                        ? "text-blue-600 dark:text-blue-400"
+                                        : session.status === "rejected"
+                                        ? "text-rose-500"
+                                        : "text-amber-600 dark:text-amber-400"
+                                    }`}
+                                  >
                                     {formatDurationDetail(
-                                      session.finalDurationMinutes ??
-                                        session.actualDurationMinutes ??
-                                        session.approvedDurationMinutes ??
-                                        session.requestedDurationMinutes
+                                      session.status === "finalized"
+                                        ? (session.finalDurationMinutes ?? 0)
+                                        : session.status === "reported"
+                                        ? (session.actualDurationMinutes ?? 0)
+                                        : session.status === "approved"
+                                        ? (session.approvedDurationMinutes ?? 0)
+                                        : session.status === "rejected"
+                                        ? 0
+                                        : session.requestedDurationMinutes
                                     )}
                                   </span>
                                 </div>
@@ -742,7 +767,7 @@ export default function AdminOvertimePage() {
                                     Jadwal Diajukan:
                                   </span>
                                   <span className="font-bold text-[var(--ab-text-main)]">
-                                    {session.requestedStartTime} - {session.requestedEndTime}
+                                    {(session.requestedStartTime || "").substring(0, 5)} - {(session.requestedEndTime || "").substring(0, 5)}
                                   </span>
                                 </div>
                                 <div>
@@ -751,7 +776,7 @@ export default function AdminOvertimePage() {
                                   </span>
                                   <span className="font-bold text-[var(--ab-text-main)]">
                                     {session.actualStartTime && session.actualEndTime
-                                      ? `${session.actualStartTime} - ${session.actualEndTime}`
+                                      ? `${session.actualStartTime.substring(0, 5)} - ${session.actualEndTime.substring(0, 5)}`
                                       : "Belum lapor"}
                                   </span>
                                 </div>
@@ -862,18 +887,32 @@ export default function AdminOvertimePage() {
                                   </button>
                                 )}
 
-                                <button
-                                  type="button"
-                                  onClick={() => setFinalizingReq(session)}
-                                  className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center gap-1 shadow-sm transition-transform active:scale-95 ${
-                                    isFinal
-                                      ? "bg-[var(--ab-bg-main)] hover:bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30"
-                                      : "bg-emerald-500 hover:bg-emerald-600 text-white"
-                                  }`}
-                                >
-                                  <Edit3 size={12} />
-                                  {isFinal ? "Edit Finalize" : "Finalize & Upah"}
-                                </button>
+                                {session.status === "approved" && (
+                                  <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 bg-blue-500/10 border border-blue-500/25 px-2.5 py-1 rounded-xl">
+                                    Menunggu Laporan Staf
+                                  </span>
+                                )}
+
+                                {session.status === "rejected" && (
+                                  <span className="text-[10px] font-bold text-rose-600 dark:text-rose-400 bg-rose-500/10 border border-rose-500/25 px-2.5 py-1 rounded-xl">
+                                    Pengajuan Ditolak
+                                  </span>
+                                )}
+
+                                {(session.status === "reported" || session.status === "finalized") && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setFinalizingReq(session)}
+                                    className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center gap-1 shadow-sm transition-transform active:scale-95 ${
+                                      isFinal
+                                        ? "bg-[var(--ab-bg-main)] hover:bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30"
+                                        : "bg-emerald-500 hover:bg-emerald-600 text-white"
+                                    }`}
+                                  >
+                                    <Edit3 size={12} />
+                                    {isFinal ? "Edit Finalize" : "Finalize & Upah"}
+                                  </button>
+                                )}
                               </div>
                             </div>
                           </div>
