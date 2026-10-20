@@ -169,10 +169,9 @@ console.log("\n=== 1. POST: validasi yang dulu hanya ada di form ===");
   //                     empat pengajuan produksi sudah melewati batas itu
   //                     dan tetap dibayar.
   //
-  // Yang TETAP ditolak: tanggal lampau, format salah, jam di luar
-  // 00-23, dan mulai = selesai.
+  // Yang TETAP ditolak: format salah, jam di luar 00-23, dan mulai = selesai.
+  // Catatan: tanggal lampau / back-date sekarang DISETUJUI / DIIZINKAN.
   for (const [label, overrides, expected] of [
-    ["tanggal lampau", { overtimeDate: KEMARIN }, 400],
     ["format tanggal salah", { overtimeDate: "besok" }, 400],
     ["format jam salah", { startTime: "25:00", endTime: "26:00" }, 400],
     ["mulai sama dengan selesai", { startTime: "18:00", endTime: "18:00" }, 400],
@@ -188,6 +187,7 @@ console.log("\n=== 1. POST: validasi yang dulu hanya ada di form ===");
 
   // Kasus yang sekarang harus BERHASIL -- ini yang dulu ditolak.
   for (const [label, overrides] of [
+    ["pengajuan back-date", { overtimeDate: KEMARIN }],
     ["jam melewati tengah malam", { startTime: "22:00", endTime: "02:00" }],
     ["lembur 10 jam", { startTime: "08:00", endTime: "18:00" }],
     ["sampai pukul 01:00 (HARI BESOK +1HR)", { startTime: "23:00", endTime: "01:00" }],

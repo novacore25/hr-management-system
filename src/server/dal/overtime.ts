@@ -374,11 +374,8 @@ export async function createOvertimeRequest(
   const today = new Date();
   const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
 
-  if (input.overtimeDate < todayStr) {
-    throw new ValidationError(
-      `Tanggal lembur ${input.overtimeDate} sudah lewat. Pengajuan hanya bisa untuk hari ini atau hari berikutnya.`,
-    );
-  }
+  // Back-date diizinkan: staf dapat mengajukan lembur untuk hari sebelumnya jika lupa.
+  // Tetap harus melalui review & persetujuan HR di Tahap 2.
 
   const duration = calcDurationMinutes(input.startTime, input.endTime);
   if (duration <= 0) {
