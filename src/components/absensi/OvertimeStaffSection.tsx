@@ -439,9 +439,9 @@ const EMPTY_OVERTIME = {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
-    const remainingSlots = 2 - (existingProofImages.length + newProofFiles.length);
+    const remainingSlots = 3 - (existingProofImages.length + newProofFiles.length);
     if (remainingSlots <= 0) {
-      toast.error("Maksimal 2 foto bukti lembur.");
+      toast.error("Maksimal 3 foto bukti lembur.");
       if (fileInputRef.current) fileInputRef.current.value = "";
       return;
     }
@@ -505,80 +505,77 @@ const EMPTY_OVERTIME = {
     if (!reportingReq) return;
     if (!actualEndTime) { toast.error("Isi jam selesai aktual."); return; }
 
-    /*
-     * Foto baru yang dipilih tidak ikut dikirim.
-     *
-     * formerly ada UI yang menerima pilihan file dan menampilkannya
-     * sebagai thumbnail, tapi `body` hanya mengirim
-     * `existingProofImages` -- foto baru yang baru saja dipilih
-     * DIBUANG TANPA PEMBERITAHUAN. Staf melihat pratinjau foto di
-     * layar, menekan kirim, dan bukti kerjanya hilang begitu saja.
-     *
-     * Tidak ada jalur upload yang bisa menerima file itu sekarang
-     * (storage belum siap), jadi lebih baik menolak dengan jelas
-     * daripada mengirim laporan yang terlihat lengkap padahal
-     * buktinya tidak tersimpan.
-     */
-    if (newProofFiles.length > 0) {
-      toast.error(
-        "Foto yang dipilih belum bisa diunggah. Hapus dulu, atau kirim laporan tanpa foto baru.",
-      );
+    const totalPhotos = existingProofImages.length + newProofFiles.length;
+    if (totalPhotos < 2) {
+      toast.error("Wajib melampirkan minimal 2 foto bukti lembur (contoh: 1 foto saat proses kerja & 1 foto hasil selesai).");
+      return;
+    }
+    if (totalPhotos > 3) {
+      toast.error("Maksimal 3 foto bukti lembur.");
       return;
     }
 
     const actualStart = reportingReq.approvedStartTime || reportingReq.requestedStartTime;
 
     setIsSubmittingReport(true);
-    const tid = toast.loading("Mengirim laporan lembur...");
+    const tid = toast.loading("Mengunggah foto bukti & mengirim laporan...");
 
-    /**
-     * formerly: upload ke Supabase Storage, lalu
-     * `update({ status: "reported", ... }).eq("id", reportingReq.id)`.
-     *
-     * Dua masalah:
-     *   1. Tidak ada cek pemilik maupun tahap. Cukup menebak id, staf
-     *      bisa menulis laporan atas nama orang lain — dan laporan
-     *      inilah yang jadi dasar perhitungan gaji.
-     *   2. Durasi aktual tidak pernah dibandingkan dengan yang disetujui.
-     *      Kalau HR menyetujui 4 jam dan staf melaporkan 10, angkanya
-     *      diterima begitu saja.
-     *
-     * Foto yang sudah tersimpan tidak hilang dan tetap dikirim apa
-     * adanya -- bucket Supabase masih hidup, jadi tautannya masih bisa
-     * dibuka. Foto BARU belum bisa ditambahkan: storage penggantinya
-     * belum disiapkan, dan jalurnya menolak dengan pesan, bukan
-     * menyimpan diam-diam di tempat yang tidak di-backup.
-     */
-    const res = await fetch("/api/overtime", {
-      method: "PATCH",
-      credentials: "include",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        id: reportingReq.id,
-        action: "report",
-        actualStartTime: actualStart,
-        actualEndTime,
-        taskReports,
-        staffReportNotes: reportNotes.trim() || null,
-        proofImages: existingProofImages,
-      }),
-    });
+    try {
+      let uploadedUrls: string[] = [];
+      if (newProofFiles.length > 0) {
+        const formData = new FormData();
+        for (const item of newProofFiles) {
+          formData.append("files", item.file);
+        }
+        const uploadRes = await fetch("/api/overtime/upload", {
+          method: "POST",
+          body: formData,
+        });
+        const uploadJson = await uploadRes.json();
+        if (!uploadRes.ok || !uploadJson.ok) {
+          setIsSubmittingReport(false);
+          toast.error(uploadJson?.error || "Gagal mengunggah foto bukti ke server VPS.", { id: tid });
+          return;
+        }
+        uploadedUrls = uploadJson.data?.urls || [];
+      }
 
-    const json = (await res.json().catch(() => null)) as
-      | { ok?: boolean; error?: string }
-      | null;
-    setIsSubmittingReport(false);
+      const finalProofImages = [...existingProofImages, ...uploadedUrls];
 
-    if (!res.ok) {
-      toast.error(json?.error ?? "Gagal submit laporan.", { id: tid });
-      return;
+      const res = await fetch("/api/overtime", {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          id: reportingReq.id,
+          action: "report",
+          actualStartTime: actualStart,
+          actualEndTime,
+          taskReports,
+          staffReportNotes: reportNotes.trim() || null,
+          proofImages: finalProofImages,
+        }),
+      });
+
+      const json = (await res.json().catch(() => null)) as
+        | { ok?: boolean; error?: string }
+        | null;
+      setIsSubmittingReport(false);
+
+      if (!res.ok) {
+        toast.error(json?.error ?? "Gagal submit laporan.", { id: tid });
+        return;
+      }
+
+      toast.success("Laporan lembur berhasil disubmit ke HR!", { id: tid });
+      setReportingReq(null);
+      setNewProofFiles([]);
+      void fetchOvertimes();
+      void fetchTodayColleagues();
+    } catch (err: any) {
+      setIsSubmittingReport(false);
+      toast.error("Terjadi kesalahan: " + (err?.message || "Unknown error"), { id: tid });
     }
-
-    toast.success("Laporan lembur berhasil disubmit ke HR!", { id: tid });
-    setReportingReq(null);
-    setNewProofFiles([]);
-    void fetchOvertimes();
-    void fetchTodayColleagues();
   };
 
   const statusBadge = (s: string) => {
@@ -1351,19 +1348,22 @@ const EMPTY_OVERTIME = {
               />
             </div>
 
-            {/* Upload Bukti Gambar (Maks 2 Foto) */}
+            {/* Upload Bukti Gambar (Wajib 2 - 3 Foto) */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <label className="text-[10px] font-black uppercase text-[var(--ab-text-dim)] tracking-widest flex items-center gap-1.5">
-                  <Camera size={13} className="text-purple-500" /> Foto Bukti Pekerjaan (Maks. 2 Foto)
+                  <Camera size={13} className="text-purple-500" /> Foto Bukti Pekerjaan (Wajib 2 - 3 Foto)
                 </label>
                 <span className="text-[9px] font-black uppercase tracking-wider text-emerald-500 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
                   Otomatis Dikompresi
                 </span>
               </div>
+              <p className="text-[11px] text-[var(--ab-text-dim)] leading-relaxed">
+                Lampirkan <span className="font-bold text-[var(--ab-text-main)]">minimal 2 foto</span> (contoh: foto saat proses kerja & foto hasil selesai). Maksimal 3 foto.
+              </p>
 
               {/* Grid Thumbnail Preview */}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 {/* Existing Images */}
                 {existingProofImages.map((url, idx) => (
                   <div
@@ -1429,15 +1429,9 @@ const EMPTY_OVERTIME = {
                 ))}
 
                 {/*
-                  Upload Trigger Button (jika belum mencapai 2 gambar)
-
-                  Nonaktif kalau storage belum siap. formerly tombolnya
-                  selalu aktif: staf memotret foto, memilih file,
-                  menunggu kompresi -- baru ditolak saat dikirim.
-                  Sekarang kegagalan diketahui sebelum pekerjaan itu
-                  dilakukan, bukan sesudah.
+                  Upload Trigger Button (jika belum mencapai 3 gambar)
                 */}
-                {existingProofImages.length + newProofFiles.length < 2 &&
+                {existingProofImages.length + newProofFiles.length < 3 &&
                   storageAktif === true && (
                   <button
                     type="button"
@@ -1459,7 +1453,7 @@ const EMPTY_OVERTIME = {
                           + Unggah Foto
                         </span>
                         <span className="text-[8px] text-[var(--ab-text-dim)] font-bold">
-                          Selfie / Bukti Kerja
+                          Bukti Kerja (Maks 3)
                         </span>
                       </>
                     )}
@@ -1472,14 +1466,13 @@ const EMPTY_OVERTIME = {
                   dilakukan hanya menambah yang baru.
                 */}
                 {storageAktif !== true && (
-                  <div className="col-span-2 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4">
+                  <div className="col-span-2 sm:col-span-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4">
                     <p className="text-[10px] font-black uppercase text-amber-600 dark:text-amber-400 tracking-widest mb-1">
                       Foto belum bisa diunggah
                     </p>
                     <p className="text-[11px] text-[var(--ab-text-dim)] leading-relaxed">
                       {storageAlasan ||
-                        "Penyimpanan foto belum disiapkan oleh admin."}{" "}
-                      Laporan tetap bisa dikirim tanpa foto bukti.
+                        "Penyimpanan foto belum disiapkan oleh admin."}
                     </p>
                   </div>
                 )}

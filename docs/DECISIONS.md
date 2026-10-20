@@ -286,3 +286,21 @@ dua tempat harus konsisten — dan tidak ada tooling untuk itu.
 **Alasan:**
 1. Komponen form frontend staf (`OvertimeStaffSection.tsx`) menggunakan model interface `OvertimeTask` dengan properti `{ id, task, target, note }`. Sementara itu, implementasi DAL dan API Route versi migrasi awal berasumsi field bernama `{ name, detail }`. Akibatnya, filter di API Route membuang semua task dari UI, menghasilkan array kosong, dan memicu error penolakan DAL: `"Isi minimal 1 rencana tugas lembur."` sehingga pengajuan lembur dari web tidak pernah bisa dikirim.
 2. Di sisi tampilan admin (`/absensi/admin/overtime/page.tsx`), baris 225 menjalankan fungsi pencarian: `it.tasks.some((t) => t.task.toLowerCase().includes(q))`. Jika data tersimpan tanpa properti `task`, halaman admin akan langsung crash (*unhandled TypeError*). Normalisasi dua arah di DAL menjamin keamanan penuh bagi komponen UI modern sekaligus kompatibilitas penuh dengan skrip testing/API lama (`scripts/verify-overtime.mjs`).
+
+
+---
+
+## 17. Aktivasi Penyimpanan Foto Bukti Lembur di VPS Disk & Kuota Wajib 2–3 Foto
+
+**Pilihan:**
+1. **Penyimpanan Lokal VPS**: Mengaktifkan fallback lokal disk VPS (`/app/data/uploads/overtime` di Docker container atau `data/uploads/overtime` di development) sebagai default storage foto bukti lembur sebelum Cloudflare R2 diaktifkan.
+2. **Serving & Upload Endpoints**:
+   - `POST /api/overtime/upload`: Menerima multipart `FormData`, memvalidasi tipe file (`image/webp`, `image/jpeg`, `image/png`) dan ukuran (maks 5MB), menghasilkan nama file aman unik via crypto, dan menyimpan ke disk VPS.
+   - `GET /api/uploads/overtime/[filename]`: Melayani streaming file gambar dengan deteksi MIME aman dan header HTTP caching `Cache-Control: public, max-age=31536000, immutable`. Mencegah directory traversal melalui `path.basename`.
+3. **Aturan Bisnis Kuota Foto (Min 2 & Maks 3 Foto)**:
+   - Di sisi UI form pelaporan staf (`OvertimeStaffSection.tsx`): Menampilkan kuota 3 slot, memberi panduan foto (contoh: Foto 1 saat mulai/proses tugas & Foto 2 saat tuntas/selesai), serta menolak pengiriman form jika foto bukti kurang dari 2 atau lebih dari 3.
+   - Di sisi Server DAL (`src/server/dal/overtime.ts` - `submitOvertimeReport`): Memvalidasi jumlah array foto bukti valid (`startsWith("/api/uploads/")`, `https://`, atau `http://`). Jika kurang dari 2 atau lebih dari 3, melempar `ValidationError`.
+
+**Alasan:**
+1. Mengaktifkan penyimpanan lokal di VPS memungkinkan operasional pelaporan lembur berjalan 100% tanpa hambatan dan tanpa ketergantungan konfigurasi R2 pihak ketiga. Dengan kompresi client-side WebP (~100-150KB), 3 foto per lembur hanya memakan ~350-450KB disk space sehingga sangat aman bagi VPS.
+2. Aturan minimal 2 foto memastikan integritas dan akuntabilitas pelaporan staf (mencegah klaim fiktif), sedangkan batasan maksimal 3 foto mencegah upload berlebihan yang membebani disk dan memperlambat evaluasi HR.

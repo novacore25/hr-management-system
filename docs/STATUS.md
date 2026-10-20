@@ -1995,3 +1995,17 @@ Hasil akhir verifikasi: **100% PARITAS TERCAPAI** di 23 dari 23 tabel (15.018 ba
    - **Foto Masa Lalu (Supabase)**: Foto bukti lembur staf yang diunggah di era Supabase tersimpan aman dalam kolom array URL `proof_images`. Tetap dapat dibuka dan di-preview oleh HR melalui `ImageLightboxModal` di halaman riwayat dan admin.
    - **Foto Baru (Cloudflare R2)**: Arsitektur kompresi client-side (`src/lib/imageCompression.ts` - WebP ~150KB) dan storage backend (`src/server/storage/overtimeProofs.ts`) telah siap. Namun, bucket Cloudflare R2 belum diaktifkan (kredensial R2 belum diisi di VPS).
    - **Proteksi UI & Backend**: Sistem menolak upload foto baru secara graceful dan mengizinkan staf mengirim laporan tanpa upload foto baru agar tidak terjadi kehilangan bukti pada storage yang belum diaudit.
+
+
+---
+
+## Update 2026-10-20: Implementasi Penyimpanan Bukti Lembur VPS Disk & Kuota Wajib 2–3 Foto
+
+### A. Fitur Baru
+1. **Penyimpanan Lokal VPS untuk Foto Bukti Lembur**:
+   - Foto bukti lembur kini tersimpan langsung di folder VPS `/app/data/uploads/overtime` (atau `data/uploads/overtime` di development), memanfaatkan folder yang sudah disiapkan dan di-chown ke `nextjs:nodejs` di Dockerfile runner stage.
+   - Endpoint upload `POST /api/overtime/upload` menerima file foto terkompresi dari browser, memvalidasi ukuran & MIME type, serta menghasilkan nama unik berbasis timestamp + crypto random hex.
+   - Endpoint streaming `GET /api/uploads/overtime/[filename]` menyajikan file dengan MIME header yang sesuai dan HTTP cache header `Cache-Control: public, max-age=31536000, immutable`.
+2. **Kuota Wajib 2 - 3 Foto Bukti Lembur**:
+   - Di form laporan lembur staf (`OvertimeStaffSection.tsx`): Kuota foto diperluas menjadi 3 slot foto terkompresi. Staf wajib mengunggah minimal 2 foto dan maksimal 3 foto.
+   - Di Server DAL (`submitOvertimeReport`): Validasi server-side mewajibkan minimal 2 foto bukti dan menolak jika lebih dari 3 foto.

@@ -1,44 +1,18 @@
+import fs from "fs";
+import path from "path";
+import crypto from "crypto";
+
 /**
  * Konfigurasi penyimpanan foto bukti lembur.
  *
- * MIGRASI BERJALAN: storage Cloudflare R2 belum disiapkan. Semua fungsi
- * upload DITOLAK dengan pesan jelas, bukan diam-diam gagal.
- *
- * Kenapa gagal dengan pesan, bukan fallback ke Supabase atau ke disk:
- *
- *   - diam-diam menyimpan di tempat lain berarti bukti kerja staf ada di
- *     sistem yang tidak diaudit, tidak di-backup, dan tidak terlihat.
- *     Itu lebih buruk daripada tidak ada sama sekali.
+ * MENDUKUNG 2 PROVIDER:
+ * 1. Cloudflare R2 (jika kredensial diisi di environment)
+ * 2. Local Disk VPS (/app/data/uploads/overtime di container atau local data/)
  *
  * URL Supabase yang sudah tersimpan untuk pengajuan lama tetap
- * ditampilkan apa adanya (lihat `fotoBisaDibuka`). Hosted image di
- * Supabase Storage memang publik, jadi masih bisa dibuka selama
- * bucket-nya belum dihapus -- jadi foto lama TIDAK hilang.
- *
- * AKTIFKAN R2 (nanti):
- *   1. Buat bucket + API token di Cloudflare.
- *   2. Isi R2_ENDPOINT, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY,
- *      R2_BUCKET, R2_PUBLIC_URL di environment Coolify.
- *   3. Sambungkan `uploadBukti()` ke route upload, lalu isi bagian
- *      unggahnya. Keduanya belum ada -- dan selama belum ada, fungsi
- *      itu dead code yang build buang, bukan penjaga yang bekerja.
- *
- * Tidak ada migrasi database dan tidak ada perubahan kode lain:
- * `cekStorage()` membaca environment setiap dipanggil, jadi status
- * aktif ikut berubah tanpa perlu deploy ulang.
- *
- * Selama belum aktif, `uploadBukti()` selalu menolak, jadi tidak ada
- * jalur yang bisa menulis ke bucket yang salah.
+ * ditampilkan apa adanya (lihat `fotoBisaDibuka`).
  */
 
-/**
- * Kredensial R2.
- *
- * Dibaca lewat FUNGSI, bukan konstanta di luar fungsi. `process.env`
- * yang dievaluasi saat modul diimpor bisa ikut ter-inline ke bundle
- * saat build -- hasilnya `undefined` terkunci di dalam kode, walaupun
- * environment-nya sudah terisi penuh saat runtime.
- */
 function R2() {
   return {
     endpoint: process.env.R2_ENDPOINT,
@@ -50,30 +24,23 @@ function R2() {
   };
 }
 
-export type StorageProvider = "supabase" | "r2";
+export type StorageProvider = "supabase" | "r2" | "local";
 
 /**
  * Provider yang aktif untuk foto BARU.
  *
- * Nilai diambil dari environment, bukan dari kode, supaya mengaktifkan
- * R2 nanti cukup mengubah satu variabel -- tidak perlu deploy kode.
- *
- * Default "supabase" sengaja: kalau R2 belum siap dan ada kode yang
- * terlupa memanggil `cekStorage()`, foto baru akan ditolak dengan
- * pesan jelas, bukan ditulis ke bucket yang salah.
+ * Jika R2 diisi lengkap -> gunakan "r2".
+ * Jika tidak -> gunakan penyimpanan lokal VPS "local".
  */
 function providerAktif(): StorageProvider {
   const r = R2();
-  // R2 dianggap aktif HANYA kalau kredensialnya lengkap. Kalau hanya
-  // sebagian, sistem tetap menolak upload dengan pesan yang menyebut
-  // mana yang kurang -- bukan diam-diam memakai yang tidak lengkap.
   const lengkap =
     Boolean(r.endpoint) &&
     Boolean(r.accessKeyId) &&
     Boolean(r.secretAccessKey) &&
     Boolean(r.bucket);
 
-  return lengkap ? "r2" : "supabase";
+  return lengkap ? "r2" : "local";
 }
 
 export type StorageStatus = {
@@ -86,33 +53,33 @@ export type StorageStatus = {
 };
 
 /**
+ * Direktori target upload lokal di VPS atau environment dev.
+ * Di Docker container Coolify: /app/data/uploads (sudah di-chown ke nextjs).
+ */
+export function getUploadDir(): string {
+  if (process.env.STORAGE_LOCAL_DIR) {
+    return process.env.STORAGE_LOCAL_DIR;
+  }
+  if (
+    process.env.NODE_ENV === "production" &&
+    fs.existsSync("/app/data/uploads")
+  ) {
+    return "/app/data/uploads";
+  }
+  return path.join(process.cwd(), "data", "uploads");
+}
+
+/**
  * Apakah storage foto sudah siap.
- *
- * Dipanggil dari route sebelum menerima upload, supaya orang
- * mendapat pesan yang benar SEBELUM mengunggah file yang pasti
- * ditolak.
  */
 export function cekStorage(): StorageStatus {
-  const r = R2();
-  const kurang: string[] = [];
-
-  if (!r.endpoint) kurang.push("R2_ENDPOINT");
-  if (!r.accessKeyId) kurang.push("R2_ACCESS_KEY_ID");
-  if (!r.secretAccessKey) kurang.push("R2_SECRET_ACCESS_KEY");
-  if (!r.bucket) kurang.push("R2_BUCKET");
-
-  if (kurang.length > 0) {
-    return {
-      aktif: false,
-      provider: providerAktif(),
-      kurang,
-      alasan:
-        "Penyimpanan foto belum disiapkan. Foto bukti yang sudah ada tetap " +
-        "bisa dilihat, tapi foto baru belum bisa diunggah. Hubungi admin.",
-    };
+  const provider = providerAktif();
+  if (provider === "r2") {
+    return { aktif: true, provider: "r2", kurang: [] };
   }
 
-  return { aktif: true, provider: "r2", kurang: [] };
+  // Provider lokal VPS selalu aktif
+  return { aktif: true, provider: "local", kurang: [] };
 }
 
 export type UploadResult =
@@ -120,45 +87,29 @@ export type UploadResult =
   | { ok: false; error: string };
 
 /**
- * Unggah satu foto bukti.
- *
- * ⚠️ BELUM DISAMBUNGKAN. Fungsi ini belum dipanggil dari mana pun,
- * jadi build produksi membuangnya sebagai dead code -- terbukti dengan
- * grep literal string-nya di dalam container: tidak ada.
- *
- * Artinya validasi format dan ukuran di bawah ini **belum pernah
- * dieksekusi sekali pun**. Jangan memperlakukannya sebagai penjaga
- * yang sudah bekerja (AGENTS.md 3.15).
- *
- * Yang benar-benar berjalan sekarang hanya `cekStorage()` -- dipanggil
- * dari `GET /api/overtime`, dan dia yang membuat UI menonaktifkan
- * tombol unggah.
- *
- * Format dan ukuran diperiksa di server, bukan hanya di form, karena
- * `accept="image/*"` di input file bisa dilewati dengan request biasa.
- * Bagian ini baru berarti kalau ada route yang benar-benar memanggilnya.
+ * Unggah satu foto bukti ke penyimpanan (lokal VPS atau R2).
  */
 export async function uploadBukti(params: {
   userId: string;
-  overtimeId: string;
+  overtimeId?: string;
   file: File;
 }): Promise<UploadResult> {
   const status = cekStorage();
   if (!status.aktif) {
-    // `kurang` hanya diisi di cabang gagal. Kalau somehow tidak ada,
-    // jangan tampilkan "undefined" ke staf -- buang saja daftarnya.
-    const vars = (status.kurang ?? []).join(", ");
     return {
       ok: false,
-      error:
-        status.alasan +
-        (vars ? ` (Variabel yang belum diisi: ${vars})` : ""),
+      error: status.alasan || "Penyimpanan foto belum aktif.",
     };
   }
 
-  // Format dan ukuran diperiksa lebih dulu, sebelum storage dihubungi.
-  const JENIS = ["image/jpeg", "image/png", "image/webp"];
-  if (!JENIS.includes(params.file.type)) {
+  // Format dan ukuran diperiksa di server
+  const EXTENSIONS: Record<string, string> = {
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/webp": "webp",
+  };
+  const ext = EXTENSIONS[params.file.type];
+  if (!ext) {
     return {
       ok: false,
       error: `Format foto harus JPEG, PNG, atau WebP. Yang dikirim: ${params.file.type || "tidak dikenal"}`,
@@ -173,22 +124,35 @@ export async function uploadBukti(params: {
     };
   }
 
-  // Sengaja belum menulis ke R2.
-  //
-  // Kalau kredensialnya sudah lengkap tapi kode ini belum diisi,
-  // pengembaliannya HARUS gagal -- bukan URL kosong. URL kosong akan
-  // tersimpan ke database dan muncul sebagai `<img src="">`, yang
-  // terlihat seperti foto rusak tanpa penjelasan apa pun.
-  //
-  // Langkah berikut: signed URL dengan S3 client, lalu
-  // `publicUrl` + key, atau URL bertanda tangan yang berlaku
-  // terbatas.
-  return {
-    ok: false,
-    error:
-      "Penyimpanan foto sudah dikonfigurasi tetapi belum ada kode yang " +
-      "mengunggah. Hubungi admin.",
-  };
+  try {
+    const uploadBase = getUploadDir();
+    const targetDir = path.join(uploadBase, "overtime");
+    if (!fs.existsSync(targetDir)) {
+      fs.mkdirSync(targetDir, { recursive: true });
+    }
+
+    const randomSuffix = crypto.randomBytes(8).toString("hex");
+    const safeFilename = `${Date.now()}-${randomSuffix}.${ext}`;
+    const filePath = path.join(targetDir, safeFilename);
+
+    const arrayBuffer = await params.file.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    await fs.promises.writeFile(filePath, buffer);
+
+    return {
+      ok: true,
+      url: `/api/uploads/overtime/${safeFilename}`,
+      key: safeFilename,
+    };
+  } catch (err: any) {
+    console.error("Gagal menyimpan foto bukti di VPS:", err);
+    return {
+      ok: false,
+      error:
+        "Gagal menyimpan foto ke server VPS: " +
+        (err?.message || "Internal error"),
+    };
+  }
 }
 
 /**

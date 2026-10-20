@@ -233,14 +233,12 @@ export async function PATCH(request: Request) {
               actualEndTime: b.actualEndTime,
               taskReports: Array.isArray(b.taskReports) ? b.taskReports : [],
               staffReportNotes: b.staffReportNotes ?? null,
-              // URL foto yang sudah tersimpan (dari pengajuan lama) tetap
-              // diteruskan supaya tidak hilang -- bucket Supabase masih
-              // hidup, dan foto itu tidak ikut terhapus saat migrasi.
-              //
-              // Foto BARU tidak bisa ditambah: storage R2 belum
-              // disiapkan. Jalur itu menolak dengan pesan, bukan
-              // menyimpan diam-diam di tempat yang tidak di-backup.
-              proofImages: fotoBisaDibuka(b.proofImages),
+              // Foto bukti mendukung URL lokal VPS (/api/uploads/overtime/...)
+              // maupun foto riwayat Supabase / R2.
+              proofImages:
+                b.proofImages !== undefined
+                  ? fotoBisaDibuka(b.proofImages)
+                  : undefined,
             },
             me.id,
           ),

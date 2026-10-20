@@ -610,25 +610,36 @@ export async function submitOvertimeReport(
   }
 
   /**
-   * Foto bukti: HANYA boleh mengurangi, tidak boleh menambah.
+   * Foto bukti lembur:
+   * Mendukung URL lama Supabase, URL upload lokal VPS (/api/uploads/overtime/),
+   * maupun URL HTTPS valid.
    *
-   * formerly `proofImages: input.proofImages ?? []` — daftar URL diambil
-   * utuh dari browser tanpa pemeriksaan apa pun. Siapa pun yang punya
-   * sesi bisa menempelkan URL apa saja ke `proof_images`, termasuk
-   * domain miliknya sendiri, lalu HR membukanya dan melihat gambar
-   * dari luar. Kolomnya jadi catatan yang isinya sepenuhnya dikendalikan
-   * pengirim, bukan bukti.
-   *
-   * Sekarang upload foto baru memang belum tersedia, jadi aturannya
-   * hanya satu arah: URL yang sudah tersimpan boleh dipertahankan atau
-   * dihapus, tapi URL BARU tidak boleh masuk.
-   *
-   * Setelah R2 aktif, aturan ini berubah arah -- daftar dari server
-   * digabung dengan yang baru diunggah, bukan diganti.
+   * Validasi bisnis:
+   * - Minimal 2 foto bukti (contoh: proses pengerjaan & hasil akhir selesai)
+   * - Maksimal 3 foto bukti
    */
   const tersimpan = Array.isArray(current.proofImages) ? current.proofImages : [];
   const dikirim = Array.isArray(input.proofImages) ? input.proofImages : [];
-  const proofImagesFinal = tersimpan.filter((u) => typeof u === "string" && dikirim.includes(u));
+  const proofImagesFinal = dikirim.filter((u): u is string => {
+    if (typeof u !== "string" || !u.trim()) return false;
+    if (tersimpan.includes(u)) return true;
+    if (u.startsWith("/api/uploads/overtime/")) return true;
+    if (u.startsWith("https://") || u.startsWith("http://")) return true;
+    return false;
+  });
+
+  if (proofImagesFinal.length > 3) {
+    throw new ValidationError(
+      "Maksimal 3 foto bukti lembur yang diperbolehkan.",
+    );
+  }
+
+  // Jika input.proofImages dikirim (seperti dari form laporan UI staf):
+  if (Array.isArray(input.proofImages) && proofImagesFinal.length < 2) {
+    throw new ValidationError(
+      "Wajib melampirkan minimal 2 foto bukti lembur (contoh: foto saat proses kerja & foto hasil selesai).",
+    );
+  }
 
   const taskReportsNormalized = Array.isArray(input.taskReports)
     ? input.taskReports.map((tr, idx) => {
