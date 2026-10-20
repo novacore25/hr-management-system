@@ -1961,4 +1961,37 @@ Hasil akhir verifikasi: **100% PARITAS TERCAPAI** di 23 dari 23 tabel (15.018 ba
    - [`hr/quality/page.tsx`](file:///c:/Users/Banzilla/Documents/DEV/hr-system-vps/Task-Management-NovaCore/src/app/dashboard/hr/quality/page.tsx): Dirombak total menjadi model accordion divisi & staf lengkap dengan tab filter tipe (`Semua`, `Quality`, `Lead Tim`, `HR`), pemilih bulan, badge tipe, badge brand, dan textarea catatan.
    - [`hr/evaluasi-hr/page.tsx`](file:///c:/Users/Banzilla/Documents/DEV/hr-system-vps/Task-Management-NovaCore/src/app/dashboard/hr/evaluasi-hr/page.tsx): Ditambahkan pemilih bulan, badge brand, badge tipe, dan penyimpanan catatan pintar.
    - [`executive/quality/page.tsx`](file:///c:/Users/Banzilla/Documents/DEV/hr-system-vps/Task-Management-NovaCore/src/app/dashboard/executive/quality/page.tsx): Ditambahkan tab filter tipe, badge tipe dinamis, dan penyimpanan catatan pintar.
-
+
+
+
+---
+
+## Update 2026-10-20: Investigasi End-to-End Fitur Lembur (Overtime) & Perbaikan Error Penambahan Task
+
+### A. Permintaan & Masalah
+1. Analisis menyeluruh end-to-end fitur lembur: verifikasi 4 tahapan alur lembur, validasi server, dan integritas data.
+2. Investigasi keluhan error saat menambahkan rencana tugas (*task*) lembur: staf tidak bisa mengajukan lembur dengan pesan error `"Isi minimal 1 rencana tugas lembur."` padahal field rencana tugas sudah diisi di form.
+3. Penjelasan status media/file foto bukti lembur (arsip data Supabase lama vs Cloudflare R2 baru).
+
+### B. Akar Masalah Teknis
+1. **Discrepansi Skema Properti Task (`name` vs `task`)**:
+   - Komponen Form UI (`OvertimeStaffSection.tsx` baris 45-47 & 352-358) mendefinisikan array `tasks` dengan skema `{ id, task, target, note }`.
+   - API Route Handler (`src/app/api/overtime/route.ts` baris 172-174) sebelumnya memfilter:
+     `b.tasks.filter((t: { name?: string }) => t?.name?.trim())`. Karena payload dari UI menggunakan properti `task`, bukan `name`, hasil filter selalu berupa array kosong `[]`.
+   - Server DAL (`src/server/dal/overtime.ts` baris 329-336) memvalidasi `tugasValid = (input.tasks ?? []).filter((t) => typeof t?.name === "string" && t.name.trim() !== "")`. Akibatnya DAL selalu melempar exception `ValidationError: "Isi minimal 1 rencana tugas lembur."` sehingga pengajuan form staf selalu gagal.
+2. **Potensi Crash di Halaman Admin (`/absensi/admin/overtime`)**:
+   - Komponen `src/app/absensi/admin/overtime/page.tsx` (baris 225) dan `OvertimeDetailModal.tsx` (baris 313) membaca langsung `t.task.toLowerCase()` dan `t.task`. Jika data disimpan dengan properti `name` tanpa `task`, pencarian admin akan crash dengan `TypeError: Cannot read properties of undefined (reading 'toLowerCase')`.
+3. **Discrepansi pada Tahap Pelaporan (`taskReports`)**:
+   - Komponen pelaporan mengirimkan `taskReports` dengan properti `{ id, task, target, actualResult, status, progress, note }`. Di DAL sebelumnya, parameter `taskReports` hanya didefinisikan sebagai `{ name, detail }` dan disimpan mentah tanpa jaminan normalisasi dua arah.
+
+### C. Solusi & Perbaikan
+1. **API Route (`src/app/api/overtime/route.ts`)**:
+   - Menghapus filter parsial `name` dan meneruskan array `tasks` secara utuh ke DAL untuk divalidasi dan dinormalisasi secara terpusat di server.
+2. **Server DAL (`src/server/dal/overtime.ts`)**:
+   - **Fungsi `toOvertime(row)`**: Dinormalisasi dua arah (bidirectional mapping). Setiap elemen `tasks` dan `taskReports` selalu memiliki properti `task` dan `name`, serta `target` dan `detail`. Menjamin keamanan saat dibaca oleh UI lama maupun skrip DAL.
+   - **Fungsi `createOvertimeRequest`**: Menormalisasi input `t.task ?? t.name` dan `t.target ?? t.detail`, memvalidasi minimal 1 task yang tidak kosong, dan menyimpannya ke database dalam format terpadu.
+   - **Fungsi `submitOvertimeReport`**: Menormalisasi array `taskReports` agar selalu menyimpan `id`, `task`, `name`, `target`, `detail`, `actualResult`, `progress`, `status`, dan `note`.
+3. **Status Media/Gambar Bukti Lembur**:
+   - **Foto Masa Lalu (Supabase)**: Foto bukti lembur staf yang diunggah di era Supabase tersimpan aman dalam kolom array URL `proof_images`. Tetap dapat dibuka dan di-preview oleh HR melalui `ImageLightboxModal` di halaman riwayat dan admin.
+   - **Foto Baru (Cloudflare R2)**: Arsitektur kompresi client-side (`src/lib/imageCompression.ts` - WebP ~150KB) dan storage backend (`src/server/storage/overtimeProofs.ts`) telah siap. Namun, bucket Cloudflare R2 belum diaktifkan (kredensial R2 belum diisi di VPS).
+   - **Proteksi UI & Backend**: Sistem menolak upload foto baru secara graceful dan mengizinkan staf mengirim laporan tanpa upload foto baru agar tidak terjadi kehilangan bukti pada storage yang belum diaudit.

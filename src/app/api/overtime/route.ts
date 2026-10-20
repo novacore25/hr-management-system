@@ -169,9 +169,7 @@ export async function POST(request: Request) {
         overtimeDate: b.overtimeDate,
         startTime: b.startTime,
         endTime: b.endTime,
-        tasks: Array.isArray(b.tasks)
-          ? b.tasks.filter((t: { name?: string }) => t?.name?.trim())
-          : [],
+        tasks: Array.isArray(b.tasks) ? b.tasks : [],
         staffNotes: b.staffNotes ?? null,
       },
       me.id,

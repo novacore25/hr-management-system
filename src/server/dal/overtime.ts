@@ -178,6 +178,66 @@ function toOvertime(row: Row): OvertimeWithUser {
   return {
     ...row,
     requestedStartTime: row.requestedStartTime,
+    tasks: (Array.isArray(row.tasks) ? row.tasks : []).map(
+      (t: Record<string, unknown>, idx: number) => {
+        const taskTitle = (
+          typeof t?.task === "string"
+            ? t.task
+            : typeof t?.name === "string"
+              ? t.name
+              : ""
+        ).trim();
+        const taskDetail = (
+          typeof t?.target === "string"
+            ? t.target
+            : typeof t?.detail === "string"
+              ? t.detail
+              : ""
+        ).trim();
+        const taskNote = typeof t?.note === "string" ? t.note.trim() : "";
+        return {
+          id: typeof t?.id === "string" && t.id ? t.id : String(idx + 1),
+          task: taskTitle,
+          name: taskTitle,
+          target: taskDetail,
+          detail: taskDetail,
+          note: taskNote,
+        };
+      },
+    ),
+    taskReports: Array.isArray(row.taskReports)
+      ? row.taskReports.map((tr: Record<string, unknown>, idx: number) => {
+          const trTitle = (
+            typeof tr?.task === "string"
+              ? tr.task
+              : typeof tr?.name === "string"
+                ? tr.name
+                : ""
+          ).trim();
+          const trDetail = (
+            typeof tr?.target === "string"
+              ? tr.target
+              : typeof tr?.detail === "string"
+                ? tr.detail
+                : ""
+          ).trim();
+          return {
+            id: typeof tr?.id === "string" && tr.id ? tr.id : String(idx + 1),
+            task: trTitle,
+            name: trTitle,
+            target: trDetail,
+            detail: trDetail,
+            actualResult:
+              typeof tr?.actualResult === "string"
+                ? tr.actualResult.trim()
+                : "",
+            progress: typeof tr?.progress === "number" ? tr.progress : 100,
+            status:
+              typeof tr?.status === "string" ? tr.status : "completed",
+            note: typeof tr?.note === "string" ? tr.note.trim() : "",
+          };
+        })
+      : null,
     // `?? []` hanya menutup array yang NULL. Elemen di dalamnya belum
     // disentuh -- dan `text[]` di PostgreSQL boleh berisi NULL maupun
     // string kosong. Dua-duanya sampai ke UI sebagai `<img src="">`,
@@ -289,7 +349,14 @@ export async function createOvertimeRequest(
     overtimeDate: string;
     startTime: string;
     endTime: string;
-    tasks?: Array<{ name: string; detail?: string }>;
+    tasks?: Array<{
+      id?: string;
+      name?: string;
+      task?: string;
+      detail?: string;
+      target?: string;
+      note?: string;
+    }>;
     staffNotes?: string | null;
   },
   actorId: string,
@@ -318,17 +385,37 @@ export async function createOvertimeRequest(
     throw new ValidationError("Jam selesai harus setelah jam mulai.");
   }
 
-  // Validasi tugas DI SINI, karena cek di form bisa dilewati dengan
-  // satu request biasa.
-  //
-  // formerly ini hanya ada di OvertimeStaffSection.tsx. Jadi POST
-  // dengan tasks kosong berhasil, dan tersimpan pengajuan tanpa
-  // rencana kerja sama sekali -- lalu menunggu persetujuan HR padahal
-  // tidak ada yang perlu disetujui. AGENTS.md 2.4: validasi harus di
-  // server.
-  const tugasValid = (input.tasks ?? []).filter(
-    (t) => typeof t?.name === "string" && t.name.trim() !== "",
-  );
+  // Validasi tugas DI SINI, dinormalisasi agar mendukung field `task`/`target`
+  // dari UI maupun `name`/`detail` dari skrip API.
+  const tugasValid = (input.tasks ?? [])
+    .map((t, idx) => {
+      const taskName = (
+        typeof t?.task === "string"
+          ? t.task
+          : typeof t?.name === "string"
+            ? t.name
+            : ""
+      ).trim();
+      const taskTarget = (
+        typeof t?.target === "string"
+          ? t.target
+          : typeof t?.detail === "string"
+            ? t.detail
+            : ""
+      ).trim();
+      const taskNote = typeof t?.note === "string" ? t.note.trim() : "";
+      const taskId = typeof t?.id === "string" && t.id ? t.id : String(idx + 1);
+      return {
+        id: taskId,
+        task: taskName,
+        name: taskName,
+        target: taskTarget,
+        detail: taskTarget,
+        note: taskNote,
+      };
+    })
+    .filter((t) => t.task !== "");
+
   if (tugasValid.length === 0) {
     throw new ValidationError(
       "Isi minimal 1 rencana tugas lembur.",
@@ -467,7 +554,17 @@ export async function submitOvertimeReport(
   input: {
     actualStartTime: string;
     actualEndTime: string;
-    taskReports?: Array<{ name: string; detail?: string }>;
+    taskReports?: Array<{
+      id?: string;
+      task?: string;
+      name?: string;
+      target?: string;
+      detail?: string;
+      actualResult?: string;
+      progress?: number;
+      status?: "completed" | "partial" | "not_completed" | string;
+      note?: string;
+    }>;
     staffReportNotes?: string | null;
     proofImages?: string[];
   },
@@ -533,6 +630,48 @@ export async function submitOvertimeReport(
   const dikirim = Array.isArray(input.proofImages) ? input.proofImages : [];
   const proofImagesFinal = tersimpan.filter((u) => typeof u === "string" && dikirim.includes(u));
 
+  const taskReportsNormalized = Array.isArray(input.taskReports)
+    ? input.taskReports.map((tr, idx) => {
+        const trTitle = (
+          typeof tr?.task === "string"
+            ? tr.task
+            : typeof tr?.name === "string"
+              ? tr.name
+              : ""
+        ).trim();
+        const trTarget = (
+          typeof tr?.target === "string"
+            ? tr.target
+            : typeof tr?.detail === "string"
+              ? tr.detail
+              : ""
+        ).trim();
+        const trActualResult =
+          typeof tr?.actualResult === "string" ? tr.actualResult.trim() : "";
+        const trProgress =
+          typeof tr?.progress === "number" ? tr.progress : 100;
+        const trStatus =
+          tr?.status === "partial" || tr?.status === "not_completed"
+            ? tr.status
+            : "completed";
+        const trNote = typeof tr?.note === "string" ? tr.note.trim() : "";
+        const trId =
+          typeof tr?.id === "string" && tr.id ? tr.id : String(idx + 1);
+
+        return {
+          id: trId,
+          task: trTitle,
+          name: trTitle,
+          target: trTarget,
+          detail: trTarget,
+          actualResult: trActualResult,
+          progress: trProgress,
+          status: trStatus,
+          note: trNote,
+        };
+      })
+    : [];
+
   await db
     .update(overtimeRequests)
     .set({
@@ -541,7 +680,7 @@ export async function submitOvertimeReport(
       actualEndTime: input.actualEndTime,
       actualDurationMinutes: duration,
       reportSubmittedAt: new Date(),
-      taskReports: input.taskReports ?? [],
+      taskReports: taskReportsNormalized,
       staffReportNotes: input.staffReportNotes ?? null,
       proofImages: proofImagesFinal,
       updatedAt: new Date(),

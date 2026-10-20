@@ -270,3 +270,19 @@ dua tempat harus konsisten — dan tidak ada tooling untuk itu.
 2. Konfigurasi 8 jam sebelumnya menyebabkan staf ter-logout setiap pergantian hari kerja (saat jeda semalam dari sore ke pagi), sehingga mengganggu alur operasional absensi dan pelaporan harian yang semestinya langsung siap digunakan di browser masing-masing tanpa harus login Google berulang kali.
 
 
+
+
+---
+
+## 16. Normalisasi Skema Rencana Tugas & Laporan Lembur (Dual-Compatibility: UI `task` vs API/DAL `name`)
+
+**Pilihan:**
+1. Di layer DAL `src/server/dal/overtime.ts` (fungsi `toOvertime`, `createOvertimeRequest`, dan `submitOvertimeReport`), seluruh array `tasks` dan `taskReports` dinormalisasi secara dua arah (*bidirectional mapping*):
+   - Properti judul tugas selalu dipetakan ke `task: t.task ?? t.name` dan `name: t.name ?? t.task`.
+   - Properti detail target selalu dipetakan ke `target: t.target ?? t.detail` dan `detail: t.detail ?? t.target`.
+   - Di fungsi `submitOvertimeReport`, `taskReports` dinormalisasi dengan field lengkap: `id`, `task`, `name`, `target`, `detail`, `actualResult`, `progress`, `status`, dan `note`.
+2. Di API Route `src/app/api/overtime/route.ts`, filter parsial `b.tasks.filter((t: { name?: string }) => t?.name?.trim())` dihapus dan seluruh array `tasks` diteruskan ke DAL untuk dinormalisasi dan divalidasi di server.
+
+**Alasan:**
+1. Komponen form frontend staf (`OvertimeStaffSection.tsx`) menggunakan model interface `OvertimeTask` dengan properti `{ id, task, target, note }`. Sementara itu, implementasi DAL dan API Route versi migrasi awal berasumsi field bernama `{ name, detail }`. Akibatnya, filter di API Route membuang semua task dari UI, menghasilkan array kosong, dan memicu error penolakan DAL: `"Isi minimal 1 rencana tugas lembur."` sehingga pengajuan lembur dari web tidak pernah bisa dikirim.
+2. Di sisi tampilan admin (`/absensi/admin/overtime/page.tsx`), baris 225 menjalankan fungsi pencarian: `it.tasks.some((t) => t.task.toLowerCase().includes(q))`. Jika data tersimpan tanpa properti `task`, halaman admin akan langsung crash (*unhandled TypeError*). Normalisasi dua arah di DAL menjamin keamanan penuh bagi komponen UI modern sekaligus kompatibilitas penuh dengan skrip testing/API lama (`scripts/verify-overtime.mjs`).
