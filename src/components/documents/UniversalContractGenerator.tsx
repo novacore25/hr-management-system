@@ -27,11 +27,14 @@ import {
 import { toast } from "sonner";
 import { PksMcnDocument } from "@/components/documents/PksMcnDocument";
 import { PksTntDocument } from "@/components/documents/PksTntDocument";
+import { PksHypeDocument } from "@/components/documents/PksHypeDocument";
 import {
   DEFAULT_PKS_MCN_DATA,
   DEFAULT_PKS_TNT_DATA,
+  DEFAULT_PKS_HYPE_DATA,
   type PksMcnData,
   type PksTntData,
+  type PksHypeData,
   type PksTaxType,
   type PksTemplateType,
 } from "@/types/pks";
@@ -88,6 +91,7 @@ function UniversalContractGeneratorInner({ backHref = "/absensi/letters" }: Prop
   // ── Document State ───────────────────────────────────────────────
   const [formDataTnt, setFormDataTnt] = useState<PksTntData>(DEFAULT_PKS_TNT_DATA);
   const [formDataMcn, setFormDataMcn] = useState<PksMcnData>(DEFAULT_PKS_MCN_DATA);
+  const [formDataHype, setFormDataHype] = useState<PksHypeData>(DEFAULT_PKS_HYPE_DATA);
   const [zoom, setZoom] = useState<number>(0.85);
 
   // ── Editing Existing Contract State ──────────────────────────────
@@ -112,7 +116,11 @@ function UniversalContractGeneratorInner({ backHref = "/absensi/letters" }: Prop
 
   // ── Auto-load from URL Query Params ──────────────────────────────
   useEffect(() => {
-    if (typeParam === "PKS_KLIEN_TNT" || typeParam === "PKS_KLIEN_MCN") {
+    if (
+      typeParam === "PKS_KLIEN_TNT" ||
+      typeParam === "PKS_KLIEN_MCN" ||
+      typeParam === "PKS_HYPE"
+    ) {
       setTemplateType(typeParam as PksTemplateType);
     }
   }, [typeParam]);
@@ -131,6 +139,8 @@ function UniversalContractGeneratorInner({ backHref = "/absensi/letters" }: Prop
             }
             if (c.contractType === "PKS_KLIEN_TNT") {
               setFormDataTnt(c.documentPayload as PksTntData);
+            } else if (c.contractType === "PKS_HYPE") {
+              setFormDataHype(c.documentPayload as PksHypeData);
             } else {
               setFormDataMcn(c.documentPayload as PksMcnData);
             }
@@ -206,12 +216,17 @@ function UniversalContractGeneratorInner({ backHref = "/absensi/letters" }: Prop
       signeeName: primaryContact?.signeeName ?? "",
       signeePosition: primaryContact?.signeePosition ?? "",
       signeeBasis: primaryContact?.signeeBasis ?? "Direksi",
+      businessDescription:
+        client.brandName
+          ? `pemilik dan pengelola brand “${client.brandName}”`
+          : "perusahaan yang bergerak di bidang usaha komersial",
       phone: client.phone ?? "",
       email: client.email ?? "",
     };
 
     setFormDataTnt((prev) => ({ ...prev, client: clientPayload }));
     setFormDataMcn((prev) => ({ ...prev, client: clientPayload }));
+    setFormDataHype((prev) => ({ ...prev, client: clientPayload }));
 
     toast.success(`Data klien "${client.name}" berhasil diisi otomatis!`);
   }
@@ -240,6 +255,15 @@ function UniversalContractGeneratorInner({ backHref = "/absensi/letters" }: Prop
           signeeBasis: "Direksi",
         },
       }));
+      setFormDataHype((prev) => ({
+        ...prev,
+        client: {
+          ...prev.client,
+          signeeName: "",
+          signeePosition: "",
+          signeeBasis: "Direksi",
+        },
+      }));
       return;
     }
 
@@ -260,9 +284,36 @@ function UniversalContractGeneratorInner({ backHref = "/absensi/letters" }: Prop
         ...prev,
         client: { ...prev.client, ...updatedFields },
       }));
+      setFormDataHype((prev) => ({
+        ...prev,
+        client: { ...prev.client, ...updatedFields },
+      }));
 
       toast.info(`Profil penandatangan beralih ke: ${found.signeeName} (${found.signeePosition})`);
     }
+  }
+
+  // ── Auto-calculate Tax & Total (PKS HYPE) ────────────────────────
+  function handleFinancialChangeHype(val: number, taxType: PksTaxType) {
+    let rate = 0;
+    if (taxType === "ppn_11") rate = 0.11;
+    else if (taxType === "pph_0_5") rate = 0.005;
+    else if (taxType === "pph_23") rate = 0.02;
+
+    const taxAmount = Math.round(val * rate);
+    const totalAmount = val + taxAmount;
+
+    setFormDataHype((prev) => ({
+      ...prev,
+      financial: {
+        ...prev.financial,
+        contractValue: val,
+        taxType,
+        taxRate: rate,
+        taxAmount,
+        totalAmount,
+      },
+    }));
   }
 
   // ── Auto-calculate Tax & Total (PKS TNT) ─────────────────────────
@@ -336,10 +387,27 @@ function UniversalContractGeneratorInner({ backHref = "/absensi/letters" }: Prop
   // ── Action: Save & Auto Write-Back to Database ───────────────────
   async function handleSaveContract() {
     const isTnt = templateType === "PKS_KLIEN_TNT";
-    const activeClient = isTnt ? formDataTnt.client : formDataMcn.client;
-    const activeHeader = isTnt ? formDataTnt.header : formDataMcn.header;
-    const activeAgency = isTnt ? formDataTnt.agency : formDataMcn.agency;
-    const activeFinancial = isTnt ? formDataTnt.financial : formDataMcn.financial;
+    const isHype = templateType === "PKS_HYPE";
+    const activeClient = isTnt
+      ? formDataTnt.client
+      : isHype
+        ? formDataHype.client
+        : formDataMcn.client;
+    const activeHeader = isTnt
+      ? formDataTnt.header
+      : isHype
+        ? formDataHype.header
+        : formDataMcn.header;
+    const activeAgency = isTnt
+      ? formDataTnt.agency
+      : isHype
+        ? formDataHype.agency
+        : formDataMcn.agency;
+    const activeFinancial = isTnt
+      ? formDataTnt.financial
+      : isHype
+        ? formDataHype.financial
+        : formDataMcn.financial;
 
     if (!activeClient.name.trim()) {
       toast.error("Nama perusahaan klien wajib diisi.");
@@ -369,21 +437,33 @@ function UniversalContractGeneratorInner({ backHref = "/absensi/letters" }: Prop
         contractNumber: activeHeader.contractNumber,
         company: activeAgency.company,
         signDate: activeHeader.signDate,
-        startDate: isTnt ? formDataTnt.term.startDate : formDataMcn.term.startDate,
-        endDate: isTnt ? formDataTnt.term.runningEndDate : formDataMcn.term.endDate,
+        startDate: isTnt
+          ? formDataTnt.term.startDate
+          : isHype
+            ? formDataHype.term.startDate
+            : formDataMcn.term.startDate,
+        endDate: isTnt
+          ? formDataTnt.term.runningEndDate
+          : isHype
+            ? formDataHype.term.runningEndDate
+            : formDataMcn.term.endDate,
         contractValue: activeFinancial.contractValue,
         taxType: activeFinancial.taxType,
         taxAmount: activeFinancial.taxAmount,
         totalAmount: activeFinancial.totalAmount,
         programName: isTnt
           ? formDataTnt.campaign.programName
-          : formDataMcn.deliverables.programName,
-        platform: isTnt ? "TikTok" : formDataMcn.deliverables.platform,
-        creators: isTnt ? null : formDataMcn.deliverables.creators,
+          : isHype
+            ? formDataHype.campaign.programName
+            : formDataMcn.deliverables.programName,
+        platform: isTnt ? "TikTok" : isHype ? "TikTok GO" : formDataMcn.deliverables.platform,
+        creators: isTnt || isHype ? null : formDataMcn.deliverables.creators,
         totalSessions: isTnt
           ? formDataTnt.campaign.totalVideos
-          : formDataMcn.deliverables.totalSessions,
-        sessionDuration: isTnt ? 0 : formDataMcn.deliverables.sessionDuration,
+          : isHype
+            ? formDataHype.campaign.totalVt
+            : formDataMcn.deliverables.totalSessions,
+        sessionDuration: isTnt || isHype ? 0 : formDataMcn.deliverables.sessionDuration,
         bankDetails: activeFinancial.bank,
         signeeName: activeClient.signeeName,
         signeePosition: activeClient.signeePosition,
@@ -392,8 +472,10 @@ function UniversalContractGeneratorInner({ backHref = "/absensi/letters" }: Prop
         tntSigneePosition: activeAgency.signeePosition,
         courtJurisdiction: isTnt
           ? formDataTnt.legal.courtJurisdiction
-          : formDataMcn.legal.courtJurisdiction,
-        documentPayload: isTnt ? formDataTnt : formDataMcn,
+          : isHype
+            ? formDataHype.legal.courtJurisdiction
+            : formDataMcn.legal.courtJurisdiction,
+        documentPayload: isTnt ? formDataTnt : isHype ? formDataHype : formDataMcn,
         registerLetterNumber: !editingContractId,
       };
 
@@ -415,10 +497,16 @@ function UniversalContractGeneratorInner({ backHref = "/absensi/letters" }: Prop
 
       setSaveSuccess(true);
       setSavedContractNumber(activeHeader.contractNumber);
+      const templateLabel =
+        templateType === "PKS_KLIEN_TNT"
+          ? "PKS TNT"
+          : templateType === "PKS_HYPE"
+            ? "PKS HYPE"
+            : "PKS MCN";
       toast.success(
         editingContractId
           ? `Perubahan pada kontrak "${activeHeader.contractNumber}" berhasil disimpan!`
-          : `Dokumen "${activeHeader.contractNumber}" (${templateType === "PKS_KLIEN_TNT" ? "PKS TNT" : "PKS MCN"}) & data klien berhasil diarsipkan ke database!`,
+          : `Dokumen "${activeHeader.contractNumber}" (${templateLabel}) & data klien berhasil diarsipkan ke database!`,
       );
     } catch (err: unknown) {
       console.error(err);
@@ -444,7 +532,12 @@ function UniversalContractGeneratorInner({ backHref = "/absensi/letters" }: Prop
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-base font-black text-slate-900 dark:text-white tracking-tight">
-                Generator Dokumen: {templateType === "PKS_KLIEN_TNT" ? "PKS Klien TNT" : "PKS Klien MCN"}
+                Generator Dokumen:{" "}
+                {templateType === "PKS_KLIEN_TNT"
+                  ? "PKS Klien TNT"
+                  : templateType === "PKS_HYPE"
+                    ? "PKS HYPE (TikTok GO)"
+                    : "PKS Klien MCN"}
               </h1>
               {editingContractId ? (
                 <span className="px-2 py-0.5 text-[10px] font-black uppercase tracking-wider bg-amber-500/10 text-amber-600 border border-amber-500/20 rounded-full flex items-center gap-1">
@@ -477,6 +570,17 @@ function UniversalContractGeneratorInner({ backHref = "/absensi/letters" }: Prop
               <span>PKS Klien TNT</span>
             </button>
             <button
+              onClick={() => setTemplateType("PKS_HYPE")}
+              className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 ${
+                templateType === "PKS_HYPE"
+                  ? "bg-white dark:bg-slate-900 text-primary shadow-sm"
+                  : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+              }`}
+            >
+              <Sparkles size={13} />
+              <span>PKS Hype (TikTok GO)</span>
+            </button>
+            <button
               onClick={() => setTemplateType("PKS_KLIEN_MCN")}
               className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 ${
                 templateType === "PKS_KLIEN_MCN"
@@ -493,6 +597,8 @@ function UniversalContractGeneratorInner({ backHref = "/absensi/letters" }: Prop
             onClick={() => {
               if (templateType === "PKS_KLIEN_TNT") {
                 setFormDataTnt(DEFAULT_PKS_TNT_DATA);
+              } else if (templateType === "PKS_HYPE") {
+                setFormDataHype(DEFAULT_PKS_HYPE_DATA);
               } else {
                 setFormDataMcn(DEFAULT_PKS_MCN_DATA);
               }
@@ -661,8 +767,16 @@ function UniversalContractGeneratorInner({ backHref = "/absensi/letters" }: Prop
               { id: "terms", label: "Periode & Waktu", icon: Calendar },
               {
                 id: "schedule_or_sla",
-                label: templateType === "PKS_KLIEN_TNT" ? "Approval & SLA" : "Lampiran Jadwal",
-                icon: templateType === "PKS_KLIEN_TNT" ? ShieldAlert : Layers,
+                label:
+                  templateType === "PKS_KLIEN_TNT"
+                    ? "Approval & SLA"
+                    : templateType === "PKS_HYPE"
+                      ? "Approval & Legal"
+                      : "Lampiran Jadwal",
+                icon:
+                  templateType === "PKS_KLIEN_TNT" || templateType === "PKS_HYPE"
+                    ? ShieldAlert
+                    : Layers,
               },
             ].map((tab) => {
               const Icon = tab.icon;
@@ -704,11 +818,17 @@ function UniversalContractGeneratorInner({ backHref = "/absensi/letters" }: Prop
                         value={
                           templateType === "PKS_KLIEN_TNT"
                             ? formDataTnt.header.contractNumber
-                            : formDataMcn.header.contractNumber
+                            : templateType === "PKS_HYPE"
+                              ? formDataHype.header.contractNumber
+                              : formDataMcn.header.contractNumber
                         }
                         onChange={(e) => {
                           const v = e.target.value;
                           setFormDataTnt((prev) => ({
+                            ...prev,
+                            header: { ...prev.header, contractNumber: v },
+                          }));
+                          setFormDataHype((prev) => ({
                             ...prev,
                             header: { ...prev.header, contractNumber: v },
                           }));
@@ -729,11 +849,17 @@ function UniversalContractGeneratorInner({ backHref = "/absensi/letters" }: Prop
                         value={
                           templateType === "PKS_KLIEN_TNT"
                             ? formDataTnt.header.signDate
-                            : formDataMcn.header.signDate
+                            : templateType === "PKS_HYPE"
+                              ? formDataHype.header.signDate
+                              : formDataMcn.header.signDate
                         }
                         onChange={(e) => {
                           const v = e.target.value;
                           setFormDataTnt((prev) => ({
+                            ...prev,
+                            header: { ...prev.header, signDate: v },
+                          }));
+                          setFormDataHype((prev) => ({
                             ...prev,
                             header: { ...prev.header, signDate: v },
                           }));
@@ -770,11 +896,14 @@ function UniversalContractGeneratorInner({ backHref = "/absensi/letters" }: Prop
                         value={
                           templateType === "PKS_KLIEN_TNT"
                             ? formDataTnt.client.name
-                            : formDataMcn.client.name
+                            : templateType === "PKS_HYPE"
+                              ? formDataHype.client.name
+                              : formDataMcn.client.name
                         }
                         onChange={(e) => {
                           const v = e.target.value;
                           setFormDataTnt((p) => ({ ...p, client: { ...p.client, name: v } }));
+                          setFormDataHype((p) => ({ ...p, client: { ...p.client, name: v } }));
                           setFormDataMcn((p) => ({ ...p, client: { ...p.client, name: v } }));
                         }}
                         className="w-full px-3 py-1.5 text-xs font-semibold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:border-primary"
@@ -790,17 +919,41 @@ function UniversalContractGeneratorInner({ backHref = "/absensi/letters" }: Prop
                         value={
                           templateType === "PKS_KLIEN_TNT"
                             ? formDataTnt.client.brandName
-                            : formDataMcn.client.brandName
+                            : templateType === "PKS_HYPE"
+                              ? formDataHype.client.brandName
+                              : formDataMcn.client.brandName
                         }
                         onChange={(e) => {
                           const v = e.target.value;
                           setFormDataTnt((p) => ({ ...p, client: { ...p.client, brandName: v } }));
+                          setFormDataHype((p) => ({ ...p, client: { ...p.client, brandName: v } }));
                           setFormDataMcn((p) => ({ ...p, client: { ...p.client, brandName: v } }));
                         }}
                         className="w-full px-3 py-1.5 text-xs font-semibold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:border-primary"
                       />
                     </div>
                   </div>
+
+                  {templateType === "PKS_HYPE" && (
+                    <div>
+                      <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block mb-1">
+                        Deskripsi Usaha Klien (Latar Belakang / Premis):
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="contoh: perusahaan yang bergerak di bidang klinik kesehatan dan kecantikan"
+                        value={formDataHype.client.businessDescription}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setFormDataHype((p) => ({
+                            ...p,
+                            client: { ...p.client, businessDescription: v },
+                          }));
+                        }}
+                        className="w-full px-3 py-1.5 text-xs font-semibold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:border-primary"
+                      />
+                    </div>
+                  )}
 
                   <div>
                     <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block mb-1">
@@ -811,11 +964,14 @@ function UniversalContractGeneratorInner({ backHref = "/absensi/letters" }: Prop
                       value={
                         templateType === "PKS_KLIEN_TNT"
                           ? formDataTnt.client.address
-                          : formDataMcn.client.address
+                          : templateType === "PKS_HYPE"
+                            ? formDataHype.client.address
+                            : formDataMcn.client.address
                       }
                       onChange={(e) => {
                         const v = e.target.value;
                         setFormDataTnt((p) => ({ ...p, client: { ...p.client, address: v } }));
+                        setFormDataHype((p) => ({ ...p, client: { ...p.client, address: v } }));
                         setFormDataMcn((p) => ({ ...p, client: { ...p.client, address: v } }));
                       }}
                       className="w-full px-3 py-1.5 text-xs font-medium bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:border-primary"
@@ -832,11 +988,14 @@ function UniversalContractGeneratorInner({ backHref = "/absensi/letters" }: Prop
                         value={
                           templateType === "PKS_KLIEN_TNT"
                             ? formDataTnt.client.signeeName
-                            : formDataMcn.client.signeeName
+                            : templateType === "PKS_HYPE"
+                              ? formDataHype.client.signeeName
+                              : formDataMcn.client.signeeName
                         }
                         onChange={(e) => {
                           const v = e.target.value;
                           setFormDataTnt((p) => ({ ...p, client: { ...p.client, signeeName: v } }));
+                          setFormDataHype((p) => ({ ...p, client: { ...p.client, signeeName: v } }));
                           setFormDataMcn((p) => ({ ...p, client: { ...p.client, signeeName: v } }));
                         }}
                         className="w-full px-3 py-1.5 text-xs font-semibold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:border-primary"
@@ -851,11 +1010,14 @@ function UniversalContractGeneratorInner({ backHref = "/absensi/letters" }: Prop
                         value={
                           templateType === "PKS_KLIEN_TNT"
                             ? formDataTnt.client.signeePosition
-                            : formDataMcn.client.signeePosition
+                            : templateType === "PKS_HYPE"
+                              ? formDataHype.client.signeePosition
+                              : formDataMcn.client.signeePosition
                         }
                         onChange={(e) => {
                           const v = e.target.value;
                           setFormDataTnt((p) => ({ ...p, client: { ...p.client, signeePosition: v } }));
+                          setFormDataHype((p) => ({ ...p, client: { ...p.client, signeePosition: v } }));
                           setFormDataMcn((p) => ({ ...p, client: { ...p.client, signeePosition: v } }));
                         }}
                         className="w-full px-3 py-1.5 text-xs font-semibold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:border-primary"
@@ -864,40 +1026,55 @@ function UniversalContractGeneratorInner({ backHref = "/absensi/letters" }: Prop
                   </div>
                 </div>
 
-                {/* Pihak Kedua (Internal TNT) */}
+                {/* Pihak Kedua */}
                 <div className="p-3 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-800 space-y-3">
                   <p className="text-xs font-black uppercase text-slate-500 tracking-wider">
-                    Pihak Kedua (Internal TNT)
+                    {templateType === "PKS_HYPE"
+                      ? "Pihak Kedua (CV. HYPE MEDIA INDONESIA)"
+                      : "Pihak Kedua (Internal TNT)"}
                   </p>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block mb-1">
                         Unit Perusahaan:
                       </label>
-                      <select
-                        value={
-                          templateType === "PKS_KLIEN_TNT"
-                            ? formDataTnt.agency.company
-                            : formDataMcn.agency.company
-                        }
-                        onChange={(e) => handleCompanyChange(e.target.value as never)}
-                        className="w-full px-3 py-1.5 text-xs font-semibold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none"
-                      >
-                        {COMPANIES.map((c) => (
-                          <option key={c.code} value={c.code}>
-                            {c.name} ({c.trade})
-                          </option>
-                        ))}
-                      </select>
+                      {templateType === "PKS_HYPE" ? (
+                        <input
+                          type="text"
+                          disabled
+                          value="CV. HYPE MEDIA INDONESIA"
+                          className="w-full px-3 py-1.5 text-xs font-semibold bg-slate-100 dark:bg-slate-800/50 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700 rounded-lg"
+                        />
+                      ) : (
+                        <select
+                          value={
+                            templateType === "PKS_KLIEN_TNT"
+                              ? formDataTnt.agency.company
+                              : formDataMcn.agency.company
+                          }
+                          onChange={(e) => handleCompanyChange(e.target.value as never)}
+                          className="w-full px-3 py-1.5 text-xs font-semibold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none"
+                        >
+                          {COMPANIES.map((c) => (
+                            <option key={c.code} value={c.code}>
+                              {c.name} ({c.trade})
+                            </option>
+                          ))}
+                        </select>
+                      )}
                     </div>
                     <div>
                       <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block mb-1">
-                        Penandatangan TNT:
+                        Penandatangan:
                       </label>
                       <input
                         type="text"
                         disabled
-                        value="RUBEN ARIANTO (DIREKTUR UTAMA)"
+                        value={
+                          templateType === "PKS_HYPE"
+                            ? "RUBEN ARIANTO (GENERAL MANAGER)"
+                            : "RUBEN ARIANTO (DIREKTUR UTAMA)"
+                        }
                         className="w-full px-3 py-1.5 text-xs font-semibold bg-slate-100 dark:bg-slate-800/50 text-slate-500 border border-slate-200 dark:border-slate-700 rounded-lg"
                       />
                     </div>
@@ -1058,6 +1235,145 @@ function UniversalContractGeneratorInner({ backHref = "/absensi/letters" }: Prop
                       </div>
                     </div>
                   </div>
+                ) : templateType === "PKS_HYPE" ? (
+                  /* Form Ruang Lingkup PKS HYPE (TikTok GO Package Activation) */
+                  <div className="p-3 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-800 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-black uppercase text-slate-500 tracking-wider">
+                        Target Campaign: Package Activation TikTok GO
+                      </p>
+                      <span className="text-[10px] font-bold text-primary bg-primary/10 px-2 py-0.5 rounded-full">
+                        CV. HYPE MEDIA INDONESIA
+                      </span>
+                    </div>
+
+                    <div>
+                      <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block mb-1">
+                        Nama Program / Jasa:
+                      </label>
+                      <input
+                        type="text"
+                        value={formDataHype.campaign.programName}
+                        onChange={(e) =>
+                          setFormDataHype((p) => ({
+                            ...p,
+                            campaign: { ...p.campaign, programName: e.target.value },
+                          }))
+                        }
+                        className="w-full px-3 py-1.5 text-xs font-semibold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-3">
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block mb-1">
+                          Nama Outlet / Cabang:
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="contoh: Urban Wellness BSD"
+                          value={formDataHype.campaign.outletName}
+                          onChange={(e) =>
+                            setFormDataHype((p) => ({
+                              ...p,
+                              campaign: { ...p.campaign, outletName: e.target.value },
+                            }))
+                          }
+                          className="w-full px-3 py-1.5 text-xs font-semibold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block mb-1">
+                          Alamat Lengkap Outlet:
+                        </label>
+                        <textarea
+                          rows={2}
+                          placeholder="Alamat outlet..."
+                          value={formDataHype.campaign.outletAddress}
+                          onChange={(e) =>
+                            setFormDataHype((p) => ({
+                              ...p,
+                              campaign: { ...p.campaign, outletAddress: e.target.value },
+                            }))
+                          }
+                          className="w-full px-3 py-1.5 text-xs font-medium bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2">
+                      <div>
+                        <label className="text-[10px] font-bold text-slate-600 dark:text-slate-400 block mb-1">
+                          Creator / Outlet:
+                        </label>
+                        <input
+                          type="number"
+                          value={formDataHype.campaign.creatorsCount}
+                          onChange={(e) => {
+                            const count = Number(e.target.value) || 0;
+                            setFormDataHype((p) => ({
+                              ...p,
+                              campaign: {
+                                ...p.campaign,
+                                creatorsCount: count,
+                                totalVt: count * p.campaign.minVtPerCreator,
+                              },
+                            }));
+                          }}
+                          className="w-full px-2.5 py-1.5 text-xs font-bold text-center bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-bold text-slate-600 dark:text-slate-400 block mb-1">
+                          Min. VT / Creator:
+                        </label>
+                        <input
+                          type="number"
+                          value={formDataHype.campaign.minVtPerCreator}
+                          onChange={(e) => {
+                            const minVt = Number(e.target.value) || 0;
+                            setFormDataHype((p) => ({
+                              ...p,
+                              campaign: {
+                                ...p.campaign,
+                                minVtPerCreator: minVt,
+                                totalVt: p.campaign.creatorsCount * minVt,
+                              },
+                            }));
+                          }}
+                          className="w-full px-2.5 py-1.5 text-xs font-bold text-center bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-bold text-slate-600 dark:text-slate-400 block mb-1">
+                          Total Target VT:
+                        </label>
+                        <input
+                          type="number"
+                          value={formDataHype.campaign.totalVt}
+                          onChange={(e) =>
+                            setFormDataHype((p) => ({
+                              ...p,
+                              campaign: {
+                                ...p.campaign,
+                                totalVt: Number(e.target.value) || 0,
+                              },
+                            }))
+                          }
+                          className="w-full px-2.5 py-1.5 text-xs font-bold text-center bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="p-2.5 bg-blue-50/50 dark:bg-blue-950/20 rounded-lg border border-blue-200/50 space-y-1 text-[11px] text-blue-900 dark:text-blue-300">
+                      <p className="font-bold">Klausul Spesifik Pasal 1:</p>
+                      <ul className="list-disc pl-4 space-y-0.5 text-[10.5px]">
+                        <li>TikTok GO Campaign Strategy menyeluruh (brief &amp; penentuan kreator).</li>
+                        <li>Back-end Management aktivasi TikTok-Go Dashboard.</li>
+                      </ul>
+                    </div>
+                  </div>
                 ) : (
                   /* Form Ruang Lingkup PKS MCN (Live Streaming) */
                   <div className="p-3 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-800 space-y-4">
@@ -1150,12 +1466,16 @@ function UniversalContractGeneratorInner({ backHref = "/absensi/letters" }: Prop
                         value={
                           templateType === "PKS_KLIEN_TNT"
                             ? formDataTnt.financial.contractValue
-                            : formDataMcn.financial.contractValue
+                            : templateType === "PKS_HYPE"
+                              ? formDataHype.financial.contractValue
+                              : formDataMcn.financial.contractValue
                         }
                         onChange={(e) => {
                           const val = Number(e.target.value) || 0;
                           if (templateType === "PKS_KLIEN_TNT") {
                             handleFinancialChangeTnt(val, formDataTnt.financial.taxType);
+                          } else if (templateType === "PKS_HYPE") {
+                            handleFinancialChangeHype(val, formDataHype.financial.taxType);
                           } else {
                             handleFinancialChangeMcn(val, formDataMcn.financial.taxType);
                           }
@@ -1166,27 +1486,31 @@ function UniversalContractGeneratorInner({ backHref = "/absensi/letters" }: Prop
 
                     <div>
                       <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block mb-1">
-                        Perlakuan Pajak (PPh):
+                        Perlakuan Pajak (PPN / PPh):
                       </label>
                       <select
                         value={
                           templateType === "PKS_KLIEN_TNT"
                             ? formDataTnt.financial.taxType
-                            : formDataMcn.financial.taxType
+                            : templateType === "PKS_HYPE"
+                              ? formDataHype.financial.taxType
+                              : formDataMcn.financial.taxType
                         }
                         onChange={(e) => {
                           const t = e.target.value as PksTaxType;
                           if (templateType === "PKS_KLIEN_TNT") {
                             handleFinancialChangeTnt(formDataTnt.financial.contractValue, t);
+                          } else if (templateType === "PKS_HYPE") {
+                            handleFinancialChangeHype(formDataHype.financial.contractValue, t);
                           } else {
                             handleFinancialChangeMcn(formDataMcn.financial.contractValue, t);
                           }
                         }}
                         className="w-full px-3 py-1.5 text-xs font-semibold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg"
                       >
+                        <option value="ppn_11">PPN 11%</option>
                         <option value="pph_0_5">PPh 0,5% (PP 55 UMKM)</option>
                         <option value="pph_23">PPh 23 (2% Jasa)</option>
-                        <option value="ppn_11">PPN 11%</option>
                         <option value="none">Bebas Pajak (0%)</option>
                       </select>
                     </div>
@@ -1199,7 +1523,9 @@ function UniversalContractGeneratorInner({ backHref = "/absensi/letters" }: Prop
                         {formatRupiah(
                           templateType === "PKS_KLIEN_TNT"
                             ? formDataTnt.financial.taxAmount
-                            : formDataMcn.financial.taxAmount,
+                            : templateType === "PKS_HYPE"
+                              ? formDataHype.financial.taxAmount
+                              : formDataMcn.financial.taxAmount,
                         )}
                       </span>
                     </div>
@@ -1209,7 +1535,9 @@ function UniversalContractGeneratorInner({ backHref = "/absensi/letters" }: Prop
                         {formatRupiah(
                           templateType === "PKS_KLIEN_TNT"
                             ? formDataTnt.financial.totalAmount
-                            : formDataMcn.financial.totalAmount,
+                            : templateType === "PKS_HYPE"
+                              ? formDataHype.financial.totalAmount
+                              : formDataMcn.financial.totalAmount,
                         )}
                       </span>
                     </div>
@@ -1218,7 +1546,9 @@ function UniversalContractGeneratorInner({ backHref = "/absensi/letters" }: Prop
                       {terbilangRupiah(
                         templateType === "PKS_KLIEN_TNT"
                           ? formDataTnt.financial.totalAmount
-                          : formDataMcn.financial.totalAmount,
+                          : templateType === "PKS_HYPE"
+                            ? formDataHype.financial.totalAmount
+                            : formDataMcn.financial.totalAmount,
                       )}
                     </p>
                   </div>
@@ -1227,11 +1557,22 @@ function UniversalContractGeneratorInner({ backHref = "/absensi/letters" }: Prop
                     <p className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block mb-1">
                       Rekening Penerima Pembayaran:
                     </p>
-                    <div className="p-2.5 bg-slate-100 dark:bg-slate-800/80 rounded-lg text-xs font-mono space-y-0.5">
-                      <p className="font-bold">Bank Central Asia (BCA)</p>
-                      <p>Nama: PT TNT KREATIF DIGITAL</p>
-                      <p>Nomor: 7613472888 (KCP Karawaci)</p>
-                    </div>
+                    {templateType === "PKS_HYPE" ? (
+                      <div className="p-2.5 bg-slate-100 dark:bg-slate-800/80 rounded-lg text-xs font-mono space-y-0.5">
+                        <p className="font-bold">Bank Central Asia (BCA)</p>
+                        <p>Nama: SYNERA KREATIF GRUP PT</p>
+                        <p>Nomor: 8832372730</p>
+                        <p className="text-[11px] font-sans text-amber-600 dark:text-amber-400 font-bold pt-1">
+                          * Pembayaran 100% di awal setelah tanda tangan sebelum pekerjaan dimulai.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="p-2.5 bg-slate-100 dark:bg-slate-800/80 rounded-lg text-xs font-mono space-y-0.5">
+                        <p className="font-bold">Bank Central Asia (BCA)</p>
+                        <p>Nama: PT TNT KREATIF DIGITAL</p>
+                        <p>Nomor: 7613472888 (KCP Karawaci)</p>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1338,6 +1679,123 @@ function UniversalContractGeneratorInner({ backHref = "/absensi/letters" }: Prop
                           className="w-full px-3 py-1.5 text-xs font-semibold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg"
                         />
                       </div>
+                    </div>
+                  </div>
+                ) : templateType === "PKS_HYPE" ? (
+                  /* Timeline PKS HYPE (TikTok GO) */
+                  <div className="p-3 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-800 space-y-3">
+                    <p className="text-xs font-black uppercase text-slate-500 tracking-wider">
+                      Jangka Waktu Campaign TikTok GO (Pasal 2)
+                    </p>
+
+                    <div>
+                      <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block mb-1">
+                        Tanggal Mulai Perjanjian:
+                      </label>
+                      <input
+                        type="date"
+                        value={formDataHype.term.startDate}
+                        onChange={(e) =>
+                          setFormDataHype((p) => ({
+                            ...p,
+                            term: { ...p.term, startDate: e.target.value },
+                          }))
+                        }
+                        className="w-full px-3 py-1.5 text-xs font-semibold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3 pt-1">
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block mb-1">
+                          Masa Persiapan (Hari Kalender):
+                        </label>
+                        <input
+                          type="number"
+                          value={formDataHype.term.prepDurationDays}
+                          onChange={(e) =>
+                            setFormDataHype((p) => ({
+                              ...p,
+                              term: {
+                                ...p.term,
+                                prepDurationDays: Number(e.target.value) || 0,
+                              },
+                            }))
+                          }
+                          className="w-full px-3 py-1.5 text-xs font-semibold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block mb-1">
+                          Target First VT:
+                        </label>
+                        <input
+                          type="date"
+                          value={formDataHype.term.firstVtDate}
+                          onChange={(e) =>
+                            setFormDataHype((p) => ({
+                              ...p,
+                              term: { ...p.term, firstVtDate: e.target.value },
+                            }))
+                          }
+                          className="w-full px-3 py-1.5 text-xs font-semibold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block mb-1">
+                          Masa Running (Hari Kalender):
+                        </label>
+                        <input
+                          type="number"
+                          value={formDataHype.term.runningDurationDays}
+                          onChange={(e) =>
+                            setFormDataHype((p) => ({
+                              ...p,
+                              term: {
+                                ...p.term,
+                                runningDurationDays: Number(e.target.value) || 0,
+                              },
+                            }))
+                          }
+                          className="w-full px-3 py-1.5 text-xs font-semibold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block mb-1">
+                          Target Selesai Running:
+                        </label>
+                        <input
+                          type="date"
+                          value={formDataHype.term.runningEndDate}
+                          onChange={(e) =>
+                            setFormDataHype((p) => ({
+                              ...p,
+                              term: { ...p.term, runningEndDate: e.target.value },
+                            }))
+                          }
+                          className="w-full px-3 py-1.5 text-xs font-semibold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block mb-1">
+                        Batas Pemberitahuan Surat Tidak Memperpanjang (Hari Kerja):
+                      </label>
+                      <input
+                        type="number"
+                        value={formDataHype.term.noticeDays}
+                        onChange={(e) =>
+                          setFormDataHype((p) => ({
+                            ...p,
+                            term: { ...p.term, noticeDays: Number(e.target.value) || 0 },
+                          }))
+                        }
+                        className="w-full px-3 py-1.5 text-xs font-semibold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg"
+                      />
                     </div>
                   </div>
                 ) : (
@@ -1452,6 +1910,114 @@ function UniversalContractGeneratorInner({ backHref = "/absensi/letters" }: Prop
                           }))
                         }
                         className="w-full px-3 py-1.5 text-xs font-bold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg"
+                      />
+                    </div>
+                  </div>
+                ) : templateType === "PKS_HYPE" ? (
+                  <div className="p-3 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-800 space-y-3">
+                    <p className="text-xs font-black uppercase text-slate-500 tracking-wider">
+                      Aturan Approval & Klausul Legal (Pasal 5, 8 &amp; 9)
+                    </p>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block mb-1">
+                          Maksimal Revisi:
+                        </label>
+                        <input
+                          type="number"
+                          value={formDataHype.approval.maxRevisions}
+                          onChange={(e) =>
+                            setFormDataHype((p) => ({
+                              ...p,
+                              approval: {
+                                ...p.approval,
+                                maxRevisions: Number(e.target.value) || 0,
+                              },
+                            }))
+                          }
+                          className="w-full px-3 py-1.5 text-xs font-bold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block mb-1">
+                          Batas Respon (Hari Kerja):
+                        </label>
+                        <input
+                          type="number"
+                          value={formDataHype.approval.replyDays}
+                          onChange={(e) =>
+                            setFormDataHype((p) => ({
+                              ...p,
+                              approval: {
+                                ...p.approval,
+                                replyDays: Number(e.target.value) || 0,
+                              },
+                            }))
+                          }
+                          className="w-full px-3 py-1.5 text-xs font-bold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block mb-1">
+                          Non-Circumvention (Bulan):
+                        </label>
+                        <input
+                          type="number"
+                          value={formDataHype.legal.nonCircumventionMonths}
+                          onChange={(e) =>
+                            setFormDataHype((p) => ({
+                              ...p,
+                              legal: {
+                                ...p.legal,
+                                nonCircumventionMonths: Number(e.target.value) || 0,
+                              },
+                            }))
+                          }
+                          className="w-full px-3 py-1.5 text-xs font-bold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block mb-1">
+                          Musyawarah Sengketa (Hari):
+                        </label>
+                        <input
+                          type="number"
+                          value={formDataHype.legal.disputeDays}
+                          onChange={(e) =>
+                            setFormDataHype((p) => ({
+                              ...p,
+                              legal: {
+                                ...p.legal,
+                                disputeDays: Number(e.target.value) || 0,
+                              },
+                            }))
+                          }
+                          className="w-full px-3 py-1.5 text-xs font-bold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block mb-1">
+                        Yurisdiksi Pengadilan:
+                      </label>
+                      <input
+                        type="text"
+                        value={formDataHype.legal.courtJurisdiction}
+                        onChange={(e) =>
+                          setFormDataHype((p) => ({
+                            ...p,
+                            legal: {
+                              ...p.legal,
+                              courtJurisdiction: e.target.value,
+                            },
+                          }))
+                        }
+                        className="w-full px-3 py-1.5 text-xs font-semibold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg"
                       />
                     </div>
                   </div>
@@ -2040,6 +2606,8 @@ function UniversalContractGeneratorInner({ backHref = "/absensi/letters" }: Prop
             >
               {templateType === "PKS_KLIEN_TNT" ? (
                 <PksTntDocument data={formDataTnt} />
+              ) : templateType === "PKS_HYPE" ? (
+                <PksHypeDocument data={formDataHype} />
               ) : (
                 <PksMcnDocument data={formDataMcn} />
               )}

@@ -15,7 +15,13 @@ import {
 } from "lucide-react";
 import { PksTntDocument } from "./PksTntDocument";
 import { PksMcnDocument } from "./PksMcnDocument";
-import type { PksTntData, PksMcnData, PksTemplateType } from "@/types/pks";
+import { PksHypeDocument } from "./PksHypeDocument";
+import type {
+  PksTntData,
+  PksMcnData,
+  PksHypeData,
+  PksTemplateType,
+} from "@/types/pks";
 
 interface Props {
   isOpen: boolean;
@@ -198,6 +204,8 @@ export function PksPreviewModal({
             >
               {contractType === "PKS_KLIEN_TNT" ? (
                 <PksTntDocument data={payload as unknown as PksTntData} />
+              ) : contractType === "PKS_HYPE" ? (
+                <PksHypeDocument data={payload as unknown as PksHypeData} />
               ) : (
                 <PksMcnDocument data={payload as unknown as PksMcnData} />
               )}
