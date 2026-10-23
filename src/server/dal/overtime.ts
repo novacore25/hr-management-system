@@ -66,7 +66,8 @@ export type OvertimeStatus =
 const TRANSITIONS: Record<string, string[]> = {
   pending: ["approved", "rejected", "cancelled"],
   approved: ["reported", "rejected", "cancelled"],
-  reported: ["finalized"],
+  // Staf boleh merevisi/mengedit laporan lembur selama HR belum memfinalisasi
+  reported: ["finalized", "reported"],
   rejected: [],
   finalized: [],
   cancelled: [],

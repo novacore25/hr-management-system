@@ -567,7 +567,12 @@ const EMPTY_OVERTIME = {
         return;
       }
 
-      toast.success("Laporan lembur berhasil disubmit ke HR!", { id: tid });
+      toast.success(
+        reportingReq.status === "reported"
+          ? "Laporan lembur berhasil diperbarui!"
+          : "Laporan lembur berhasil disubmit ke HR!",
+        { id: tid }
+      );
       setReportingReq(null);
       setNewProofFiles([]);
       void fetchOvertimes();
@@ -1238,7 +1243,7 @@ const EMPTY_OVERTIME = {
             <div className="flex justify-between items-center border-b border-[var(--ab-border)] pb-3">
               <div>
                 <h3 className="text-base font-black text-[var(--ab-text-main)] uppercase tracking-tight">
-                  Laporan Hasil Kerja Lembur
+                  {reportingReq.status === "reported" ? "Edit Laporan Hasil Lembur" : "Laporan Hasil Kerja Lembur"}
                 </h3>
                 <p className="text-[10px] font-bold text-[var(--ab-text-dim)] uppercase tracking-widest">
                   Tanggal: {reportingReq.overtimeDate}
@@ -1502,7 +1507,11 @@ const EMPTY_OVERTIME = {
                 disabled={isSubmittingReport || isCompressing}
                 className="w-full sm:flex-1 py-3.5 bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-black text-xs uppercase tracking-widest rounded-2xl shadow-lg hover:opacity-95 active:scale-95 transition-all"
               >
-                {isSubmittingReport ? "Mengirim..." : "Kirim Laporan"}
+                {isSubmittingReport
+                  ? "Menyimpan..."
+                  : reportingReq.status === "reported"
+                  ? "Simpan Perubahan Laporan"
+                  : "Kirim Laporan"}
               </button>
             </div>
           </div>
