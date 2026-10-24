@@ -124,14 +124,20 @@ export async function PATCH(request: Request) {
     }
 
     // Role KPI punya aturan sendiri, terpisah dari absensi admin.
-    if (body.kpiRole !== undefined) {
+    if (body.kpiRole !== undefined || body.managedDepartments !== undefined) {
       await requireKpiRole("hr", "executive");
-      await setKpiRole(body.id, body.kpiRole);
+      await setKpiRole(
+        body.id,
+        body.kpiRole,
+        Array.isArray(body.managedDepartments)
+          ? body.managedDepartments.map(String)
+          : undefined,
+      );
     }
 
     const patch: StaffPatch = {};
     for (const [key, value] of Object.entries(body)) {
-      if (key === "id" || key === "kpiRole") continue;
+      if (key === "id" || key === "kpiRole" || key === "managedDepartments") continue;
       if (value === undefined) continue;
       (patch as Record<string, unknown>)[key] = value;
     }

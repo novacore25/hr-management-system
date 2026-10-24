@@ -35,6 +35,7 @@ interface StaffUser {
   isHidden: boolean;
   leaveUsed: number;
   sickUsed: number;
+  managedDepartments?: string[];
 
   nik: string | null;
   birthPlace: string | null;
@@ -822,7 +823,20 @@ export default function AdminStaffPage() {
                   </div>
                   <div className="space-y-1">
                     <label className="text-[9px] font-black uppercase text-[var(--ab-text-dim)] tracking-widest ml-1">Role Penilaian (KPI)</label>
-                    <select value={getEdit("kpiRole")} onChange={e => patchEdit({ kpiRole: e.target.value as KpiRole })} className="ab-input text-xs w-full">
+                    <select
+                      value={getEdit("kpiRole")}
+                      onChange={e => {
+                        const newRole = e.target.value as KpiRole;
+                        const curDept = getEdit("departmentId");
+                        const curManaged = getEdit("managedDepartments") ?? [];
+                        if (newRole === "head" && curManaged.length === 0 && curDept) {
+                          patchEdit({ kpiRole: newRole, managedDepartments: [curDept] });
+                        } else {
+                          patchEdit({ kpiRole: newRole });
+                        }
+                      }}
+                      className="ab-input text-xs w-full"
+                    >
                       <option value="tim">Anggota Tim</option>
                       <option value="head">Head Divisi</option>
                       <option value="hr">HRD</option>
@@ -830,6 +844,56 @@ export default function AdminStaffPage() {
                       <option value="developer">Developer</option>
                     </select>
                   </div>
+
+                  {getEdit("kpiRole") === "head" && (
+                    <div className="space-y-2 md:col-span-2 p-3.5 rounded-2xl bg-purple-500/5 border border-purple-500/20">
+                      <div className="flex items-center justify-between">
+                        <label className="text-[10px] font-black uppercase text-purple-700 dark:text-purple-300 tracking-wider">
+                          Divisi yang Dikelola oleh Head
+                        </label>
+                        <span className="text-[9px] font-bold text-[var(--ab-text-dim)]">
+                          Wajib pilih minimal 1 divisi
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-[var(--ab-text-dim)] leading-relaxed">
+                        Head hanya dapat melihat & menilai KPI anggota tim yang berada di divisi yang dicentang di bawah ini.
+                      </p>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-1">
+                        {departments.map((d) => {
+                          const currentManaged =
+                            getEdit("managedDepartments") ??
+                            (getEdit("departmentId") ? [getEdit("departmentId")!] : []);
+                          const isChecked = currentManaged.includes(d.id);
+                          return (
+                            <label
+                              key={d.id}
+                              className={`flex items-center gap-2 p-2.5 rounded-xl border text-xs font-bold cursor-pointer transition-all ${
+                                isChecked
+                                  ? "bg-purple-600/10 border-purple-500 text-purple-700 dark:text-purple-300"
+                                  : "bg-[var(--ab-bg-main)] border-[var(--ab-border)] text-[var(--ab-text-dim)] hover:border-slate-300 dark:hover:border-slate-700"
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={(e) => {
+                                  let next = [...currentManaged];
+                                  if (e.target.checked) {
+                                    if (!next.includes(d.id)) next.push(d.id);
+                                  } else {
+                                    next = next.filter((id) => id !== d.id);
+                                  }
+                                  patchEdit({ managedDepartments: next });
+                                }}
+                                className="rounded text-purple-600 focus:ring-purple-500"
+                              />
+                              <span className="truncate">{d.name}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                   <div className="space-y-1">
                     <label className="text-[9px] font-black uppercase text-[var(--ab-text-dim)] tracking-widest ml-1">Status Kepegawaian</label>
                     <select value={getEdit("employmentStatus") ?? ""} onChange={e => patchEdit({ employmentStatus: e.target.value })} className="ab-input text-xs w-full">

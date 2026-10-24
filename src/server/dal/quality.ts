@@ -239,7 +239,14 @@ async function assertCanScore(
     if (assignment.userId === actor.id) return { ok: true };
 
     const targetDept = assignment.departmentId || assignment.userDepartmentId;
-    if (!targetDept || !actor.managedDepartments.includes(targetDept)) {
+    const managedList =
+      actor.managedDepartments && actor.managedDepartments.length > 0
+        ? actor.managedDepartments
+        : (actor as { departmentId?: string | null }).departmentId
+        ? [String((actor as { departmentId?: string | null }).departmentId)]
+        : [];
+
+    if (!targetDept || !managedList.includes(targetDept)) {
       return {
         ok: false,
         error: "Assignment ini di luar divisi yang Anda kelola.",

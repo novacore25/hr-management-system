@@ -98,6 +98,28 @@ export async function requireUser(): Promise<SessionUser> {
 }
 
 /**
+ * Resolver divisi yang dikelola aktor (Head/SuperRole).
+ *
+ * Bila user bertipe Head tetapi managedDepartments di DB masih kosong / belum
+ * diset secara multi-divisi, sistem otomatis fallback ke departmentId
+ * penempatan user tersebut.
+ */
+export function resolveManagedDepartments(profile: {
+  kpiRole?: string | null;
+  departmentId?: string | null;
+  managedDepartments?: string[] | null;
+}): string[] {
+  const list = Array.isArray(profile.managedDepartments)
+    ? profile.managedDepartments.filter(Boolean)
+    : [];
+  if (list.length > 0) return list;
+  if (profile.kpiRole === "head" && profile.departmentId) {
+    return [profile.departmentId];
+  }
+  return [];
+}
+
+/**
  * Profil lengkap dari tabel `users` (termasuk role), plus nama divisi.
  *
  * `departmentName` ditambahkan supaya Route Handler tidak perlu join
@@ -112,7 +134,11 @@ export async function getProfile() {
     .leftJoin(departments, eq(users.departmentId, departments.id))
     .where(eq(users.id, u.id))
     .limit(1);
-  return row ?? null;
+  if (!row) return null;
+  return {
+    ...row,
+    managedDepartments: resolveManagedDepartments(row),
+  };
 }
 
 /** Profil lengkap. Melempar 401 kalau belum login. */

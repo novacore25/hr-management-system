@@ -2009,3 +2009,26 @@ Hasil akhir verifikasi: **100% PARITAS TERCAPAI** di 23 dari 23 tabel (15.018 ba
 2. **Kuota Wajib 2 - 3 Foto Bukti Lembur**:
    - Di form laporan lembur staf (`OvertimeStaffSection.tsx`): Kuota foto diperluas menjadi 3 slot foto terkompresi. Staf wajib mengunggah minimal 2 foto dan maksimal 3 foto.
    - Di Server DAL (`submitOvertimeReport`): Validasi server-side mewajibkan minimal 2 foto bukti dan menolak jika lebih dari 3 foto.
+
+---
+
+## Update 2026-10-24: Penyelarasan Otomatis `managedDepartments` untuk Head & Penilaian KPI Kualitas
+
+### Masalah & Gejala
+Saat karyawan dipromosikan menjadi Head Divisi di menu Kelola Karyawan (`/absensi/admin/staff`), menu Evaluasi Kualitas (`/dashboard/head/quality`) dan Penugasan KPI hanya menampilkan data KPI si Head sendiri, sementara KPI anggota timnya tidak muncul sama sekali.
+
+### Akar Masalah
+1. Kolom `users.managed_departments` di database sebelumnya hanya diisi secara manual atau lewat skrip SQL, dan form edit staf tidak menyediakan input pemilihan divisi yang dikelola Head.
+2. Saat dipromosikan jadi `head`, `users.managed_departments` tetap bernilai `[]`. Akibatnya, query server-side DAL (`listQualityRows`, `listManagedMembers`) memfilter divisi anggota dengan array kosong `[]`, sehingga hanya baris milik aktor Head itu sendiri yang lolos (`alsoIncludeUserIds = [profile.id]`).
+
+### Solusi & Implementasi
+1. **Server Guard Resolver (`resolveManagedDepartments`)**:
+   - Di `src/server/dal/guards.ts`: Jika seorang Head memiliki `managedDepartments` yang kosong, otomatis fallback ke `[profile.departmentId]`. Semua Route Handler yang memanggil `requireProfile()` otomatis mewarisi divisi binaannya.
+2. **Inisialisasi Otomatis di DAL & API Staff**:
+   - Di `src/server/dal/users.ts` (`setKpiRole`) & `src/server/dal/staff.ts` (`createStaff`): Jika role di-set `head` dan `managedDepartments` belum diisi, otomatis diinisialisasi dengan `[departmentId]`.
+3. **UI Kelola Divisi Head di Admin Staff**:
+   - Di `src/app/absensi/admin/staff/page.tsx`: Saat role dipilih `Head Divisi`, muncul pilihan multi-select checkbox divisi yang dikelola oleh Head tersebut, memungkinkan penugasan single-divisi maupun multi-divisi secara fleksibel oleh HR.
+4. **Defensif Scoring Permission**:
+   - Di `src/server/dal/quality.ts` (`assertCanScore`): Memperhitungkan fallback divisi sehingga Head dijamin berhak menilai seluruh anggota di divisinya.
+5. **Migrasi 0018**:
+   - File `drizzle/0018_fix_head_managed_departments.sql` disiapkan untuk memperbarui user Head existing yang kolom `managed_departments`-nya masih kosong.

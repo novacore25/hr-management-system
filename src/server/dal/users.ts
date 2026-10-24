@@ -213,10 +213,38 @@ export async function listAllUsers(): Promise<User[]> {
 export async function setKpiRole(
   targetUserId: string,
   kpiRole: User["kpiRole"],
+  managedDepartments?: string[],
 ): Promise<void> {
+  const [current] = await db
+    .select({
+      departmentId: users.departmentId,
+      managedDepartments: users.managedDepartments,
+    })
+    .from(users)
+    .where(eq(users.id, targetUserId))
+    .limit(1);
+
+  let finalManaged = managedDepartments;
+  if (kpiRole === "head") {
+    if (!finalManaged || finalManaged.length === 0) {
+      const existing = Array.isArray(current?.managedDepartments)
+        ? current.managedDepartments.filter(Boolean)
+        : [];
+      if (existing.length > 0) {
+        finalManaged = existing;
+      } else if (current?.departmentId) {
+        finalManaged = [current.departmentId];
+      }
+    }
+  }
+
   await db
     .update(users)
-    .set({ kpiRole, updatedAt: new Date() })
+    .set({
+      kpiRole,
+      ...(finalManaged !== undefined ? { managedDepartments: finalManaged } : {}),
+      updatedAt: new Date(),
+    })
     .where(eq(users.id, targetUserId));
 }
 

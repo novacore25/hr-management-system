@@ -35,6 +35,7 @@ export type StaffRow = {
   leaveUsed: number;
   sickUsed: number;
   createdAt: string;
+  managedDepartments?: string[];
 
   // ── Profil HR ───────────────────────────────────────────────
   nik: string | null;
@@ -74,6 +75,7 @@ const staffSelect = {
   isHidden: users.isHidden,
   createdAt: users.createdAt,
   departmentName: departments.name,
+  managedDepartments: users.managedDepartments,
 
   nik: users.nik,
   birthPlace: users.birthPlace,
@@ -183,6 +185,7 @@ export async function listStaff(params?: {
       leaveUsed: u.leave,
       sickUsed: u.sick,
       createdAt: r.createdAt.toISOString(),
+      managedDepartments: (r.managedDepartments as string[]) ?? [],
 
       nik: r.nik,
       birthPlace: r.birthPlace,
@@ -480,6 +483,10 @@ export async function createStaff(
     absensiRole: input.absensiRole,
       absensiStatus: "pending",
     departmentId: input.departmentId,
+    managedDepartments:
+      input.kpiRole === "head" && input.departmentId
+        ? [input.departmentId]
+        : [],
     position: input.position ?? null,
     createdAt: new Date(),
     updatedAt: new Date(),
