@@ -69,7 +69,8 @@ const TRANSITIONS: Record<string, string[]> = {
   // Staf boleh merevisi/mengedit laporan lembur selama HR belum memfinalisasi
   reported: ["finalized", "reported"],
   rejected: [],
-  finalized: [],
+  // HR boleh mengoreksi/mengedit lembur yang sudah difinalisasi
+  finalized: ["finalized"],
   cancelled: [],
 };
 
@@ -783,6 +784,7 @@ export async function setFinalDuration(
 export async function finalizeOvertime(
   id: string,
   input: {
+    finalDurationMinutes?: number;
     dayType?: "weekday" | "weekend" | "holiday";
     hourlyBaseRate?: number;
     maxPayCap?: number | null;
@@ -809,6 +811,9 @@ export async function finalizeOvertime(
         : "weekday");
 
   const duration =
+    (input.finalDurationMinutes && input.finalDurationMinutes > 0
+      ? input.finalDurationMinutes
+      : null) ??
     current.finalDurationMinutes ??
     current.actualDurationMinutes ??
     current.approvedDurationMinutes ??

@@ -268,6 +268,10 @@ export async function PATCH(request: Request) {
           overtime: await finalizeOvertime(
             id,
             {
+              finalDurationMinutes:
+                b.finalDurationMinutes !== undefined
+                  ? Number(b.finalDurationMinutes)
+                  : undefined,
               dayType: b.dayType,
               hourlyBaseRate:
                 b.hourlyBaseRate !== undefined

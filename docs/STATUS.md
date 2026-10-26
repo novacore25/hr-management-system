@@ -2061,3 +2061,18 @@ Pada fungsi `setQualityScore` di `src/server/dal/quality.ts`, setelah data berha
 
 ### Solusi & Implementasi
 Menyertakan `kpiTypes: [assignment.kpiType]` dan `userId: assignment.userId` pada pemanggilan `listQualityRows` di dalam `setQualityScore`, sehingga baris yang baru dinilai dijamin selalu ditemukan dan dikembalikan dengan benar ke frontend.
+
+---
+
+## Update 2026-10-26: Izin Koreksi / Edit Lembur Berstatus "finalized" oleh HR
+
+### Masalah & Gejala
+Saat HR membuka pengajuan lembur yang sudah berstatus `finalized` (melalui tombol "Edit Finalize" di manajemen lembur) lalu menekan tombol "SAHKAN & SIMPAN UPAH", sistem memunculkan error: `"Pengajuan yang sudah berstatus 'finalized' tidak bisa diubah jadi 'finalized'. Pengajuan ini sudah final."`.
+
+### Akar Masalah
+State machine transisi lembur `TRANSITIONS["finalized"]` di `src/server/dal/overtime.ts` bernilai array kosong `[]`, sehingga self-transition `finalized -> finalized` (koreksi upah lembur atau durasi final) ditolak oleh `assertTransition`. Selain itu, durasi final yang diubah HR di modal tidak diteruskan ke fungsi `finalizeOvertime`.
+
+### Solusi & Implementasi
+1. Menambahkan transisi `finalized: ["finalized"]` di `TRANSITIONS` (`src/server/dal/overtime.ts`).
+2. Meneruskan dan memproses `finalDurationMinutes` dari form `OvertimeFinalizeModal` ke endpoint `PATCH /api/overtime` dan fungsi `finalizeOvertime`.
+3. Menyesuaikan header modal dan label tombol submit ("Simpan Perubahan Upah") saat mengedit lembur yang sudah final.

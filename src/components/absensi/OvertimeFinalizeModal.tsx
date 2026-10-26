@@ -187,6 +187,7 @@ export default function OvertimeFinalizeModal({
       const res = await patchOvertime.mutate({
         id: overtime.id,
         action: "finalize",
+        finalDurationMinutes: totalDurationMinutes,
         dayType,
         hourlyBaseRate,
         maxPayCap: isCapActive ? maxPayCap : null,
@@ -201,7 +202,9 @@ export default function OvertimeFinalizeModal({
       }
 
       toast.success(
-        `Lembur disahkan: ${formatDurationDetail(totalDurationMinutes)} (${formatRp(finalTotalPay)})!`,
+        overtime.status === "finalized"
+          ? `Perubahan upah lembur berhasil disimpan: ${formatDurationDetail(totalDurationMinutes)} (${formatRp(finalTotalPay)})!`
+          : `Lembur disahkan: ${formatDurationDetail(totalDurationMinutes)} (${formatRp(finalTotalPay)})!`,
         { id: tid }
       );
       onSuccess();
@@ -229,10 +232,10 @@ export default function OvertimeFinalizeModal({
             </div>
             <div>
               <h2 className="text-lg font-black tracking-tight text-[var(--ab-text-main)] leading-none mb-1">
-                Finalisasi & Upah
+                {overtime?.status === "finalized" ? "Edit Upah & Finalisasi" : "Finalisasi & Upah"}
               </h2>
               <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--ab-text-dim)]">
-                Kalkulasi Lembur Resmi
+                {overtime?.status === "finalized" ? "Perbarui Kalkulasi Lembur" : "Kalkulasi Lembur Resmi"}
               </p>
             </div>
           </div>
@@ -493,7 +496,7 @@ export default function OvertimeFinalizeModal({
               <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
             ) : (
               <>
-                <Check size={16} /> Sahkan & Simpan Upah
+                <Check size={16} /> {overtime?.status === "finalized" ? "Simpan Perubahan Upah" : "Sahkan & Simpan Upah"}
               </>
             )}
           </button>
