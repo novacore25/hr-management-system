@@ -2048,3 +2048,16 @@ Pada file `src/app/dashboard/hr/assignments/page.tsx`, loop perulangan render ka
 2. Memperluas loop rendering kartu menjadi 5 tipe lengkap: `["result", "activity", "quality", "lead_tim", "hr"]`.
 3. Menambahkan indikator nilai rata-rata `L` (Lead Tim) dan `H` (HR) di header kartu ringkasan karyawan.
 4. Menjaga persentase penilaian kualitatif `lead_tim` dan `hr` pada `correctedAssignments` agar tidak tertimpa rasio matematis target bulanan.
+
+---
+
+## Update 2026-10-26: Perbaikan Re-fetch Score Evaluasi HR ("Gagal memuat ulang data")
+
+### Masalah & Gejala
+Saat HR menyimpan nilai KPI bertipe `hr` di halaman Evaluasi HR (`/dashboard/hr/evaluasi-hr`), muncul pesan error: `"Gagal memuat ulang data."`.
+
+### Akar Masalah
+Pada fungsi `setQualityScore` di `src/server/dal/quality.ts`, setelah data berhasil disimpan ke database, sistem memanggil `listQualityRows({ year, month })` untuk mengembalikan baris yang diperbarui ke frontend. Namun, `listQualityRows` secara default hanya memfilter `kpiTypes: ["quality", "lead_tim"]` bila parameter `kpiTypes` tidak disertakan. Akibatnya, baris assignment bertipe `hr` tidak ditemukan dalam hasil query dan mengembalikan error `"Gagal memuat ulang data."`.
+
+### Solusi & Implementasi
+Menyertakan `kpiTypes: [assignment.kpiType]` dan `userId: assignment.userId` pada pemanggilan `listQualityRows` di dalam `setQualityScore`, sehingga baris yang baru dinilai dijamin selalu ditemukan dan dikembalikan dengan benar ke frontend.

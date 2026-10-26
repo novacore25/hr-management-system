@@ -398,6 +398,8 @@ export async function setQualityScore(
   const rows = await listQualityRows({
     year: params.year,
     month: params.month,
+    kpiTypes: [assignment.kpiType],
+    userId: assignment.userId,
   });
   const row = rows.find((r) => r.assignmentId === params.assignmentId);
 
