@@ -13,6 +13,7 @@ import {
   formatDurationDetail,
   formatScheduleRange,
   calcDurationMinutes,
+  crossesMidnight,
 } from "@/lib/overtimeHelpers";
 import {
   Check, X, CalendarDays, FileEdit, Smile, Shield, ArrowRight,
@@ -1546,9 +1547,16 @@ const fetchOvertime = useCallback(async () => {
                   />
                 </div>
               </div>
-              <p className="text-center text-xs font-black text-blue-500 pt-1">
-                Durasi Disetujui: {formatMinutes(calcDurationMinutes(adjustStartTime, adjustEndTime))}
-              </p>
+              <div className="flex items-center justify-center gap-2 pt-1 flex-wrap">
+                <span className="text-center text-xs font-black text-blue-500">
+                  Durasi Disetujui: {formatMinutes(calcDurationMinutes(adjustStartTime, adjustEndTime))}
+                </span>
+                {crossesMidnight(adjustStartTime, adjustEndTime) && (
+                  <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 rounded-full border border-indigo-500/20">
+                    +1 Hari (Ganti Hari)
+                  </span>
+                )}
+              </div>
             </div>
 
             <div className="space-y-1.5">

@@ -14,6 +14,7 @@ export function formatDurationDetail(mins: number | null | undefined): string {
 
 /**
  * Formats a schedule time range with its duration (e.g., "18:30 - 20:30 (2 Jam 00 Menit)")
+ * Mendukung penanda (+1 hr) jika melewati tengah malam (misal: "20:30 - 02:30 (+1 hr) (6 Jam 00 Menit)")
  */
 export function formatScheduleRange(
   startStr: string | null | undefined,
@@ -28,7 +29,10 @@ export function formatScheduleRange(
     ? durationMinutes
     : calcDurationMinutes(start, end);
 
-  return `${start} - ${end} (${formatDurationDetail(dur)})`;
+  const isMidnight = crossesMidnight(start, end);
+  const midnightTag = isMidnight ? " (+1 hr)" : "";
+
+  return `${start} - ${end}${midnightTag} (${formatDurationDetail(dur)})`;
 }
 
 /**
@@ -83,13 +87,33 @@ export function calcDurationMinutes(startStr: string, endStr: string): number {
   return endMins - startMins;
 }
 
-/** True kalau rentang jam ini melewati tengah malam. */
+/** True kalau rentang jam ini melewati tengah malam (jam selesai lebih kecil dari jam mulai). */
 export function crossesMidnight(startStr: string, endStr: string): boolean {
   if (!startStr || !endStr) return false;
   const [sh, sm] = startStr.split(":").map(Number);
   const [eh, em] = endStr.split(":").map(Number);
   if (isNaN(sh) || isNaN(sm) || isNaN(eh) || isNaN(em)) return false;
-  return eh * 60 + em <= sh * 60 + sm;
+  return eh * 60 + em < sh * 60 + sm;
+}
+
+/** Menambahkan N hari ke tanggal ISO YYYY-MM-DD */
+export function addDaysToDate(dateStr: string, days: number = 1): string {
+  if (!dateStr) return "";
+  const [y, m, d] = dateStr.split("-").map(Number);
+  if (!y || !m || !d) return dateStr;
+  const dateObj = new Date(y, m - 1, d);
+  dateObj.setDate(dateObj.getDate() + days);
+  return `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, "0")}-${String(dateObj.getDate()).padStart(2, "0")}`;
+}
+
+/** Format tanggal YYYY-MM-DD ke format tampilan Indonesia DD/MM/YYYY */
+export function formatIndoDate(dateStr: string): string {
+  if (!dateStr) return "-";
+  const parts = dateStr.split("-");
+  if (parts.length === 3) {
+    return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  }
+  return dateStr;
 }
 
 /**

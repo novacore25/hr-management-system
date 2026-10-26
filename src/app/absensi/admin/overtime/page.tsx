@@ -14,6 +14,7 @@ import {
   formatRp,
   isWeekend,
   calcDurationMinutes,
+  crossesMidnight,
 } from "@/lib/overtimeHelpers";
 import {
   Clock,
@@ -1041,6 +1042,20 @@ export default function AdminOvertimePage() {
                   />
                 </div>
               </div>
+
+              {approveStartTime && approveEndTime && (
+                <div className="p-2.5 bg-[var(--ab-bg-main)] rounded-xl border border-[var(--ab-border)] flex items-center justify-between text-xs">
+                  <span className="text-[10px] font-bold text-[var(--ab-text-dim)]">Durasi Disetujui:</span>
+                  <div className="flex items-center gap-2 font-black text-blue-500">
+                    <span>{formatDurationDetail(calcDurationMinutes(approveStartTime, approveEndTime))}</span>
+                    {crossesMidnight(approveStartTime, approveEndTime) && (
+                      <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 rounded-full border border-indigo-500/20">
+                        +1 Hari (Ganti Hari)
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
 
               <div>
                 <label className="text-[10px] font-black uppercase text-[var(--ab-text-dim)] block mb-1">

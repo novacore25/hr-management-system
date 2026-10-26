@@ -381,7 +381,9 @@ export async function createOvertimeRequest(
 
   const duration = calcDurationMinutes(input.startTime, input.endTime);
   if (duration <= 0) {
-    throw new ValidationError("Jam selesai harus setelah jam mulai.");
+    throw new ValidationError(
+      "Jam selesai dan jam mulai tidak boleh sama (durasi lembur harus > 0 menit).",
+    );
   }
 
   // Validasi tugas DI SINI, dinormalisasi agar mendukung field `task`/`target`
@@ -489,7 +491,9 @@ export async function approveOvertime(
     input.approvedEndTime,
   );
   if (duration <= 0) {
-    throw new ValidationError("Jam selesai harus setelah jam mulai.");
+    throw new ValidationError(
+      "Jam selesai dan jam mulai tidak boleh sama (durasi lembur harus > 0 menit).",
+    );
   }
 
   await db
@@ -593,7 +597,9 @@ export async function submitOvertimeReport(
     input.actualEndTime,
   );
   if (duration <= 0) {
-    throw new ValidationError("Jam selesai harus setelah jam mulai.");
+    throw new ValidationError(
+      "Jam selesai dan jam mulai tidak boleh sama (durasi lembur harus > 0 menit).",
+    );
   }
 
   // Durasi aktual tidak boleh melebihi yang disetujui. Tanpa cek ini,

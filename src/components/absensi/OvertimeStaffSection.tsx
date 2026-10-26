@@ -9,6 +9,10 @@ import ImageLightboxModal from "@/components/absensi/ImageLightboxModal";
 import OvertimeDetailModal from "@/components/absensi/OvertimeDetailModal";
 import { compressImage, formatBytes } from "@/lib/imageCompression";
 import {
+  calcDurationMinutes,
+  crossesMidnight,
+  addDaysToDate,
+  formatIndoDate,
   formatDurationDetail,
   formatScheduleRange,
   getOvertimeStepState,
@@ -17,7 +21,7 @@ import {
 import {
   Clock, Plus, Trash2, CheckCircle2, AlertCircle, CalendarDays,
   FileText, Send, Loader2, Sparkles, Check, X, ShieldAlert, History,
-  Camera, Image as ImageIcon, Eye, Users, Info
+  Camera, Image as ImageIcon, Eye, Users, Info, Moon
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -139,19 +143,10 @@ const EMPTY_OVERTIME = {
     };
   }, [reportingReq]);
 
-  // Auto calculate requested duration in minutes
-  const calcDurationMinutes = (startStr: string, endStr: string) => {
-    if (!startStr || !endStr) return 0;
-    const [sh, sm] = startStr.split(":").map(Number);
-    const [eh, em] = endStr.split(":").map(Number);
-    const startMins = sh * 60 + sm;
-    const endMins = eh * 60 + em;
-    return Math.max(0, endMins - startMins);
-  };
-
   const formatMinutes = (mins: number | null | undefined) => formatDurationDetail(mins);
 
   const durationMinutes = calcDurationMinutes(startTime, endTime);
+  const isMidnight = crossesMidnight(startTime, endTime);
 
   const [cancelingId, setCancelingId] = useState<string | null>(null);
   const [isCanceling, setIsCanceling] = useState(false);
@@ -348,7 +343,10 @@ const EMPTY_OVERTIME = {
   const handleSubmitForm = async () => {
     if (!user) return;
     if (!overtimeDate) { toast.error("Pilih tanggal lembur."); return; }
-    if (durationMinutes <= 0) { toast.error("Jam selesai harus lebih besar dari jam mulai."); return; }
+    if (durationMinutes <= 0) {
+      toast.error("Jam selesai dan jam mulai tidak boleh sama (durasi lembur harus > 0 menit).");
+      return;
+    }
     const validTasks = tasks.filter(t => t.task.trim() !== "");
     if (validTasks.length === 0) { toast.error("Isi minimal 1 rencana tugas lembur."); return; }
 
@@ -505,6 +503,13 @@ const EMPTY_OVERTIME = {
     if (!reportingReq) return;
     if (!actualEndTime) { toast.error("Isi jam selesai aktual."); return; }
 
+    const actualStart = reportingReq.approvedStartTime || reportingReq.requestedStartTime;
+    const actualDur = calcDurationMinutes(actualStart, actualEndTime);
+    if (actualDur <= 0) {
+      toast.error("Jam selesai riil dan jam mulai tidak boleh sama (durasi lembur harus > 0 menit).");
+      return;
+    }
+
     const totalPhotos = existingProofImages.length + newProofFiles.length;
     if (totalPhotos < 2) {
       toast.error("Wajib melampirkan minimal 2 foto bukti lembur (contoh: 1 foto saat proses kerja & 1 foto hasil selesai).");
@@ -514,8 +519,6 @@ const EMPTY_OVERTIME = {
       toast.error("Maksimal 3 foto bukti lembur.");
       return;
     }
-
-    const actualStart = reportingReq.approvedStartTime || reportingReq.requestedStartTime;
 
     setIsSubmittingReport(true);
     const tid = toast.loading("Mengunggah foto bukti & mengirim laporan...");
@@ -774,21 +777,55 @@ const EMPTY_OVERTIME = {
           </div>
 
           {/* Durasi Summary Box */}
-          <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <Clock size={16} className="text-amber-500" />
-              <div>
-                <span className="text-[11px] font-black uppercase tracking-wider text-amber-600 dark:text-amber-400 block">
-                  Estimasi Durasi Pengajuan
-                </span>
-                <span className="text-[10px] font-bold text-[var(--ab-text-dim)]">
+          <div
+            className={`p-4 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 border transition-all ${
+              isMidnight
+                ? "bg-indigo-500/10 border-indigo-500/30 text-indigo-700 dark:text-indigo-300"
+                : "bg-amber-500/10 border-amber-500/20 text-amber-700 dark:text-amber-300"
+            }`}
+          >
+            <div className="flex items-start sm:items-center gap-3">
+              <div
+                className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                  isMidnight
+                    ? "bg-indigo-500/20 text-indigo-600 dark:text-indigo-400"
+                    : "bg-amber-500/20 text-amber-600 dark:text-amber-400"
+                }`}
+              >
+                {isMidnight ? <Moon size={18} /> : <Clock size={18} />}
+              </div>
+              <div className="space-y-0.5">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[11px] font-black uppercase tracking-wider block">
+                    Estimasi Durasi Pengajuan
+                  </span>
+                  {isMidnight && (
+                    <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 bg-indigo-600 text-white rounded-full">
+                      +1 Hari (Ganti Hari)
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] font-bold opacity-85">
                   Jadwal: {startTime} s/d {endTime}
-                </span>
+                  {isMidnight ? ` (Selesai ${formatIndoDate(addDaysToDate(overtimeDate))})` : ""}
+                </p>
+                {isMidnight && (
+                  <p className="text-[10px] font-semibold text-indigo-600 dark:text-indigo-400">
+                    Mulai: {formatIndoDate(overtimeDate)} ({startTime}) → Selesai: {formatIndoDate(addDaysToDate(overtimeDate))} ({endTime})
+                  </p>
+                )}
               </div>
             </div>
-            <span className="text-sm sm:text-base font-black text-amber-600 dark:text-amber-400 self-end sm:self-center">
-              {formatDurationDetail(durationMinutes)}
-            </span>
+            <div className="text-right self-end sm:self-center">
+              <span className="text-sm sm:text-base font-black tabular-nums block">
+                {formatDurationDetail(durationMinutes)}
+              </span>
+              {isMidnight && (
+                <span className="text-[10px] font-bold opacity-75">
+                  Lintas tengah malam
+                </span>
+              )}
+            </div>
           </div>
 
           {/* Tasks Repeater */}
@@ -1212,7 +1249,11 @@ const EMPTY_OVERTIME = {
       <ConfirmDialog
         isOpen={showConfirm}
         title="Konfirmasi Pengajuan Lembur"
-        message={`Yakin ingin mengajukan lembur pada tanggal ${overtimeDate} dengan durasi ${formatMinutes(durationMinutes)}?`}
+        message={
+          isMidnight
+            ? `Yakin ingin mengajukan lembur mulai ${formatIndoDate(overtimeDate)} (${startTime}) hingga ${formatIndoDate(addDaysToDate(overtimeDate))} (${endTime}) [+1 hari] dengan total durasi ${formatMinutes(durationMinutes)}?`
+            : `Yakin ingin mengajukan lembur pada tanggal ${formatIndoDate(overtimeDate)} (${startTime} s/d ${endTime}) dengan durasi ${formatMinutes(durationMinutes)}?`
+        }
         confirmLabel="Ya, Kirim Pengajuan"
         type="info"
         onConfirm={handleSubmitForm}
@@ -1278,25 +1319,40 @@ const EMPTY_OVERTIME = {
                     className="ab-input text-sm font-black py-2.5 px-3 rounded-xl text-center w-full box-border max-w-full"
                   />
                 </div>
-                <div className="p-2.5 bg-[var(--ab-bg-surface)] rounded-xl border border-[var(--ab-border)] text-xs space-y-1">
-                  <div className="flex justify-between items-center text-[10px] text-[var(--ab-text-dim)] font-bold">
-                    <span>Mulai:</span>
-                    <span className="font-black text-[var(--ab-text-main)]">
-                      {reportingReq.approvedStartTime || reportingReq.requestedStartTime}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center text-[10px] text-[var(--ab-text-dim)] font-bold">
-                    <span>Durasi Riil:</span>
-                    <span className="font-black text-purple-600 dark:text-purple-400">
-                      {formatDurationDetail(
-                        calcDurationMinutes(
-                          reportingReq.approvedStartTime || reportingReq.requestedStartTime,
-                          actualEndTime
-                        )
-                      )}
-                    </span>
-                  </div>
-                </div>
+                {(() => {
+                  const repStart = reportingReq.approvedStartTime || reportingReq.requestedStartTime;
+                  const repCrossMidnight = crossesMidnight(repStart, actualEndTime);
+                  const repDur = calcDurationMinutes(repStart, actualEndTime);
+                  return (
+                    <div className="p-2.5 bg-[var(--ab-bg-surface)] rounded-xl border border-[var(--ab-border)] text-xs space-y-1">
+                      <div className="flex justify-between items-center text-[10px] text-[var(--ab-text-dim)] font-bold">
+                        <span>Mulai:</span>
+                        <span className="font-black text-[var(--ab-text-main)]">
+                          {repStart}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center text-[10px] text-[var(--ab-text-dim)] font-bold">
+                        <span>Selesai (Riil):</span>
+                        <div className="flex items-center gap-1">
+                          <span className="font-black text-[var(--ab-text-main)]">
+                            {actualEndTime || "-"}
+                          </span>
+                          {repCrossMidnight && (
+                            <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.2 bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 rounded">
+                              +1 hr
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex justify-between items-center text-[10px] text-[var(--ab-text-dim)] font-bold">
+                        <span>Durasi Riil:</span>
+                        <span className="font-black text-purple-600 dark:text-purple-400">
+                          {formatDurationDetail(repDur)}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             </div>
 

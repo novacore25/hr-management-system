@@ -2076,3 +2076,31 @@ State machine transisi lembur `TRANSITIONS["finalized"]` di `src/server/dal/over
 1. Menambahkan transisi `finalized: ["finalized"]` di `TRANSITIONS` (`src/server/dal/overtime.ts`).
 2. Meneruskan dan memproses `finalDurationMinutes` dari form `OvertimeFinalizeModal` ke endpoint `PATCH /api/overtime` dan fungsi `finalizeOvertime`.
 3. Menyesuaikan header modal dan label tombol submit ("Simpan Perubahan Upah") saat mengedit lembur yang sudah final.
+
+---
+
+## Update 2026-10-26: Dukungan Penuh Lembur Lintas Tengah Malam (Overnight / +1 Hari)
+
+### Masalah & Gejala
+Ketika staf mengajukan lembur yang jam mulainya lebih besar dari jam selesai (misal mulai jam 20:30 dan selesai jam 02:30 keesokan harinya), kotak estimasi durasi keliru menampilkan `0 Jam 00 Menit` dan saat form dikirim muncul error `"Jam selesai harus lebih besar dari jam mulai"`.
+
+### Akar Masalah
+1. Di `src/components/absensi/OvertimeStaffSection.tsx`, terdapat fungsi lokal `calcDurationMinutes = Math.max(0, endMins - startMins)` yang menimpa kalkulasi modul `@/lib/overtimeHelpers`. Karena `endMins < startMins`, hasilnya menghasilkan `0`.
+2. Validasi form di frontend memeriksa `durationMinutes <= 0` dengan pesan yang mengasumsikan jam selesai harus lebih besar dari jam mulai.
+3. Fungsi `crossesMidnight` di `@/lib/overtimeHelpers.ts` sebelumnya menggunakan operator `<=` sehingga jam yang identik salah dianggap midnight crossing.
+4. UI belum memiliki penanda visual bahwa lembur melewati pergantian tanggal (`+1 hari`).
+
+### Solusi & Implementasi
+1. **Helper & Perhitungan Durasi**:
+   - Memperbaiki `crossesMidnight` di `src/lib/overtimeHelpers.ts` menggunakan operator `<`.
+   - Menambahkan helper `addDaysToDate` dan `formatIndoDate`.
+   - Memperbarui `formatScheduleRange` agar menyertakan label `(+1 hr)` secara otomatis bila jadwal melewati tengah malam (misal `20:30 - 02:30 (+1 hr) (6 Jam 00 Menit)`).
+2. **Form Pengajuan Staf (`OvertimeStaffSection.tsx`)**:
+   - Menghapus helper lokal duplikat dan menggunakan fungsi resmi dari `overtimeHelpers`.
+   - Durasi 20:30 s/d 02:30 otomatis terhitung 6 Jam 00 Menit (360 menit).
+   - Menambahkan box indikator visual bertema indigo dengan badge `+1 Hari (Ganti Hari)`, ikon Moon, dan kejelasan tanggal selesai keesokan harinya (`Mulai: 23/10/2026 (20:30) → Selesai: 24/10/2026 (02:30)`).
+   - Memperbarui modal konfirmasi pengajuan dan modal pelaporan hasil aktual lembur staf agar menampilkan penanda `+1 hari`.
+3. **Approval & Review HR (`approvals/page.tsx` & `overtime/page.tsx`)**:
+   - Menambahkan badge penanda `+1 Hari (Ganti Hari)` saat HR mereview atau menyesuaikan rentang jam lembur yang melewati tengah malam.
+4. **Validasi Server DAL (`src/server/dal/overtime.ts`)**:
+   - Menyelaraskan pesan validasi durasi menjadi `"Jam selesai dan jam mulai tidak boleh sama (durasi lembur harus > 0 menit)"`.
