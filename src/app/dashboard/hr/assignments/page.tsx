@@ -69,7 +69,7 @@ export default function HrAssignmentsPage() {
   const correctedAssignments = useMemo(() => assignments.map((a) => {
     const actualType = kpiMap[a.kpiId]?.type ?? a.kpiType ?? "result";
     const newA = { ...a, kpiType: actualType };
-    if (actualType === "quality") return newA;
+    if (actualType === "quality" || actualType === "lead_tim" || actualType === "hr") return newA;
     const pct = newA.monthlyTarget > 0 ? (newA.actualTotal / newA.monthlyTarget) * 100 : 0;
     return { ...newA, achievementPercentage: pct, performanceCategory: getPerformanceCategory(pct) as KpiAssignment["performanceCategory"] };
   }), [assignments, kpiMap]);
@@ -250,7 +250,13 @@ export default function HrAssignmentsPage() {
             const score = calcWeightedScore(userAssignments, weights);
             const initials = (u?.name ?? userId).slice(0, 2).toUpperCase();
 
-            const byType: Record<string, KpiAssignment[]> = { result: [], activity: [], quality: [] };
+            const byType: Record<string, KpiAssignment[]> = {
+              result: [],
+              activity: [],
+              quality: [],
+              lead_tim: [],
+              hr: [],
+            };
             userAssignments.forEach((a) => {
               const t = a.kpiType ?? "result";
               if (!byType[t]) byType[t] = [];
@@ -272,6 +278,8 @@ export default function HrAssignmentsPage() {
                       R {formatPercentage(score.resultAvg, 0)}
                       {score.activityCount > 0 && ` · A ${formatPercentage(score.activityAvg, 0)}`}
                       {score.qualityCount > 0 && ` · Q ${formatPercentage(score.qualityAvg, 0)}`}
+                      {score.leadTimCount > 0 && ` · L ${formatPercentage(score.leadTimAvg, 0)}`}
+                      {score.hrCount > 0 && ` · H ${formatPercentage(score.hrAvg, 0)}`}
                     </span>
                     <span className="text-sm font-semibold tabular-nums">{formatPercentage(score.total)}</span>
                     <PerformanceBadge category={score.category} />
@@ -279,7 +287,7 @@ export default function HrAssignmentsPage() {
                 </div>
 
                 <div className="divide-y divide-border">
-                  {(["result", "activity", "quality"] as const).map((type) => {
+                  {(["result", "activity", "quality", "lead_tim", "hr"] as const).map((type) => {
                     const typeAssignments = byType[type];
                     if (!typeAssignments || typeAssignments.length === 0) return null;
                     return typeAssignments.map((a) => {

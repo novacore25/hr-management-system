@@ -2032,3 +2032,19 @@ Saat karyawan dipromosikan menjadi Head Divisi di menu Kelola Karyawan (`/absens
    - Di `src/server/dal/quality.ts` (`assertCanScore`): Memperhitungkan fallback divisi sehingga Head dijamin berhak menilai seluruh anggota di divisinya.
 5. **Migrasi 0018**:
    - File `drizzle/0018_fix_head_managed_departments.sql` disiapkan untuk memperbarui user Head existing yang kolom `managed_departments`-nya masih kosong.
+
+---
+
+## Update 2026-10-26: Penyelarasan Tampilan KPI Tipe Lead Tim & HR di Halaman Penugasan HR
+
+### Masalah & Gejala
+Pada menu Penugasan KPI HR (`/dashboard/hr/assignments`), KPI bertipe `lead_tim` dan `hr` tidak tampil sama sekali di kartu karyawan, hanya menampilkan tipe `result`, `activity`, dan `quality`.
+
+### Akar Masalah
+Pada file `src/app/dashboard/hr/assignments/page.tsx`, loop perulangan render kartu karyawan di-hardcode hanya untuk `["result", "activity", "quality"]`. Assignment bertipe `lead_tim` dan `hr` yang ditarik dari API dilewati dan tidak dirender.
+
+### Solusi & Implementasi
+1. Menambahkan `lead_tim: []` dan `hr: []` pada inisialisasi `byType`.
+2. Memperluas loop rendering kartu menjadi 5 tipe lengkap: `["result", "activity", "quality", "lead_tim", "hr"]`.
+3. Menambahkan indikator nilai rata-rata `L` (Lead Tim) dan `H` (HR) di header kartu ringkasan karyawan.
+4. Menjaga persentase penilaian kualitatif `lead_tim` dan `hr` pada `correctedAssignments` agar tidak tertimpa rasio matematis target bulanan.
