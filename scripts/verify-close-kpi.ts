@@ -310,5 +310,19 @@ assert(
   headAssignUpdated.includes("allHold = holdCount > 0 && activeCount === 0"),
 );
 
+// 12. Verifikasi Retensi Evaluasi KPI HR & Lead Tim Saat Closed/Hold
+console.log("\n12. Retensi Evaluasi KPI HR & Lead Tim Saat Closed/Hold");
+const qualityDalCode = readFileSync("src/server/dal/quality.ts", "utf8");
+assert(
+  "DAL quality.ts listQualityRows menyertakan status hold dan completed",
+  qualityDalCode.includes('inArray(kpiAssignments.status, ["active", "hold", "completed"])'),
+);
+
+assert(
+  "DAL assignments.ts toAssignment membaca actualTotal & pct dari monthlyScores",
+  assignDalUpdated.includes("isSpecialType &&") &&
+  assignDalUpdated.includes("monthScore?.achievementPercentage !== undefined"),
+);
+
 console.log(`\n=== HASIL: ${pass} pass, ${fail} fail ===`);
 if (fail > 0) process.exit(1);

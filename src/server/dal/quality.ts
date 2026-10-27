@@ -98,7 +98,7 @@ export async function listQualityRows(params: {
     eq(kpiAssignments.year, params.year),
     eq(kpiAssignments.month, params.month),
     inArray(kpiAssignments.kpiType, kpiTypes),
-    eq(kpiAssignments.status, "active"),
+    inArray(kpiAssignments.status, ["active", "hold", "completed"]),
   ];
 
   if (kpiTypes.length === 0) return [];

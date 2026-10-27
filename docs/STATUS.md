@@ -2258,3 +2258,29 @@ Ketika staf ingin melakukan update, pengisian, atau pengubahan pada KPI yang tel
 5. **Verifikasi Test Suite**:
    - Menambahkan section pengujian ke-11 di `scripts/verify-close-kpi.ts` (total 52 assertions, seluruhnya PASS).
 
+---
+
+## Retensi Evaluasi KPI HR & Lead Tim Saat Status Closed / Hold
+
+### Masalah yang Ditemukan
+1. **Hilangnya Baris Evaluasi HR & Lead Tim di Halaman Penilaian**:
+   - Di `src/server/dal/quality.ts`, fungsi `listQualityRows` sebelumnya memiliki filter hardcoded: `eq(kpiAssignments.status, "active")`.
+   - Ketika penugasan di-hold / di-close (agar staf tidak bisa menginput lagi), statusnya berubah menjadi `"hold"`.
+   - Akibatnya, seluruh baris penugasan `lead_tim`, `hr`, dan `quality` untuk staf tersebut **lenyap total** dari:
+     - `/dashboard/hr/evaluasi-hr` (Evaluasi Personality oleh HR)
+     - `/dashboard/head/quality` (Evaluasi Kualitas oleh Head)
+     - `/dashboard/hr/quality` & `/dashboard/executive/quality`
+   - HR dan Head melihat tabel kosong seolah-olah data evaluasi yang sudah diisi hilang atau belum ada KPI yang ditugaskan.
+2. **Sinkronisasi Skor Evaluasi di DAL Assignments**:
+   - Fungsi `toAssignment` di `src/server/dal/assignments.ts` sebelumnya hanya membaca `qualityNotes` dari tabel `monthly_scores`, namun `actualTotal` dan `achievementPercentage` tetap diambil dari kolom denormalisasi `kpi_assignments`. Jika ada ketidaksinkronan, angka evaluasi bulanan jatuh ke 0.
+
+### Solusi & Implementasi
+1. **Retensi Status di DAL Quality (`src/server/dal/quality.ts`)**:
+   - `listQualityRows` kini menyertakan penugasan berstatus `hold` dan `completed`:
+     `inArray(kpiAssignments.status, ["active", "hold", "completed"])`.
+   - HR dan Head tetap dapat melihat seluruh karyawan dan nilai/catatan evaluasi yang telah diinput meskipun periode penginputan staf sudah ditutup.
+2. **Sinkronisasi Skor Realistis di DAL Assignments (`src/server/dal/assignments.ts`)**:
+   - `toAssignment` kini membaca `actualTotal` dan `achievementPercentage` langsung dari `monthlyScores` untuk KPI bertipe `quality`, `lead_tim`, dan `hr`.
+3. **Verifikasi Test Suite**:
+   - Menambahkan section pengujian ke-12 di `scripts/verify-close-kpi.ts` (total 54 assertions, seluruhnya PASS).
+

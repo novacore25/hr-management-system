@@ -87,6 +87,27 @@ function toAssignment(
     isHidden: false,
   };
 
+  const monthKey = `${row.year}-${String(row.month).padStart(2, "0")}`;
+  const monthScore = scores[monthKey];
+  const isSpecialType =
+    row.kpiType === "quality" ||
+    row.kpiType === "lead_tim" ||
+    row.kpiType === "hr";
+
+  const actualTotal =
+    isSpecialType &&
+    monthScore?.actualTotal !== undefined &&
+    monthScore.actualTotal !== null
+      ? monthScore.actualTotal
+      : Number(row.actualTotal);
+
+  const achievementPercentage =
+    isSpecialType &&
+    monthScore?.achievementPercentage !== undefined &&
+    monthScore.achievementPercentage !== null
+      ? monthScore.achievementPercentage
+      : Number(row.achievementPercentage);
+
   return {
     id: row.id,
     kpiId: row.kpiId,
@@ -96,19 +117,18 @@ function toAssignment(
     status: row.status,
     monthlyTarget: Number(row.monthlyTarget),
     currentDailyTarget: Number(row.currentDailyTarget),
-    actualTotal: Number(row.actualTotal),
+    actualTotal,
     expectedTotal: Number(row.expectedTotal),
-    achievementPercentage: Number(row.achievementPercentage),
+    achievementPercentage,
     performanceCategory: getPerformanceCategory(
-      Number(row.achievementPercentage),
+      achievementPercentage,
     ) as PerformanceCategory,
     workingDaysTotal: row.workingDaysTotal,
     workingDaysElapsed: row.workingDaysElapsed,
     workingDaysRemaining: row.workingDaysRemaining,
     activeDays: row.activeDays,
     qualityNotes:
-      scores[`${row.year}-${String(row.month).padStart(2, "0")}`]
-        ?.qualityNotes ||
+      monthScore?.qualityNotes ||
       row.qualityNotes ||
       "",
     year: row.year,
