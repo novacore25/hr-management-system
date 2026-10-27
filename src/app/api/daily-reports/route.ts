@@ -209,14 +209,9 @@ export async function POST(request: Request) {
           "Penugasan KPI ini telah dibatalkan. Tidak dapat menginput laporan.",
         );
       }
-      if (assignment.status === "hold") {
+      if (assignment.kpi?.status === "closed" || assignment.status === "hold") {
         throw new ValidationError(
-          "Penugasan KPI ini sedang di-hold. Tidak dapat menginput laporan.",
-        );
-      }
-      if (assignment.kpi?.status === "closed") {
-        throw new ValidationError(
-          "KPI ini sudah ditutup (closed) oleh HR. Penginputan realisasi dinonaktifkan.",
+          "KPI ini sudah di tutup anda terlambat silahkan hubungi HR jika ini kesalahan",
         );
       }
       if (assignment.kpi?.status === "hold") {
@@ -329,9 +324,9 @@ export async function PATCH(request: Request) {
         );
       }
     } else {
-      if (assignment?.kpi?.status === "closed") {
+      if (assignment?.kpi?.status === "closed" || assignment?.status === "hold") {
         throw new ValidationError(
-          "KPI ini sudah ditutup (closed) oleh HR. Pengubahan laporan dinonaktifkan.",
+          "KPI ini sudah di tutup anda terlambat silahkan hubungi HR jika ini kesalahan",
         );
       }
     }
@@ -374,9 +369,9 @@ export async function DELETE(request: Request) {
     if (!isOwner) {
       await requireKpiRole("hr", "executive");
     } else {
-      if (assignment.kpi?.status === "closed") {
+      if (assignment?.kpi?.status === "closed" || assignment?.status === "hold") {
         throw new ValidationError(
-          "KPI ini sudah ditutup (closed) oleh HR. Penghapusan laporan dinonaktifkan.",
+          "KPI ini sudah di tutup anda terlambat silahkan hubungi HR jika ini kesalahan",
         );
       }
     }

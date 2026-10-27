@@ -2175,3 +2175,27 @@ Selain menutup master KPI untuk semua staf, HR dan Head membutuhkan fleksibilita
    - Menambahkan 13 assertions baru di `scripts/verify-close-kpi.ts` (total 38 assertions pass).
    - Lolos verifikasi build Next.js 15 (63/63 route), `tsc --noEmit`, dan seluruh smoke test tanpa error.
 
+---
+
+## Update 2026-10-27: Pesan Peringatan & Popup Keterlambatan saat Staf Ingin Update KPI yang Ditutup
+
+### Kebutuhan & Masalah
+Ketika staf ingin melakukan update, pengisian, atau pengubahan pada KPI yang telah ditutup (`closed`) atau di-hold per personil, sistem perlu memberikan pesan/popup peringatan yang tegas dan jelas: `"KPI ini sudah di tutup anda terlambat silahkan hubungi HR jika ini kesalahan"`. Sebelumnya, kartu KPI di dashboard staf yang berstatus ditutup menonaktifkan klik tanpa respons interaktif, dan pesan error di backend belum mengarahkan alasan keterlambatan secara spesifik.
+
+### Solusi & Implementasi
+1. **Kartu KPI Staf (`src/components/kpi/KpiCard.tsx`)**:
+   - Jika KPI berstatus `closed` atau `assignment.status === "hold"`, footer kartu KPI menampilkan teks peringatan merah: `🔒 KPI ini sudah di tutup anda terlambat silahkan hubungi HR jika ini kesalahan`.
+   - Ketika staf mengklik kartu KPI yang ditutup karena ingin update, sistem segera memicu popup toast peringatan (`toast.error`) berisi pesan keterlambatan tersebut dan tetap membuka form modal `DailyInputForm` dalam keadaan terproteksi/terkunci.
+2. **Form Modal Input/Update (`src/components/kpi/DailyInputForm.tsx`)**:
+   - Menampilkan banner peringatan merah dengan ikon `Lock` dan kalimat persis: `"KPI ini sudah di tutup anda terlambat silahkan hubungi HR jika ini kesalahan"`.
+   - Memunculkan toast peringatan otomatis saat form terbuka untuk KPI yang ditutup.
+   - Jika staf mencoba menekan tombol Simpan / Update (atau area tombol saat dinonaktifkan), muncul toast error peringatan bahwa KPI sudah ditutup dan terlambat.
+   - Pengecekan blokade `handleSubmit` menghentikan proses submit dan menampilkan pesan tersebut.
+3. **Halaman Tasks Harian (`src/app/dashboard/tim/input/page.tsx`)**:
+   - Menampilkan tombol badge merah "Ditutup" berikon `Lock` yang dapat diklik; saat diklik memunculkan toast peringatan keterlambatan dan membuka modal detail yang terkunci.
+4. **Validasi Server-Side Backend (`src/app/api/daily-reports/route.ts`)**:
+   - Pada operasi `POST`, `PATCH`, dan `DELETE`, jika KPI berstatus `closed` atau assignment berstatus `hold`, backend menolak dengan `ValidationError("KPI ini sudah di tutup anda terlambat silahkan hubungi HR jika ini kesalahan")`.
+5. **Verifikasi Test Suite**:
+   - Menambahkan 3 pengujian baru pada `scripts/verify-close-kpi.ts` (total 41 pass, 0 fail).
+   - Seluruh suite pengujian `verify:kpitampil` (26 pass), `typecheck` (0 error), dan smoke test lolos 100%.
+

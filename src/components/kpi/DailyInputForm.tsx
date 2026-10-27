@@ -192,8 +192,11 @@ export function DailyInputForm({
     if (open) {
       setSelectedDate(today);
       setError("");
+      if (isKpiClosed || assignment.status === "hold") {
+        toast.error("KPI ini sudah di tutup anda terlambat silahkan hubungi HR jika ini kesalahan");
+      }
     }
-  }, [open, today]);
+  }, [open, today, isKpiClosed, assignment.status]);
 
   /**
    * formerly `insert` / `update` dari browser.
@@ -208,7 +211,13 @@ export function DailyInputForm({
     setError("");
 
     if (isBlocked) {
-      setError(isKpiClosed ? "KPI ini telah ditutup oleh HR." : "KPI tidak aktif.");
+      const msg = (isKpiClosed || assignment.status === "hold")
+        ? "KPI ini sudah di tutup anda terlambat silahkan hubungi HR jika ini kesalahan"
+        : isKpiHold
+        ? "KPI sedang di-hold. Penginputan realisasi sementara dinonaktifkan."
+        : "Penugasan KPI telah dibatalkan.";
+      setError(msg);
+      toast.error(msg);
       return;
     }
 
@@ -322,22 +331,18 @@ export function DailyInputForm({
         ) : (
           <form onSubmit={handleSubmit} className="space-y-4">
             {isBlocked && (
-              <div className="rounded-xl bg-destructive/10 border border-destructive/20 p-3 text-sm text-destructive">
+              <div className="rounded-xl bg-destructive/10 border border-destructive/20 p-3.5 text-sm text-destructive">
                 <p className="font-bold flex items-center gap-1.5">
-                  <Lock className="h-4 w-4" />
-                  {isKpiClosed
+                  <Lock className="h-4 w-4 shrink-0" />
+                  {isKpiClosed || assignment.status === "hold"
                     ? "KPI Ditutup oleh HR"
-                    : assignment.status === "hold"
-                    ? "KPI Ditutup / Di-Hold untuk Anda"
                     : isKpiHold
                     ? "KPI Sedang Di-Hold"
                     : "Penugasan KPI Dibatalkan"}
                 </p>
-                <p className="text-xs mt-1 text-destructive/80">
-                  {isKpiClosed
-                    ? "HR telah menutup KPI ini. Pengisian atau pengubahan capaian realisasi dinonaktifkan."
-                    : assignment.status === "hold"
-                    ? "Penugasan KPI Anda telah ditutup / di-hold oleh HR/Head. Pengisian realisasi dinonaktifkan."
+                <p className="text-xs mt-1.5 text-destructive font-semibold leading-relaxed">
+                  {isKpiClosed || assignment.status === "hold"
+                    ? "KPI ini sudah di tutup anda terlambat silahkan hubungi HR jika ini kesalahan"
                     : "Pengisian realisasi untuk KPI ini dinonaktifkan sementara."}
                 </p>
               </div>
@@ -442,9 +447,22 @@ export function DailyInputForm({
                   <Button type="button" variant="outline" onClick={onClose} disabled={submitting}>
                     Batal
                   </Button>
-                  <Button type="submit" disabled={submitting || isBlocked}>
-                    {submitting ? "Menyimpan..." : existingReportId ? "Update" : "Simpan"}
-                  </Button>
+                  <div
+                    onClick={() => {
+                      if (isBlocked) {
+                        toast.error(
+                          (isKpiClosed || assignment.status === "hold")
+                            ? "KPI ini sudah di tutup anda terlambat silahkan hubungi HR jika ini kesalahan"
+                            : "Pengisian realisasi untuk KPI ini dinonaktifkan."
+                        );
+                      }
+                    }}
+                    className={isBlocked ? "cursor-not-allowed" : ""}
+                  >
+                    <Button type="submit" disabled={submitting || isBlocked}>
+                      {submitting ? "Menyimpan..." : existingReportId ? "Update" : "Simpan"}
+                    </Button>
+                  </div>
                 </div>
               </div>
             </DialogFooter>

@@ -205,5 +205,21 @@ assert(
   headAssignPage.includes("handleBulkUsersStatusChange") && headAssignPage.includes("toggleSelectAllUsers"),
 );
 
+// 9. Verifikasi Pesan & Popup Keterlambatan saat KPI Ditutup
+console.log("\n9. Pesan & Popup Keterlambatan saat KPI Ditutup");
+const kpiCard = readFileSync("src/components/kpi/KpiCard.tsx", "utf8");
+assert(
+  "DailyInputForm menampilkan pesan keterlambatan saat blocked",
+  inputForm.includes("KPI ini sudah di tutup anda terlambat silahkan hubungi HR jika ini kesalahan"),
+);
+assert(
+  "KpiCard menampilkan pesan keterlambatan saat KPI ditutup",
+  kpiCard.includes("KPI ini sudah di tutup anda terlambat silahkan hubungi HR jika ini kesalahan"),
+);
+assert(
+  "POST /api/daily-reports menolak dengan pesan keterlambatan",
+  reportsRoute.includes("KPI ini sudah di tutup anda terlambat silahkan hubungi HR jika ini kesalahan"),
+);
+
 console.log(`\n=== HASIL: ${pass} pass, ${fail} fail ===`);
 if (fail > 0) process.exit(1);

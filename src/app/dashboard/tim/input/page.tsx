@@ -9,7 +9,8 @@ import { Input } from "@/components/ui/input";
 import { PerformanceBadge } from "@/components/ui/badge";
 import { formatNumber, formatCurrency, formatPercentage, getLiveWorkingDaysRemaining, pesanKpiReadonly, getBrandColor, cleanKpiTitle, cn } from "@/lib/utils";
 import type { KpiAssignmentWithDetails } from "@/types";
-import { Search } from "lucide-react";
+import { Search, Lock } from "lucide-react";
+import { toast } from "sonner";
 
 const typeLabel: Record<string, string> = {
   result: "Result",
@@ -132,16 +133,27 @@ export default function TimInputPage() {
                   <div className="ml-4 flex items-center gap-3">
                     <PerformanceBadge category={a.performanceCategory} />
                     {pesanKpiReadonly(a.kpi, a.kpi?.type === "hr" ? "HR" : "Head", a) ? (
-                      // Badge ini menampilkan deskripsi KPI kalau ada, supaya
-                      // staf tahu apa yang sebenarnya dinilai HR. Kalau
-                      // deskripsinya kosong, jatuh ke kalimat pendek -- bukan
-                      // badge kosong yang terlihat normal.
-                      <span
-                        title={pesanKpiReadonly(a.kpi, a.kpi?.type === "hr" ? "HR" : "Head", a) ?? undefined}
-                        className="text-[10px] uppercase font-bold text-slate-500 bg-slate-100 px-2 py-1.5 rounded-md max-w-[22rem] truncate"
-                      >
-                        {pesanKpiReadonly(a.kpi, a.kpi?.type === "hr" ? "HR" : "Head", a)}
-                      </span>
+                      (a.kpi?.status === "closed" || a.status === "hold") ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            toast.error("KPI ini sudah di tutup anda terlambat silahkan hubungi HR jika ini kesalahan");
+                            setSelected(a);
+                          }}
+                          className="flex items-center gap-1.5 text-[10px] uppercase font-bold text-red-700 bg-red-50 border border-red-200 px-2.5 py-1.5 rounded-md hover:bg-red-100 transition-colors cursor-pointer"
+                          title="KPI ini sudah di tutup anda terlambat silahkan hubungi HR jika ini kesalahan"
+                        >
+                          <Lock className="h-3 w-3 text-red-600" />
+                          <span>Ditutup</span>
+                        </button>
+                      ) : (
+                        <span
+                          title={pesanKpiReadonly(a.kpi, a.kpi?.type === "hr" ? "HR" : "Head", a) ?? undefined}
+                          className="text-[10px] uppercase font-bold text-slate-500 bg-slate-100 px-2 py-1.5 rounded-md max-w-[22rem] truncate"
+                        >
+                          {pesanKpiReadonly(a.kpi, a.kpi?.type === "hr" ? "HR" : "Head", a)}
+                        </span>
+                      )
                     ) : (
                       <Button size="sm" onClick={() => setSelected(a)}>
                         Input

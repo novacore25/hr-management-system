@@ -17,8 +17,9 @@ import {
   cn,
 } from "@/lib/utils";
 import { useDailyReportsForAssignment } from "@/hooks/useDailyReports";
-import { MessageSquare, ChevronDown, ChevronUp, CheckCircle2 } from "lucide-react";
+import { MessageSquare, ChevronDown, ChevronUp, CheckCircle2, Lock } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import { toast } from "sonner";
 import type { KpiAssignmentWithDetails } from "@/types";
 import type { Period } from "@/components/kpi/PeriodPicker";
 
@@ -95,15 +96,26 @@ export function KpiCard({ assignment, onClick, showNotes = true, period, readonl
   const expectedPct = monthlyTarget > 0 ? (assignment.expectedTotal / monthlyTarget) * 100 : 0;
 
   const isCompleted = displayPct >= 100;
+  const isKpiClosed = kpi.status === "closed" || assignment.status === "hold";
+
+  const handleCardClick = () => {
+    if (isKpiClosed) {
+      toast.error("KPI ini sudah di tutup anda terlambat silahkan hubungi HR jika ini kesalahan");
+      onClick?.();
+      return;
+    }
+    if (readonlyMessage) return;
+    onClick?.();
+  };
 
   return (
     <Card
       className={cn(
         "rounded-[30px] ab-glass transition-all duration-300 relative overflow-hidden",
-        (onClick && !readonlyMessage) ? "cursor-pointer hover:-translate-y-2 hover:shadow-[0_20px_40px_-12px_var(--ab-primary-glow)]" : "",
+        (onClick && (!readonlyMessage || isKpiClosed)) ? "cursor-pointer hover:-translate-y-2 hover:shadow-[0_20px_40px_-12px_var(--ab-primary-glow)]" : "",
         isCompleted ? "border-green-300/30 bg-green-50/10 dark:bg-green-900/10 shadow-[0_4px_16px_rgba(34,197,94,0.15)]" : "border border-[var(--ab-border)]"
       )}
-      onClick={readonlyMessage ? undefined : onClick}
+      onClick={handleCardClick}
     >
       {/* Decorative top border */}
       <div className={cn("absolute top-0 left-0 right-0 h-1.5", isCompleted ? "bg-gradient-to-r from-green-400 to-emerald-500" : "bg-gradient-to-r from-[var(--ab-primary-light)] to-[var(--ab-primary)] opacity-70")} />
@@ -346,8 +358,28 @@ export function KpiCard({ assignment, onClick, showNotes = true, period, readonl
         )}
         {readonlyMessage && (
           <div className="mt-4 pt-4 border-t border-slate-100">
-            <div className="p-2 rounded-lg bg-slate-100 text-[10px] text-center font-bold uppercase tracking-widest text-slate-500 border border-slate-200 border-dashed">
-              {readonlyMessage}
+            <div
+              className={cn(
+                "p-2.5 rounded-xl text-[11px] text-center font-bold tracking-tight border transition-colors",
+                isKpiClosed
+                  ? "bg-red-50 text-red-600 border-red-200 shadow-sm cursor-pointer hover:bg-red-100"
+                  : "bg-slate-100 text-slate-500 border-slate-200 border-dashed"
+              )}
+              onClick={(e) => {
+                if (isKpiClosed) {
+                  e.stopPropagation();
+                  handleCardClick();
+                }
+              }}
+            >
+              {isKpiClosed ? (
+                <div className="flex items-center justify-center gap-1.5">
+                  <Lock className="h-3.5 w-3.5 shrink-0 text-red-500" />
+                  <span>KPI ini sudah di tutup anda terlambat silahkan hubungi HR jika ini kesalahan</span>
+                </div>
+              ) : (
+                readonlyMessage
+              )}
             </div>
           </div>
         )}
