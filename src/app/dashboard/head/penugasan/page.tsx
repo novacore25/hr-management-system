@@ -61,6 +61,7 @@ export default function HeadPenugasanPage() {
     "active",
     "hold",
     "cancelled",
+    "completed",
   ]);
 
   const patchAssignment = useApiMutation<Record<string, unknown>, unknown>(
@@ -356,7 +357,7 @@ export default function HeadPenugasanPage() {
             const userAssignments = groupedByUser[userId];
             const u = userMap[userId];
             const initials = (u?.name ?? userId).slice(0, 2).toUpperCase();
-            const activeAssignments = userAssignments.filter(a => a.status === 'active' || a.status === 'completed');
+            const activeAssignments = userAssignments.filter(a => a.status === 'active' || a.status === 'completed' || a.status === 'hold');
             const activeCount = userAssignments.filter((a) => a.status === "active").length;
             const holdCount = userAssignments.filter((a) => a.status === "hold").length;
             const allHold = userAssignments.length > 0 && activeCount === 0;

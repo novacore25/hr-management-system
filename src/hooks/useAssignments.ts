@@ -25,12 +25,8 @@ export function useMyAssignments(
   month: number,
 ) {
   const build = useCallback(() => {
-    // Bulan lampau: tampilkan yang active + completed
-    const now = new Date();
-    const isPastMonth =
-      year < now.getFullYear() ||
-      (year === now.getFullYear() && month < now.getMonth() + 1);
-    const status = isPastMonth ? "active,completed" : "active";
+    // Tampilkan active, hold (closed), dan completed agar staf tetap bisa melihat capaian & performanya
+    const status = "active,hold,completed";
 
     return withQuery("/api/assignments", { scope: "me", year, month, status });
   }, [year, month]);
@@ -55,7 +51,7 @@ export function useAllAssignments(
   month: number,
   statuses?: AssignmentStatus[],
 ) {
-  const statusKey = statuses?.join(",") ?? "active";
+  const statusKey = statuses?.join(",") ?? "active,hold,cancelled,completed";
 
   const build = useCallback(
     () =>
@@ -95,7 +91,7 @@ export function useManagedAssignments(
   month: number,
   statuses?: AssignmentStatus[],
 ) {
-  const statusKey = statuses?.join(",") ?? "active";
+  const statusKey = statuses?.join(",") ?? "active,hold,cancelled,completed";
 
   const build = useCallback(
     () =>

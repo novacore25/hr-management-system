@@ -36,9 +36,10 @@ export default function TimKpiPage() {
   const [period, setPeriod] = useState<Period>({ type: "month" });
   const [tab, setTab] = useState<"active" | "completed_daily" | "all">("active");
 
-  const hasDailyKpis = assignments.some((a) => a.kpi?.period === "daily");
+  const validAssignments = assignments.filter((a) => a.status !== "cancelled");
+  const hasDailyKpis = validAssignments.some((a) => a.kpi?.period === "daily");
 
-  const activeAssignments = assignments.filter((a) => {
+  const activeAssignments = validAssignments.filter((a) => {
     if (a.kpi?.period === "daily") {
       // Harian aktif: belum selesai (actual < monthlyTarget)
       return a.actualTotal < a.monthlyTarget;
@@ -46,13 +47,13 @@ export default function TimKpiPage() {
     return true; // Bulanan tetap aktif sepanjang bulan
   });
 
-  const completedDailyAssignments = assignments.filter((a) => {
+  const completedDailyAssignments = validAssignments.filter((a) => {
     return a.kpi?.period === "daily" && a.actualTotal >= a.monthlyTarget;
   });
 
   const displayedAssignments =
     !hasDailyKpis || tab === "all"
-      ? assignments
+      ? validAssignments
       : tab === "active"
       ? activeAssignments
       : completedDailyAssignments;

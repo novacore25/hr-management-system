@@ -41,14 +41,14 @@ function num(v: string | null, fallback = 0): number {
 }
 
 function parseStatuses(raw: string | null): AssignmentStatus[] {
-  if (!raw) return ["active"];
+  if (!raw) return ["active", "hold", "cancelled", "completed"];
   const list = raw
     .split(",")
     .map((s) => s.trim())
     .filter((s): s is AssignmentStatus =>
       (VALID_STATUS as string[]).includes(s),
     );
-  return list.length > 0 ? list : ["active"];
+  return list.length > 0 ? list : ["active", "hold", "cancelled", "completed"];
 }
 
 /**

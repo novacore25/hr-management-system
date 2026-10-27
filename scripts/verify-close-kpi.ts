@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { pesanKpiReadonly } from "../src/lib/utils";
+import { pesanKpiReadonly, calcWeightedScore } from "../src/lib/utils";
 
 console.log("=== VERIFIKASI FITUR CLOSE KPI & CLOSE ALL ===");
 let pass = 0;
@@ -219,6 +219,57 @@ assert(
 assert(
   "POST /api/daily-reports menolak dengan pesan keterlambatan",
   reportsRoute.includes("KPI ini sudah di tutup anda terlambat silahkan hubungi HR jika ini kesalahan"),
+);
+
+// 10. Verifikasi Retensi KPI Closed/Hold di Dashboard Staf & Menu Penugasan HR/Head
+console.log("\n10. Retensi KPI Closed/Hold di Dashboard Staf & Penugasan HR/Head");
+const hooksAssignments = readFileSync("src/hooks/useAssignments.ts", "utf8");
+assert(
+  "useMyAssignments meminta status active,hold,completed",
+  hooksAssignments.includes('status = "active,hold,completed"'),
+);
+assert(
+  "useAllAssignments menyertakan status hold secara default",
+  hooksAssignments.includes('"active,hold,cancelled,completed"'),
+);
+
+assert(
+  "HR Assignments Page memuat penugasan hold dan completed",
+  hrAssignPage.includes('"hold"') && hrAssignPage.includes('"completed"'),
+);
+
+assert(
+  "Head Penugasan Page memuat penugasan hold dan completed",
+  headAssignPage.includes('"hold"') && headAssignPage.includes('"completed"'),
+);
+
+const mockWeights = { result: 50, activity: 50, quality: 0, leadTim: 0, hr: 0 };
+const mockHoldAssign = [{
+  id: "test-1",
+  userId: "u1",
+  kpiId: "k1",
+  kpiType: "result",
+  status: "hold" as const,
+  monthlyTarget: 100,
+  currentDailyTarget: 4,
+  actualTotal: 80,
+  expectedTotal: 80,
+  achievementPercentage: 80,
+  performanceCategory: "good" as const,
+  workingDaysTotal: 25,
+  year: 2026,
+  month: 10,
+  createdAt: new Date().toISOString(),
+  updatedAt: new Date().toISOString(),
+}];
+const calculatedScore = calcWeightedScore(
+  mockHoldAssign as unknown as Parameters<typeof calcWeightedScore>[0],
+  mockWeights,
+);
+assert(
+  "calcWeightedScore menghitung assignment berstatus hold",
+  calculatedScore.resultCount === 1 && calculatedScore.resultAvg === 80,
+  `resultCount: ${calculatedScore.resultCount}, resultAvg: ${calculatedScore.resultAvg}`,
 );
 
 console.log(`\n=== HASIL: ${pass} pass, ${fail} fail ===`);

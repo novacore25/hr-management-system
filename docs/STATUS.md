@@ -2199,3 +2199,34 @@ Ketika staf ingin melakukan update, pengisian, atau pengubahan pada KPI yang tel
    - Menambahkan 3 pengujian baru pada `scripts/verify-close-kpi.ts` (total 41 pass, 0 fail).
    - Seluruh suite pengujian `verify:kpitampil` (26 pass), `typecheck` (0 error), dan smoke test lolos 100%.
 
+---
+
+## Retensi KPI Closed/Hold di Dashboard Staf & Menu Penugasan HR/Head
+
+### Masalah yang Ditemukan
+1. **Hilangnya KPI di Dashboard Staf Saat Ditutup (Hold)**:
+   - Di `src/hooks/useAssignments.ts`, `useMyAssignments` memfilter `status=active` (atau `active,completed` di bulan lampau).
+   - Ketika penugasan di-close (`status: "hold"`), server tidak mengembalikan penugasan tersebut, sehingga KPI lenyap dari dashboard staf (`/dashboard/tim`, `/dashboard/tim/kpi`, `/dashboard/tim/input`) dan skor performa bulan tersebut menjadi hilang/hilang sebagian.
+2. **Hilangnya Karyawan di Menu Penugasan KPI HR (`/dashboard/hr/assignments`)**:
+   - `useAllAssignments` default-nya hanya meminta `status=active`.
+   - Ketika seluruh KPI seorang staf (misal: Ilham Khadafi) ditutup (`hold`), server mengembalikan 0 baris penugasan untuk staf tersebut.
+   - Karena pengelompokan `groupedByUser` hanya menyertakan user yang memiliki penugasan di hasil query, nama staf tersebut lenyap dari tabel dan kolom pencarian tidak dapat menemukannya. Akibatnya, HR tidak memiliki cara untuk membuka kembali KPI staf tersebut.
+3. **Kalkulasi Performa Mengabaikan Penugasan Hold**:
+   - `calcWeightedScore` di `src/lib/utils.ts` memiliki filter `if (a.status !== "active" && a.status !== "completed") continue;`.
+   - Akibatnya capaian historis realisasi yang sudah diinput pada penugasan yang di-hold tidak dihitung dalam skor bobot.
+
+### Solusi & Implementasi
+1. **Retensi Dashboard Staf (`src/hooks/useAssignments.ts`, `src/app/dashboard/tim/kpi/page.tsx`)**:
+   - `useMyAssignments` kini meminta status `"active,hold,completed"`.
+   - KPI berstatus `hold` tetap ditampilkan di dashboard staf lengkap dengan badge terkunci, pemberitahuan keterlambatan, dan skor realisasi yang sudah dicapai. Hanya penginputan/pengeditan baru yang dinonaktifkan.
+   - Halaman `/dashboard/tim/kpi` memastikan tab tugas aktif dan riwayat tetap menampilkan penugasan yang di-hold dan mengecualikan penugasan `cancelled`.
+2. **Retensi Menu Penugasan HR & Head (`src/app/dashboard/hr/assignments/page.tsx`, `src/app/dashboard/head/penugasan/page.tsx`)**:
+   - `useAllAssignments` dan `useManagedAssignments` kini memuat seluruh status: `["active", "hold", "cancelled", "completed"]`.
+   - Backend `GET /api/assignments` mengembalikan `["active", "hold", "cancelled", "completed"]` secara default.
+   - Karyawan yang seluruh KPI-nya ditutup (seperti Ilham Khadafi) tetap muncul dalam daftar dengan badge `Semua KPI Ditutup`, skor tetap terhitung akurat, dan HR/Head dapat mencari namanya serta mengklik tombol "Buka Semua" atau "Buka" per KPI kapan saja.
+3. **Kalkulasi Skor Bobot (`src/lib/utils.ts`)**:
+   - `calcWeightedScore` menyertakan status `hold`: `if (a.status !== "active" && a.status !== "completed" && a.status !== "hold") continue;`.
+   - Skor staf yang KPI-nya di-hold tetap mencerminkan performa nyata bulan tersebut.
+4. **Verifikasi Test Suite**:
+   - Menambahkan section pengujian ke-10 di `scripts/verify-close-kpi.ts` (total 46 assertions, seluruhnya PASS).
+

@@ -222,7 +222,11 @@ export async function getAssignmentsForPeriod(params: {
   }
   conds.push(
     period.type === "month"
-      ? inArray(kpiAssignments.status, statuses ?? ["active"])
+      ? inArray(kpiAssignments.status, statuses ?? [
+          "active",
+          "completed",
+          "hold",
+        ])
       : inArray(kpiAssignments.status, statuses ?? [
           "active",
           "completed",

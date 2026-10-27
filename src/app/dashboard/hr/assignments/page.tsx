@@ -47,7 +47,12 @@ export default function HrAssignmentsPage() {
 
   const { kpis } = useKpis(year, month);
   const { users } = useAllUsers();
-  const { assignments, isLoading, refresh } = useAllAssignments(year, month);
+  const { assignments, isLoading, refresh } = useAllAssignments(year, month, [
+    "active",
+    "hold",
+    "cancelled",
+    "completed",
+  ]);
   const { getWeights } = useAllKpiSettings();
 
   const patchAssignment = useApiMutation<Record<string, unknown>, unknown>(

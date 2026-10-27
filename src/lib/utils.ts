@@ -158,7 +158,7 @@ export function calcWeightedScore(
   };
 
   for (const a of assignments) {
-    if (a.status !== "active" && a.status !== "completed") continue;
+    if (a.status !== "active" && a.status !== "completed" && a.status !== "hold") continue;
     const t = a.kpiType ?? "result";
     if (t !== "result" && t !== "activity" && t !== "quality" && t !== "lead_tim" && t !== "hr") continue;
 
