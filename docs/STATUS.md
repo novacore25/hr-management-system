@@ -2284,3 +2284,37 @@ Ketika staf ingin melakukan update, pengisian, atau pengubahan pada KPI yang tel
 3. **Verifikasi Test Suite**:
    - Menambahkan section pengujian ke-12 di `scripts/verify-close-kpi.ts` (total 54 assertions, seluruhnya PASS).
 
+---
+
+## Fitur Expand Alasan Cuti & Alasan Penolakan untuk User
+
+### Masalah yang Ditemukan
+1. **Alasan Pengajuan Cuti Terpotong (Clamped)**:
+   - Pada halaman persetujuan cuti (`/absensi/admin/approvals`), teks alasan pengajuan (`req.reason`) dan alasan pembatalan (`req.cancellationReason`) dibatasi dengan CSS `line-clamp-2`.
+   - Admin (Executive atau HR) tidak dapat membaca alasan pengajuan secara utuh jika alasan tersebut panjang atau memiliki baris baru.
+2. **Penolakan Pengajuan Tanpa Catatan / Alasan**:
+   - Ketika Executive atau HR mengklik tombol "TOLAK", sistem hanya menampilkan dialog konfirmasi yes/no tanpa formulir input alasan penolakan.
+   - Karyawan yang pengajuannya ditolak tidak mengetahui mengapa cuti/izin mereka ditolak.
+3. **Data Penolakan Tidak Diteruskan ke Tampilan Staf**:
+   - Endpoint `GET /api/absensi/leave?view=team` sebelumnya tidak mengembalikan kolom `rejectionReason`, `rejectedBy`, `rejectedAt`, dan `rejectionStage`.
+   - Halaman staf (`/absensi/(staff)/requests`) tidak menampilkan kotak penjelasan penolakan saat status pengajuan `rejected`.
+
+### Solusi & Implementasi
+1. **Komponen ExpandableReason (`src/app/absensi/admin/approvals/page.tsx`)**:
+   - Membuat komponen `ExpandableReason` yang menampilkan teks ringkas secara elegan dan menyediakan toggle interaktif `"Lihat Selengkapnya"` / `"Sembunyikan"`.
+   - Diterapkan pada kartu pengajuan Tahap 1 (Pending Executive), Tahap 2 (Waiting HR), Riwayat Cuti (History), dan Permohonan Batal (Cancellations).
+2. **Dialog Alasan Penolakan Cuti (`PromptDialog`)**:
+   - Tombol "TOLAK" di Tahap 1 dan Tahap 2 kini membuka dialog khusus dengan textarea wajib untuk mengisi alasan penolakan (`rejectingLeaveReq`).
+   - Handler `handleRejectLeave` mengirimkan payload `{ id, action: "reject", notes: reason }` ke endpoint `PATCH /api/absensi/leave`.
+   - `PromptDialog` diperkaya dengan dukungan varian `type: "danger"` beraksen warna merah untuk menegaskan konteks aksi penolakan.
+3. **Penyimpanan Alasan di Backend DAL (`src/server/dal/leave.ts`)**:
+   - Fungsi `decideLeaveStage` menyimpan `notes` ke kolom `rejectionReason`, `rejectedBy`, `rejectedAt`, `rejectionStage`, serta mencatatnya di `executiveNotes` atau `hrNotes` sesuai tahapan penolak.
+   - `teamLeaveHistory` membaca kolom-kolom penolakan tersebut dari database.
+4. **Proteksi Privasi & Tampilan Staf (`src/app/api/absensi/leave/route.ts` & `src/app/absensi/(staff)/requests/page.tsx`)**:
+   - Endpoint `view=team` mengembalikan `rejectionReason`, `rejectedBy`, `rejectedAt`, dan `rejectionStage` **hanya** untuk user yang merupakan pemilik pengajuan (`r.userId === me.id`), menjaga privasi antar-rekan kerja.
+   - Komponen `RequestCard` di `/absensi/requests` menampilkan kartu khusus warna merah beraksen `"Alasan Penolakan"` yang mencantumkan detail alasan dan nama/jabatan atasan yang menolak.
+   - Label status pengajuan diselaraskan ke Bahasa Indonesia (`"DITOLAK"`, `"MENUNGGU EXECUTIVE"`, `"MENUNGGU HR"`, `"DISETUJUI"`, `"DIBATALKAN"`).
+5. **Verifikasi Test Suite**:
+   - Menambahkan suite pengujian `scripts/verify-leave-rejection.ts` (`npm run verify:leavereject`) yang menguji 24 assertions di seluruh lapisan DAL, API, dialog, admin approvals, dan tampilan staf (24 PASS, 0 FAIL).
+   - Seluruh suite `verify` (typecheck + smoke test) dan `verify:build` (63 route Next.js) lolos 100%.
+

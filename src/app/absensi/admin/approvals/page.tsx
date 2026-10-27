@@ -46,6 +46,63 @@ interface PendingRequest {
   hrApprovedAt?: string | null;
   rejectionStage?: string | null;
   rejectionReason?: string | null;
+  rejectedBy?: string | null;
+  rejectedAt?: string | null;
+}
+
+function ExpandableReason({
+  text,
+  label,
+  icon = true,
+  className,
+  textColor,
+}: {
+  text?: string | null;
+  label?: string;
+  icon?: boolean;
+  className?: string;
+  textColor?: string;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  if (!text) return null;
+
+  const isLong = text.length > 70 || text.includes("\n");
+
+  return (
+    <div className={`flex flex-col gap-1 ${className ?? ""}`}>
+      {label && (
+        <span className="font-black uppercase text-[8px] tracking-widest opacity-60 not-italic">
+          {label}
+        </span>
+      )}
+      <div className={`flex items-start gap-2 text-[10px] font-medium italic ${textColor ?? "text-[var(--ab-text-dim)]"}`}>
+        {icon && <FileEdit size={12} className="mt-0.5 shrink-0 opacity-40" />}
+        <div className="flex-1 min-w-0">
+          <span
+            className={`${
+              expanded
+                ? "whitespace-pre-wrap break-words"
+                : "line-clamp-2 break-words"
+            }`}
+          >
+            &ldquo;{text}&rdquo;
+          </span>
+          {isLong && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setExpanded((v) => !v);
+              }}
+              className="not-italic inline-flex items-center gap-0.5 ml-1.5 text-[9px] font-black text-blue-500 hover:text-blue-600 transition underline tracking-wider uppercase cursor-pointer"
+            >
+              {expanded ? "Sembunyikan" : "Lihat Selengkapnya"}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 type ConfirmCfg = {
@@ -95,6 +152,9 @@ export default function AdminApprovalsPage() {
   const [adjustStartTime, setAdjustStartTime] = useState("");
   const [adjustEndTime, setAdjustEndTime] = useState("");
   const [adjustNotes, setAdjustNotes] = useState("");
+
+  // Reject Leave Dialog
+  const [rejectingLeaveReq, setRejectingLeaveReq] = useState<PendingRequest | null>(null);
 
   // Reject Overtime Dialog
   const [rejectingReq, setRejectingReq] = useState<OvertimeRequest | null>(null);
@@ -220,6 +280,10 @@ const fetchOvertime = useCallback(async () => {
           dates: r.dates ?? [],
           reason: r.reason ?? "",
           createdAt: r.createdAt,
+          rejectionStage: r.rejectionStage ?? null,
+          rejectionReason: r.rejectionReason ?? null,
+          rejectedBy: r.rejectedBy ?? null,
+          rejectedAt: r.rejectedAt ?? null,
         })),
       );
 
@@ -243,6 +307,8 @@ const fetchOvertime = useCallback(async () => {
         hrApprovedAt: r.hrApprovedAt ?? null,
         rejectionStage: r.rejectionStage ?? null,
         rejectionReason: r.rejectionReason ?? null,
+        rejectedBy: r.rejectedBy ?? null,
+        rejectedAt: r.rejectedAt ?? null,
       });
 
       setWaitingHrReqs((d.waitingHr ?? []).map(keBentuk));
@@ -276,6 +342,10 @@ const fetchOvertime = useCallback(async () => {
           status: r.status,
           deductedSick: r.deductedSick ?? 0,
           deductedLeave: r.deductedLeave ?? 0,
+          rejectionStage: r.rejectionStage ?? null,
+          rejectionReason: r.rejectionReason ?? null,
+          rejectedBy: r.rejectedBy ?? null,
+          rejectedAt: r.rejectedAt ?? null,
         })),
       );
 
@@ -443,11 +513,52 @@ const fetchOvertime = useCallback(async () => {
     void fetchOvertime();
   };
 
+  const handleRejectLeave = async (reason: string) => {
+    if (!rejectingLeaveReq) return;
+    if (!reason.trim()) {
+      toast.error("Alasan penolakan wajib diisi.");
+      return;
+    }
+
+    const tid = toast.loading("Memproses penolakan pengajuan...");
+
+    try {
+      const res = await fetch("/api/absensi/leave", {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          id: rejectingLeaveReq.id,
+          action: "reject",
+          notes: reason.trim(),
+        }),
+      });
+
+      const json = (await res.json().catch(() => null)) as { error?: string } | null;
+      if (!res.ok) {
+        toast.error(json?.error ?? "Gagal menolak pengajuan.", { id: tid });
+        return;
+      }
+
+      toast.success("Pengajuan berhasil ditolak.", { id: tid });
+      setRejectingLeaveReq(null);
+      void fetchLeave();
+    } catch (err) {
+      console.error("handleRejectLeave exception:", err);
+      toast.error("Terjadi kesalahan saat memproses penolakan.", { id: tid });
+    }
+  };
+
   const processRequest = (req: PendingRequest, action: "approve" | "reject") => {
+    if (action === "reject") {
+      setRejectingLeaveReq(req);
+      return;
+    }
+
     setConfirmCfg({
-      title: action === "approve" ? "Konfirmasi Persetujuan" : "Konfirmasi Penolakan",
-      msg: `Yakin ingin ${action === "approve" ? "menyetujui" : "menolak"} pengajuan ${req.type} dari ${req.userName}?`,
-      type: action === "approve" ? "warning" : "danger",
+      title: "Konfirmasi Persetujuan",
+      msg: `Yakin ingin menyetujui pengajuan ${typeLabel(req.type)} dari ${req.userName}?`,
+      type: "warning",
       onConfirm: async () => {
         const tid = toast.loading("Memproses pengajuan...");
 
@@ -460,7 +571,7 @@ const fetchOvertime = useCallback(async () => {
           method: "PATCH",
           credentials: "include",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ id: req.id, action }),
+          body: JSON.stringify({ id: req.id, action: "approve" }),
         });
 
         const json = (await res.json().catch(() => null)) as { error?: string } | null;
@@ -676,9 +787,8 @@ const fetchOvertime = useCallback(async () => {
                               <CalendarDays size={12} className="mt-0.5 shrink-0" style={{ color: "var(--ab-primary)" }} />
                               <span className="leading-relaxed">{req.dates.join(", ")}</span>
                             </div>
-                            <div className="flex items-start gap-2 text-[10px] font-medium text-[var(--ab-text-dim)] italic px-2">
-                              <FileEdit size={12} className="mt-1 text-[var(--ab-text-dim)] shrink-0 opacity-40" />
-                              <span className="line-clamp-2">&ldquo;{req.reason}&rdquo;</span>
+                            <div className="px-2">
+                              <ExpandableReason text={req.reason} />
                             </div>
                           </div>
                         </div>
@@ -699,7 +809,7 @@ const fetchOvertime = useCallback(async () => {
                             <Check size={14} /> Setujui
                           </button>
                           <button
-                            onClick={() => processRequest(req, "reject")}
+                            onClick={() => setRejectingLeaveReq(req)}
                             className="flex-1 bg-[var(--ab-bg-main)] text-red-500 border border-[var(--ab-border)] py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-red-500 hover:text-white transition flex items-center justify-center gap-2"
                           >
                             <X size={14} /> Tolak
@@ -814,9 +924,8 @@ const fetchOvertime = useCallback(async () => {
                             {req.dates.join(", ")}
                           </div>
 
-                          <div className="flex items-start gap-2 text-[10px] font-medium text-[var(--ab-text-dim)] italic px-2">
-                            <FileEdit size={12} className="mt-1 text-[var(--ab-text-dim)] shrink-0 opacity-40" />
-                            <span className="line-clamp-2">&ldquo;{req.reason}&rdquo;</span>
+                          <div className="px-2">
+                            <ExpandableReason text={req.reason} />
                           </div>
 
                           <div className="flex gap-2">
@@ -832,7 +941,7 @@ const fetchOvertime = useCallback(async () => {
                                   <Check size={14} /> Setujui
                                 </button>
                                 <button
-                                  onClick={() => processRequest(req, "reject")}
+                                  onClick={() => setRejectingLeaveReq(req)}
                                   className="flex-1 bg-[var(--ab-bg-main)] text-red-500 border border-[var(--ab-border)] py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-red-500 hover:text-white transition flex items-center justify-center gap-2"
                                 >
                                   <X size={14} /> Tolak
@@ -901,9 +1010,13 @@ const fetchOvertime = useCallback(async () => {
                                 <CalendarDays size={12} className="mt-0.5 shrink-0 text-red-500" />
                                 <span className="leading-relaxed">{req.dates.join(", ")}</span>
                               </div>
-                              <div className="flex flex-col gap-1 text-[10px] font-medium text-red-700 dark:text-red-300 italic px-2 border-l-2 border-red-300 dark:border-red-800 ml-1 pl-3">
-                                <span className="font-black uppercase text-[8px] tracking-widest opacity-60 not-italic">Alasan Batal</span>
-                                <span className="line-clamp-2">&ldquo;{req.cancellationReason}&rdquo;</span>
+                              <div className="px-2 border-l-2 border-red-300 dark:border-red-800 ml-1 pl-3">
+                                <ExpandableReason
+                                  text={req.cancellationReason}
+                                  label="Alasan Batal"
+                                  icon={false}
+                                  textColor="text-red-700 dark:text-red-300"
+                                />
                               </div>
                             </div>
                           </div>
@@ -980,10 +1093,27 @@ const fetchOvertime = useCallback(async () => {
                                 <CalendarDays size={12} className="mt-0.5 shrink-0" style={{ color: "var(--ab-primary)" }} />
                                 <span className="leading-relaxed">{req.dates.join(", ")}</span>
                               </div>
-                              <div className="flex flex-col gap-1 text-[10px] font-medium text-[var(--ab-text-dim)] italic px-2 border-l-2 border-[var(--ab-border)] ml-1 pl-3">
-                                <span className="font-black uppercase text-[8px] tracking-widest opacity-60 not-italic">Alasan</span>
-                                <span className="line-clamp-2">&ldquo;{req.reason}&rdquo;</span>
+                              <div className="px-2 border-l-2 border-[var(--ab-border)] ml-1 pl-3">
+                                <ExpandableReason
+                                  text={req.reason}
+                                  label="Alasan"
+                                  icon={false}
+                                />
                               </div>
+                              {req.status === "rejected" && req.rejectionReason && (
+                                <div className="mt-2 bg-red-50 dark:bg-red-950/20 p-2.5 rounded-xl border border-red-200 dark:border-red-900/30">
+                                  <div className="flex items-center gap-1 text-red-600 dark:text-red-400 text-[9px] font-black uppercase tracking-wider mb-0.5">
+                                    <AlertCircle size={10} />
+                                    <span>
+                                      Alasan Ditolak {req.rejectedBy ? `oleh ${req.rejectedBy}` : ""}
+                                      {req.rejectionStage ? ` (${req.rejectionStage.toUpperCase()})` : ""}
+                                    </span>
+                                  </div>
+                                  <p className="text-[10px] font-medium text-red-700 dark:text-red-300 italic whitespace-pre-wrap break-words">
+                                    &ldquo;{req.rejectionReason}&rdquo;
+                                  </p>
+                                </div>
+                              )}
                             </div>
                           </div>
                         </div>
@@ -1731,12 +1861,26 @@ const fetchOvertime = useCallback(async () => {
         document.body
       )}
 
+      {/* Reject Leave Dialog Prompt */}
+      <PromptDialog
+        isOpen={!!rejectingLeaveReq}
+        title={`Tolak Pengajuan ${rejectingLeaveReq ? typeLabel(rejectingLeaveReq.type) : "Cuti"}`}
+        message={`Masukkan alasan mengapa pengajuan ${rejectingLeaveReq ? typeLabel(rejectingLeaveReq.type) : ""} dari ${rejectingLeaveReq?.userName} ditolak:`}
+        placeholder="Contoh: Kuota tidak mencukupi / Pekerjaan sedang mendesak / Jadwal bentrok..."
+        confirmLabel="Tolak Pengajuan"
+        type="danger"
+        onConfirm={handleRejectLeave}
+        onCancel={() => setRejectingLeaveReq(null)}
+      />
+
       {/* Reject Dialog Prompt */}
       <PromptDialog
         isOpen={!!rejectingReq}
         title="Tolak Pengajuan Lembur"
         message={`Masukkan alasan mengapa pengajuan lembur dari ${rejectingReq?.userName} ditolak:`}
         placeholder="Cth: Workload tidak memenuhi syarat lembur, deadline bukan hari ini..."
+        confirmLabel="Tolak Lembur"
+        type="danger"
         onConfirm={handleRejectOvertime}
         onCancel={() => setRejectingReq(null)}
       />

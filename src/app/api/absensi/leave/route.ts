@@ -45,7 +45,7 @@ export async function GET(request: Request) {
     }
 
     // Riwayat tim: staf aktif boleh melihat siapa saja yang cuti,
-    // tapi `reason` milik orang lain sengaja dikosongkan di DAL.
+    // tapi `reason` dan detail penolakan milik orang lain sengaja dikosongkan.
     if (searchParams.get("view") === "team") {
       await requireActiveAbsensiStaff();
       const rows = await teamLeaveHistory();
@@ -53,6 +53,10 @@ export async function GET(request: Request) {
         requests: rows.map((r) => ({
           ...r,
           reason: r.userId === me.id ? r.reason : null,
+          rejectionReason: r.userId === me.id ? r.rejectionReason : null,
+          rejectedBy: r.userId === me.id ? r.rejectedBy : null,
+          rejectedAt: r.userId === me.id ? r.rejectedAt : null,
+          rejectionStage: r.userId === me.id ? r.rejectionStage : null,
         })),
       };
     }

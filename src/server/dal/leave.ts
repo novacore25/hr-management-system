@@ -648,8 +648,14 @@ export async function decideLeaveStage(
   if (action === "reject") {
     const set =
       stage === "executive"
-        ? { executiveStatus: "rejected" as const }
-        : { hrStatus: "rejected" as const };
+        ? {
+            executiveStatus: "rejected" as const,
+            executiveNotes: notes?.trim() || null,
+          }
+        : {
+            hrStatus: "rejected" as const,
+            hrNotes: notes?.trim() || null,
+          };
 
     await db
       .update(leaveRequests)
@@ -872,6 +878,10 @@ export async function teamLeaveHistory(
     reason: string | null;
     cancellationRequested: boolean;
     createdAt: string;
+    rejectionReason?: string | null;
+    rejectedBy?: string | null;
+    rejectedAt?: string | null;
+    rejectionStage?: string | null;
   }>
 > {
   const rows = await db
@@ -886,6 +896,10 @@ export async function teamLeaveHistory(
       reason: leaveRequests.reason,
       cancellationRequested: leaveRequests.cancellationRequested,
       createdAt: leaveRequests.createdAt,
+      rejectionReason: leaveRequests.rejectionReason,
+      rejectedBy: leaveRequests.rejectedBy,
+      rejectedAt: leaveRequests.rejectedAt,
+      rejectionStage: leaveRequests.rejectionStage,
     })
     .from(leaveRequests)
     .innerJoin(users, eq(leaveRequests.userId, users.id))
@@ -904,6 +918,10 @@ export async function teamLeaveHistory(
     reason: r.reason,
     cancellationRequested: r.cancellationRequested,
     createdAt: r.createdAt.toISOString(),
+    rejectionReason: r.rejectionReason,
+    rejectedBy: r.rejectedBy,
+    rejectedAt: r.rejectedAt?.toISOString() ?? null,
+    rejectionStage: r.rejectionStage,
   }));
 }
 

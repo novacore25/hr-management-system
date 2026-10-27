@@ -25,6 +25,7 @@
     "verify:otmidnight": "node scripts/verify-overtime-midnight.mjs",
     "verify:otnumbers": "tsx scripts/verify-overtime-numbers.mjs",
     "verify:leave2layer": "node scripts/verify-leave-2layer.mjs",
+    "verify:leavereject": "tsx scripts/verify-leave-rejection.ts",
     "verify:attstats": "node scripts/verify-attendance-stats.mjs",
     "verify:detail": "node scripts/verify-detail-jarak.mjs",
     "verify:storage": "node scripts/verify-storage-bukti.mjs",

@@ -25,14 +25,18 @@ interface TeamLeaveRow {
   departmentName: string | null;
   type: LeaveRequestType;
   dates: string[];
-  status: "pending" | "approved" | "rejected" | "cancelled";
+  status: "pending" | "approved" | "rejected" | "cancelled" | "approved_executive";
   reason: string | null;
   cancellationRequested: boolean;
   createdAt: string;
+  rejectionReason?: string | null;
+  rejectedBy?: string | null;
+  rejectedAt?: string | null;
+  rejectionStage?: string | null;
 }
 import {
   CalendarPlus, CalendarDays, History, X, Info,
-  FileEdit, Smile, Clock
+  FileEdit, Smile, Clock, AlertCircle
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -511,9 +515,10 @@ function RequestCard({
   onCancel: (req: TeamLeaveRow) => void;
 }) {
   const statusColor =
-    req.status === "approved" ? "bg-green-500" :
-    req.status === "pending"  ? "bg-orange-400" :
-    req.status === "cancelled" ? "#94a3b8" : "bg-red-500";
+    req.status === "approved"           ? "bg-green-500" :
+    req.status === "approved_executive" ? "bg-blue-500" :
+    req.status === "pending"            ? "bg-orange-400" :
+    req.status === "cancelled"          ? "#94a3b8" : "bg-red-500";
 
   const typeStyle =
     req.type === "leave"  ? "bg-emerald-50 text-[#00897B] border-emerald-100 dark:bg-emerald-900/20 dark:border-emerald-800 dark:text-emerald-400" :
@@ -521,15 +526,19 @@ function RequestCard({
                             "bg-purple-50 text-purple-600 border-purple-100 dark:bg-purple-900/20 dark:border-purple-800 dark:text-purple-400";
 
   const statusBadgeStyle =
-    req.status === "approved"  ? "bg-green-500 text-white" :
-    req.status === "pending"   ? "bg-orange-50 text-orange-600 dark:bg-orange-900/20 dark:text-orange-400" :
-    req.status === "cancelled" ? "bg-[var(--ab-bg-main)] text-[var(--ab-text-dim)]" :
-                                 "bg-red-500 text-white";
+    req.status === "approved"           ? "bg-green-500 text-white" :
+    req.status === "approved_executive" ? "bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400 border border-blue-200 dark:border-blue-800" :
+    req.status === "pending"            ? "bg-orange-50 text-orange-600 dark:bg-orange-900/20 dark:text-orange-400" :
+    req.status === "cancelled"          ? "bg-[var(--ab-bg-main)] text-[var(--ab-text-dim)]" :
+                                          "bg-red-500 text-white";
 
   const statusLabel =
-    req.status === "pending"   ? "DIAJUKAN" :
-    req.status === "cancelled" ? "DIBATALKAN" :
-    req.status.toUpperCase();
+    req.status === "pending"            ? "MENUNGGU EXECUTIVE" :
+    req.status === "approved_executive" ? "MENUNGGU HR" :
+    req.status === "cancelled"          ? "DIBATALKAN" :
+    req.status === "rejected"           ? "DITOLAK" :
+    req.status === "approved"           ? "DISETUJUI" :
+    String(req.status).toUpperCase();
 
   return (
     <div className="bg-[var(--ab-bg-surface)] p-6 rounded-[30px] border border-[var(--ab-border)] shadow-sm relative overflow-hidden">
@@ -594,8 +603,27 @@ function RequestCard({
       </div>
       {req.reason && (
         <div className="bg-[var(--ab-bg-main)] p-4 rounded-2xl border border-[var(--ab-border)]">
-          <p className="text-xs text-[var(--ab-text-dim)] font-bold leading-relaxed italic">
+          <p className="text-xs text-[var(--ab-text-dim)] font-bold leading-relaxed italic whitespace-pre-wrap break-words">
             &ldquo;{req.reason}&rdquo;
+          </p>
+        </div>
+      )}
+
+      {req.status === "rejected" && (
+        <div className="mt-3 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900/50 p-4 rounded-2xl space-y-1.5">
+          <div className="flex items-center justify-between text-red-600 dark:text-red-400">
+            <span className="font-black text-[10px] uppercase tracking-wider flex items-center gap-1.5">
+              <AlertCircle size={13} className="shrink-0" />
+              Alasan Penolakan
+            </span>
+            {req.rejectedBy && (
+              <span className="text-[9px] font-bold text-red-500/80">
+                Oleh: {req.rejectedBy} {req.rejectionStage ? `(${req.rejectionStage === "executive" ? "Executive" : req.rejectionStage === "hr" ? "HR" : req.rejectionStage.toUpperCase()})` : ""}
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-red-700 dark:text-red-300 font-semibold leading-relaxed whitespace-pre-wrap break-words">
+            {req.rejectionReason ? `"${req.rejectionReason}"` : "Tidak ada catatan alasan penolakan."}
           </p>
         </div>
       )}
