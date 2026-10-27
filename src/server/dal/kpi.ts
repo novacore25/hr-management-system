@@ -755,7 +755,7 @@ export async function copyKpisFromMonth(
       ),
     );
 
-  const key = (t: string, b: string | null, d: string | null) => `${t.trim().toLowerCase()} ${(b ?? "").trim().toLowerCase()} ${d ?? ""}`;
+  const key = (t: string, b: string | null, d: string | null) => `${t.trim().toLowerCase()}::${(b ?? "").trim().toLowerCase()}::${d ?? ""}`;
   const taken = new Set(
     existing.map((e) => key(e.title, e.brand, e.departmentId)),
   );
@@ -788,4 +788,82 @@ export async function copyKpisFromMonth(
   );
 
   return { copied: toInsert.length, skipped: sources.length - toInsert.length };
+}
+
+/**
+ * Tutup semua KPI aktif/hold dalam satu bulan tertentu (Close All).
+ * Staf tidak akan bisa menginput realisasi harian untuk KPI yang ditutup.
+ */
+export async function closeAllKpis(
+  year: number,
+  month: number,
+  departmentIds?: string[] | null,
+  actorId?: string,
+): Promise<{ closedCount: number }> {
+  const now = new Date();
+  const conds = [
+    eq(kpis.year, year),
+    eq(kpis.month, month),
+    isNull(kpis.deletedAt),
+    inArray(kpis.status, ["active", "hold", "draft"]),
+  ];
+  if (departmentIds && departmentIds.length > 0) {
+    conds.push(inArray(kpis.departmentId, departmentIds));
+  }
+
+  const res = await db
+    .update(kpis)
+    .set({ status: "closed", updatedAt: now })
+    .where(and(...conds))
+    .returning({ id: kpis.id });
+
+  return { closedCount: res.length };
+}
+
+/**
+ * Buka kembali semua KPI yang berstatus 'closed' dalam satu bulan tertentu (Open All).
+ */
+export async function openAllKpis(
+  year: number,
+  month: number,
+  departmentIds?: string[] | null,
+  actorId?: string,
+): Promise<{ openedCount: number }> {
+  const now = new Date();
+  const conds = [
+    eq(kpis.year, year),
+    eq(kpis.month, month),
+    isNull(kpis.deletedAt),
+    eq(kpis.status, "closed"),
+  ];
+  if (departmentIds && departmentIds.length > 0) {
+    conds.push(inArray(kpis.departmentId, departmentIds));
+  }
+
+  const res = await db
+    .update(kpis)
+    .set({ status: "active", updatedAt: now })
+    .where(and(...conds))
+    .returning({ id: kpis.id });
+
+  return { openedCount: res.length };
+}
+
+/**
+ * Ubah status beberapa KPI sekaligus berdasarkan daftar ID.
+ */
+export async function bulkSetKpiStatus(
+  ids: string[],
+  status: KpiStatus,
+  actorId?: string,
+): Promise<{ updatedCount: number }> {
+  if (ids.length === 0) return { updatedCount: 0 };
+  const now = new Date();
+  const res = await db
+    .update(kpis)
+    .set({ status, updatedAt: now })
+    .where(and(inArray(kpis.id, ids), isNull(kpis.deletedAt)))
+    .returning({ id: kpis.id });
+
+  return { updatedCount: res.length };
 }

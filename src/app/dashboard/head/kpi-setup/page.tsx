@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/select";
 import { formatNumber, formatCurrency, formatPercentage, getBrandColor } from "@/lib/utils";
 import type { KPI } from "@/types";
-import { Plus, Pencil, Trash2, CheckCircle, PauseCircle, Archive, Search, XCircle, CheckCircle2, FileEdit } from "lucide-react";
+import { Plus, Pencil, Trash2, CheckCircle, PauseCircle, Archive, Search, XCircle, CheckCircle2, FileEdit, Lock, Unlock } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -28,10 +28,10 @@ import {
 } from "@/components/ui/dialog";
 
 const statusLabel: Record<string, string> = {
-  draft: "Draft", active: "Aktif", hold: "Hold", cancelled: "Dibatalkan", completed: "Selesai", archived: "Arsip",
+  draft: "Draft", active: "Aktif", hold: "Hold", closed: "Ditutup", cancelled: "Dibatalkan", completed: "Selesai", archived: "Arsip",
 };
 const statusVariant: Record<string, "default" | "secondary" | "outline" | "destructive"> = {
-  draft: "secondary", active: "default", hold: "outline", cancelled: "destructive", completed: "secondary", archived: "outline",
+  draft: "secondary", active: "default", hold: "outline", closed: "destructive", cancelled: "destructive", completed: "secondary", archived: "outline",
 };
 const typeLabel: Record<string, string> = { result: "Result", activity: "Activity", quality: "Quality", lead_tim: "Lead Tim", hr: "HR" };
 const typeColor: Record<string, string> = {
@@ -52,6 +52,7 @@ const StatusBadge = ({ status }: { status: string }) => (
   <Badge variant={statusVariant[status] ?? "outline"} className="text-xs">
     {status === "active" && <span className="mr-1.5 flex h-2 w-2 rounded-full bg-green-500 animate-pulse" />}
     {status === "hold" && <PauseCircle className="mr-1 h-3 w-3" />}
+    {status === "closed" && <Lock className="mr-1 h-3 w-3" />}
     {status === "cancelled" && <XCircle className="mr-1 h-3 w-3" />}
     {status === "completed" && <CheckCircle2 className="mr-1 h-3 w-3" />}
     {status === "draft" && <FileEdit className="mr-1 h-3 w-3" />}
@@ -95,6 +96,10 @@ export default function HeadKpiSetupPage() {
   const [filterStatus, setFilterStatus] = useState("all");
   const [statusLoading, setStatusLoading] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [confirmCloseAll, setConfirmCloseAll] = useState(false);
+  const [confirmOpenAll, setConfirmOpenAll] = useState(false);
+  const [isClosingAll, setIsClosingAll] = useState(false);
+  const [isOpeningAll, setIsOpeningAll] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<{
     kpi: KPI;
     assignmentCount: number;
@@ -133,9 +138,48 @@ export default function HeadKpiSetupPage() {
     setStatusLoading(null);
 
     if (res.ok) {
+      if (status === "closed") {
+        toast.success("KPI berhasil ditutup. Staf tidak dapat menginput realisasi.");
+      } else if (status === "active") {
+        toast.success("KPI berhasil diaktifkan kembali.");
+      } else if (status === "hold") {
+        toast.success("KPI berhasil di-hold.");
+      }
       void refresh();
     } else {
       setActionError(res.error ?? "Gagal mengubah status KPI.");
+    }
+  }
+
+  async function handleCloseAll() {
+    setIsClosingAll(true);
+    setActionError(null);
+    const res = await patchKpi.mutate({ action: "close-all", year, month });
+    setIsClosingAll(false);
+    setConfirmCloseAll(false);
+
+    if (res.ok) {
+      const count = (res.data as { closedCount?: number } | undefined)?.closedCount ?? 0;
+      toast.success(`${count} KPI divisi berhasil ditutup.`);
+      void refresh();
+    } else {
+      setActionError(res.error ?? "Gagal menutup semua KPI.");
+    }
+  }
+
+  async function handleOpenAll() {
+    setIsOpeningAll(true);
+    setActionError(null);
+    const res = await patchKpi.mutate({ action: "open-all", year, month });
+    setIsOpeningAll(false);
+    setConfirmOpenAll(false);
+
+    if (res.ok) {
+      const count = (res.data as { openedCount?: number } | undefined)?.openedCount ?? 0;
+      toast.success(`${count} KPI divisi berhasil dibuka kembali.`);
+      void refresh();
+    } else {
+      setActionError(res.error ?? "Gagal membuka semua KPI.");
     }
   }
 
@@ -212,6 +256,29 @@ export default function HeadKpiSetupPage() {
             onChange={(e) => setSelectedMonth(e.target.value)}
             className="h-9 rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           />
+          {myKpis.some((k) => k.status === "closed") && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="border-emerald-300 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-800 dark:text-emerald-300"
+              onClick={() => setConfirmOpenAll(true)}
+              title="Buka kembali semua KPI yang berstatus ditutup di divisi ini"
+            >
+              <Unlock className="h-3.5 w-3.5 mr-1 text-emerald-600" />
+              Buka Semua
+            </Button>
+          )}
+          <Button
+            size="sm"
+            variant="outline"
+            className="border-rose-300 text-rose-700 hover:bg-rose-50 dark:border-rose-800 dark:text-rose-300"
+            onClick={() => setConfirmCloseAll(true)}
+            disabled={myKpis.filter((k) => k.status !== "closed").length === 0}
+            title="Tutup semua KPI divisi ini agar staf tidak bisa input"
+          >
+            <Lock className="h-3.5 w-3.5 mr-1 text-rose-600" />
+            Close All
+          </Button>
           <Button size="sm" onClick={() => router.push("/dashboard/head/kpi-setup/new")}>
             <Plus className="h-4 w-4" />
             Buat KPI
@@ -247,6 +314,7 @@ export default function HeadKpiSetupPage() {
             <SelectItem value="draft">Draft</SelectItem>
             <SelectItem value="active">Aktif</SelectItem>
             <SelectItem value="hold">Hold</SelectItem>
+            <SelectItem value="closed">Ditutup</SelectItem>
             <SelectItem value="archived">Arsip</SelectItem>
           </SelectContent>
         </Select>
@@ -336,6 +404,14 @@ export default function HeadKpiSetupPage() {
                         <PauseCircle className="h-3 w-3" /> Hold
                       </button>
                       <button
+                        onClick={() => setStatus(k.id, "closed")}
+                        disabled={statusLoading === k.id}
+                        className="flex items-center gap-1 rounded px-2 py-1 text-xs text-rose-600 hover:bg-rose-50 disabled:opacity-50 border border-rose-200"
+                        title="Tutup KPI ini agar staf tidak bisa menginput realisasi"
+                      >
+                        <Lock className="h-3 w-3" /> Close
+                      </button>
+                      <button
                         onClick={() => setStatus(k.id, "archived")}
                         disabled={statusLoading === k.id}
                         className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted disabled:opacity-50 border border-border"
@@ -345,13 +421,49 @@ export default function HeadKpiSetupPage() {
                     </>
                   )}
                   {k.status === "hold" && (
-                    <button
-                      onClick={() => setStatus(k.id, "active")}
-                      disabled={statusLoading === k.id}
-                      className="flex items-center gap-1 rounded px-2 py-1 text-xs text-green-600 hover:bg-green-50 disabled:opacity-50 border border-green-200"
-                    >
-                      <CheckCircle className="h-3 w-3" /> Aktifkan
-                    </button>
+                    <>
+                      <button
+                        onClick={() => setStatus(k.id, "active")}
+                        disabled={statusLoading === k.id}
+                        className="flex items-center gap-1 rounded px-2 py-1 text-xs text-green-600 hover:bg-green-50 disabled:opacity-50 border border-green-200"
+                      >
+                        <CheckCircle className="h-3 w-3" /> Aktifkan
+                      </button>
+                      <button
+                        onClick={() => setStatus(k.id, "closed")}
+                        disabled={statusLoading === k.id}
+                        className="flex items-center gap-1 rounded px-2 py-1 text-xs text-rose-600 hover:bg-rose-50 disabled:opacity-50 border border-rose-200"
+                        title="Tutup KPI ini agar staf tidak bisa menginput realisasi"
+                      >
+                        <Lock className="h-3 w-3" /> Close
+                      </button>
+                      <button
+                        onClick={() => setStatus(k.id, "archived")}
+                        disabled={statusLoading === k.id}
+                        className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted disabled:opacity-50 border border-border"
+                      >
+                        <Archive className="h-3 w-3" /> Arsipkan
+                      </button>
+                    </>
+                  )}
+                  {k.status === "closed" && (
+                    <>
+                      <button
+                        onClick={() => setStatus(k.id, "active")}
+                        disabled={statusLoading === k.id}
+                        className="flex items-center gap-1 rounded px-2 py-1 text-xs text-green-600 hover:bg-green-50 disabled:opacity-50 border border-green-200"
+                        title="Buka kembali KPI ini agar staf dapat menginput realisasi"
+                      >
+                        <Unlock className="h-3 w-3" /> Buka Kembali
+                      </button>
+                      <button
+                        onClick={() => setStatus(k.id, "archived")}
+                        disabled={statusLoading === k.id}
+                        className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted disabled:opacity-50 border border-border"
+                      >
+                        <Archive className="h-3 w-3" /> Arsipkan
+                      </button>
+                    </>
                   )}
                 </div>
               )}
@@ -379,6 +491,74 @@ export default function HeadKpiSetupPage() {
             <Button variant="outline" onClick={() => setConfirmDelete(null)}>Batal</Button>
             <Button variant="destructive" onClick={executeSoftDelete} disabled={statusLoading === "deleting"}>
               Hapus
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Close All confirmation */}
+      <Dialog open={confirmCloseAll} onOpenChange={(o) => !o && setConfirmCloseAll(false)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-rose-600">
+              <Lock className="h-5 w-5" /> Tutup Semua KPI Divisi?
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 text-sm text-muted-foreground">
+            <p>
+              Semua KPI aktif dan hold pada divisi Anda di periode <span className="font-bold text-foreground">{year}/{String(month).padStart(2, "0")}</span> akan diubah statusnya menjadi <strong>Ditutup (Closed)</strong>.
+            </p>
+            <div className="rounded-lg bg-rose-50 border border-rose-200 p-3 text-xs text-rose-800">
+              <p className="font-semibold mb-1">Dampak terhadap Staf:</p>
+              <ul className="list-disc list-inside space-y-0.5">
+                <li>Staf tidak dapat lagi menginput realisasi harian untuk KPI bulan ini.</li>
+                <li>Pengubahan dan penghapusan laporan harian dinonaktifkan.</li>
+                <li>KPI dapat dibuka kembali sewaktu-waktu oleh Head.</li>
+              </ul>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmCloseAll(false)} disabled={isClosingAll}>
+              Batal
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={isClosingAll}
+              onClick={handleCloseAll}
+              className="bg-rose-600 hover:bg-rose-700"
+            >
+              {isClosingAll ? "Menutup Semua..." : "Ya, Tutup Semua KPI"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Open All confirmation */}
+      <Dialog open={confirmOpenAll} onOpenChange={(o) => !o && setConfirmOpenAll(false)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-emerald-600">
+              <Unlock className="h-5 w-5" /> Buka Kembali Semua KPI?
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 text-sm text-muted-foreground">
+            <p>
+              Semua KPI yang berstatus ditutup pada divisi Anda di periode <span className="font-bold text-foreground">{year}/{String(month).padStart(2, "0")}</span> akan diaktifkan kembali.
+            </p>
+            <p className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg p-2.5">
+              Staf akan kembali dapat menginput dan mengoreksi capaian laporan harian mereka.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmOpenAll(false)} disabled={isOpeningAll}>
+              Batal
+            </Button>
+            <Button
+              disabled={isOpeningAll}
+              onClick={handleOpenAll}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white"
+            >
+              {isOpeningAll ? "Membuka Semua..." : "Ya, Buka Semua KPI"}
             </Button>
           </DialogFooter>
         </DialogContent>

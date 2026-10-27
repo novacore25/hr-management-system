@@ -239,10 +239,16 @@ export function calcWeightedScore(
  * `null` berarti KPI ini boleh diinput staf.
  */
 export function pesanKpiReadonly(
-  kpi: { type?: string | null; description?: string | null } | null | undefined,
-  penilai: "Head" | "HR",
+  kpi: { type?: string | null; description?: string | null; status?: string | null } | null | undefined,
+  penilai: "Head" | "HR" = "HR",
 ): string | null {
   if (!kpi) return null;
+  if (kpi.status === "closed") {
+    return "KPI Ditutup oleh HR";
+  }
+  if (kpi.status === "hold") {
+    return "KPI Sedang Di-Hold";
+  }
   if (kpi.type !== "quality" && kpi.type !== "lead_tim" && kpi.type !== "hr") {
     return null;
   }

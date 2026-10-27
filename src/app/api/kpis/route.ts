@@ -286,6 +286,45 @@ export async function PATCH(request: Request) {
     const b = await request.json();
     const { action } = b;
 
+    // Tutup / buka semua KPI di periode bulan ini sekaligus (Close All / Open All)
+    if (action === "close-all" || action === "open-all") {
+      const year = num(String(b.year), new Date().getFullYear());
+      const month = num(String(b.month), new Date().getMonth() + 1);
+      if (year < 2000 || year > 2100 || month < 1 || month > 12) {
+        return Response.json(
+          { ok: false, error: "Periode bulan tidak valid." },
+          { status: 400 },
+        );
+      }
+
+      const isSuperRole = ["hr", "executive", "developer"].includes(
+        actor.kpiRole,
+      );
+      let deptIds: string[] | null = null;
+      if (!isSuperRole) {
+        const managed = Array.isArray(actor.managedDepartments)
+          ? actor.managedDepartments
+          : [];
+        if (managed.length === 0) {
+          return Response.json(
+            { ok: false, error: "Anda tidak memiliki divisi kelolaan." },
+            { status: 403 },
+          );
+        }
+        deptIds = managed;
+      }
+
+      if (action === "close-all") {
+        const { closeAllKpis } = await import("@/server/dal/kpi");
+        const res = await closeAllKpis(year, month, deptIds, actor.id);
+        return { ok: true, ...res };
+      } else {
+        const { openAllKpis } = await import("@/server/dal/kpi");
+        const res = await openAllKpis(year, month, deptIds, actor.id);
+        return { ok: true, ...res };
+      }
+    }
+
     // Operasi massal: `ids` menggantikan `id`. formerly /dashboard/hr/kpi
     // menjalankan satu request per KPI dalam `for` biasa — kalau yang
     // ketujuh gagal, enam yang pertama sudah terlanjur dihapus tapi UI
@@ -355,6 +394,19 @@ export async function PATCH(request: Request) {
         return { ok: true, ids, ...result };
       }
       const result = await restoreKpis(ids, actor.id);
+      return { ok: true, ids, ...result };
+    }
+
+    if (action === "bulk-status" || (action === "set-status" && ids.length > 1)) {
+      const targetStatus = b.status as any;
+      if (!targetStatus) {
+        return Response.json(
+          { ok: false, error: "Status target wajib diisi." },
+          { status: 400 },
+        );
+      }
+      const { bulkSetKpiStatus } = await import("@/server/dal/kpi");
+      const result = await bulkSetKpiStatus(ids, targetStatus, actor.id);
       return { ok: true, ids, ...result };
     }
 

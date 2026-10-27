@@ -82,7 +82,9 @@ export default function TimDashboard() {
 
   const todayDisplay = formatDateDisplay((() => { const _d = new Date(); return `${_d.getFullYear()}-${String(_d.getMonth() + 1).padStart(2, "0")}-${String(_d.getDate()).padStart(2, "0")}`; })());
   const weightedScore = assignments.length > 0 ? calcWeightedScore(assignments, weights) : null;
-  const firstAssignment = filteredAssignments[0];
+  const firstFillableAssignment = filteredAssignments.find(
+    (a) => !pesanKpiReadonly(a.kpi, a.kpi?.type === "hr" ? "HR" : "Head")
+  );
 
   return (
     <div className="space-y-6">
@@ -243,16 +245,16 @@ export default function TimDashboard() {
       )}
 
       {/* Quick input prompt */}
-      {assignments.length > 0 && (
+      {firstFillableAssignment && (
         <div id="tour-quick-prompt" className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 rounded-[25px] border border-[var(--ab-border)] bg-[var(--ab-bg-main)]/50 px-5 py-4 shadow-inner">
           <div className="flex flex-col">
             <span className="text-xs font-black text-[var(--ab-text-dim)] uppercase tracking-wider mb-0.5">Aksi Cepat</span>
             <span className="text-[13px] font-semibold text-[var(--ab-text-main)]">
-              Mulai bekerja? Isi progress KPI <span className="font-bold text-[var(--ab-primary)]">{firstAssignment.kpi.title}</span>.
+              Mulai bekerja? Isi progress KPI <span className="font-bold text-[var(--ab-primary)]">{firstFillableAssignment.kpi.title}</span>.
             </span>
           </div>
           <button
-            onClick={() => setSelected(firstAssignment)}
+            onClick={() => setSelected(firstFillableAssignment)}
             className="ab-nm-button px-5 py-2.5 rounded-xl text-xs font-black text-white hover:opacity-90 w-full sm:w-auto mt-2 sm:mt-0"
             style={{ background: "var(--ab-primary)" }}
           >

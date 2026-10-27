@@ -202,6 +202,28 @@ export async function POST(request: Request) {
           { status: 403 },
         );
       }
+    } else {
+      // Pembatasan untuk staf: KPI/penugasan yang ditutup atau di-hold tidak boleh diisi
+      if (assignment.status === "cancelled") {
+        throw new ValidationError(
+          "Penugasan KPI ini telah dibatalkan. Tidak dapat menginput laporan.",
+        );
+      }
+      if (assignment.status === "hold") {
+        throw new ValidationError(
+          "Penugasan KPI ini sedang di-hold. Tidak dapat menginput laporan.",
+        );
+      }
+      if (assignment.kpi?.status === "closed") {
+        throw new ValidationError(
+          "KPI ini sudah ditutup (closed) oleh HR. Penginputan realisasi dinonaktifkan.",
+        );
+      }
+      if (assignment.kpi?.status === "hold") {
+        throw new ValidationError(
+          "KPI ini sedang di-hold oleh HR. Penginputan realisasi dinonaktifkan.",
+        );
+      }
     }
 
     /**
@@ -295,12 +317,21 @@ export async function PATCH(request: Request) {
       );
     }
 
+    const { findAssignmentById } = await import("@/server/dal/assignments");
+    const assignment = await findAssignmentById(report.assignmentId);
+
     if (report.userId !== me.id) {
       const profile = await requireProfile();
       if (!["hr", "executive", "developer"].includes(profile.kpiRole)) {
         return Response.json(
           { ok: false, error: "Anda hanya bisa mengoreksi laporan sendiri." },
           { status: 403 },
+        );
+      }
+    } else {
+      if (assignment?.kpi?.status === "closed") {
+        throw new ValidationError(
+          "KPI ini sudah ditutup (closed) oleh HR. Pengubahan laporan dinonaktifkan.",
         );
       }
     }
@@ -342,6 +373,12 @@ export async function DELETE(request: Request) {
     const isOwner = assignment.userId === me.id;
     if (!isOwner) {
       await requireKpiRole("hr", "executive");
+    } else {
+      if (assignment.kpi?.status === "closed") {
+        throw new ValidationError(
+          "KPI ini sudah ditutup (closed) oleh HR. Penghapusan laporan dinonaktifkan.",
+        );
+      }
     }
 
     await deleteDailyReport(assignmentId, date);

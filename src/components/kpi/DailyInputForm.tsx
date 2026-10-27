@@ -17,7 +17,7 @@ import { useApiMutation } from "@/hooks/useApi";
 import { withQuery } from "@/lib/api-client";
 import { todayISODate, formatNumber, formatCurrency, formatPercentage, getLiveWorkingDaysRemaining, extractKpiDate, cleanKpiTitle, formatDateDisplay, getBrandColor, cn } from "@/lib/utils";
 import type { KpiAssignmentWithDetails } from "@/types";
-import { CalendarDays } from "lucide-react";
+import { CalendarDays, Lock } from "lucide-react";
 
 const typeLabel: Record<string, string> = {
   result: "Result",
@@ -85,6 +85,11 @@ export function DailyInputForm({
   const finalDailyTarget = isDailyKpi
     ? assignment.monthlyTarget
     : dynamicDailyTarget || assignment.currentDailyTarget || 0;
+
+  const isKpiClosed = kpi?.status === "closed";
+  const isKpiHold = kpi?.status === "hold" || assignment.status === "hold";
+  const isAssignmentCancelled = assignment.status === "cancelled";
+  const isBlocked = isKpiClosed || isKpiHold || isAssignmentCancelled;
 
   const isBelowTarget = value !== "" && !isNaN(parseFloat(value)) && parseFloat(value) < finalDailyTarget;
 
@@ -202,6 +207,11 @@ export function DailyInputForm({
     e.preventDefault();
     setError("");
 
+    if (isBlocked) {
+      setError(isKpiClosed ? "KPI ini telah ditutup oleh HR." : "KPI tidak aktif.");
+      return;
+    }
+
     const numValue = parseFloat(value);
     if (isNaN(numValue) || numValue < 0) {
       setError("Masukkan angka yang valid.");
@@ -311,6 +321,24 @@ export function DailyInputForm({
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-4">
+            {isBlocked && (
+              <div className="rounded-xl bg-destructive/10 border border-destructive/20 p-3 text-sm text-destructive">
+                <p className="font-bold flex items-center gap-1.5">
+                  <Lock className="h-4 w-4" />
+                  {isKpiClosed
+                    ? "KPI Ditutup oleh HR"
+                    : isKpiHold
+                    ? "KPI Sedang Di-Hold"
+                    : "Penugasan KPI Dibatalkan"}
+                </p>
+                <p className="text-xs mt-1 text-destructive/80">
+                  {isKpiClosed
+                    ? "HR telah menutup KPI ini. Pengisian atau pengubahan capaian realisasi dinonaktifkan."
+                    : "Pengisian realisasi untuk KPI ini dinonaktifkan sementara."}
+                </p>
+              </div>
+            )}
+
             <div className="space-y-1.5">
               <Label htmlFor="input-date" className="flex items-center gap-1.5">
                 <CalendarDays className="h-3.5 w-3.5 text-muted-foreground" />
@@ -322,6 +350,7 @@ export function DailyInputForm({
                 value={selectedDate}
                 min={minDate}
                 max={today}
+                disabled={isBlocked}
                 onChange={(e) => {
                   setSelectedDate(e.target.value);
                   setError("");
@@ -364,6 +393,7 @@ export function DailyInputForm({
                 min="0"
                 placeholder="0"
                 value={value}
+                disabled={isBlocked}
                 onChange={(e) => setValue(e.target.value)}
                 autoFocus
                 required
@@ -378,6 +408,7 @@ export function DailyInputForm({
                 id="notes"
                 placeholder="Tambahkan catatan singkat jika ada..."
                 value={notes}
+                disabled={isBlocked}
                 onChange={(e) => setNotes(e.target.value)}
                 rows={2}
                 className="resize-none"
@@ -392,11 +423,11 @@ export function DailyInputForm({
                 confirmDelete ? (
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-destructive font-medium">Yakin hapus?</span>
-                    <Button type="button" variant="destructive" size="sm" onClick={handleDelete} disabled={submitting}>Ya</Button>
+                    <Button type="button" variant="destructive" size="sm" onClick={handleDelete} disabled={submitting || isBlocked}>Ya</Button>
                     <Button type="button" variant="outline" size="sm" onClick={() => setConfirmDelete(false)} disabled={submitting}>Tidak</Button>
                   </div>
                 ) : (
-                  <Button type="button" variant="destructive" size="sm" onClick={() => setConfirmDelete(true)} disabled={submitting}>
+                  <Button type="button" variant="destructive" size="sm" onClick={() => setConfirmDelete(true)} disabled={submitting || isBlocked}>
                     Hapus
                   </Button>
                 )
@@ -407,7 +438,7 @@ export function DailyInputForm({
                   <Button type="button" variant="outline" onClick={onClose} disabled={submitting}>
                     Batal
                   </Button>
-                  <Button type="submit" disabled={submitting}>
+                  <Button type="submit" disabled={submitting || isBlocked}>
                     {submitting ? "Menyimpan..." : existingReportId ? "Update" : "Simpan"}
                   </Button>
                 </div>

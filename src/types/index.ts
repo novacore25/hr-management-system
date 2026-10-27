@@ -12,6 +12,7 @@ export type KpiStatus =
   | "active"
   | "adjusted"
   | "hold"
+  | "closed"
   | "cancelled"
   | "completed"
   | "archived";

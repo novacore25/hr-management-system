@@ -2104,3 +2104,45 @@ Ketika staf mengajukan lembur yang jam mulainya lebih besar dari jam selesai (mi
    - Menambahkan badge penanda `+1 Hari (Ganti Hari)` saat HR mereview atau menyesuaikan rentang jam lembur yang melewati tengah malam.
 4. **Validasi Server DAL (`src/server/dal/overtime.ts`)**:
    - Menyelaraskan pesan validasi durasi menjadi `"Jam selesai dan jam mulai tidak boleh sama (durasi lembur harus > 0 menit)"`.
+
+---
+
+## Update 2026-10-27: Fitur Close KPI & Close All (Batasan Input Realisasi Staf)
+
+### Kebutuhan & Masalah
+Manajemen KPI memerlukan mekanisme kontrol untuk membatasi penginputan realisasi capaian harian KPI oleh staf setelah batas waktu tertentu (cut-off). Sebelumnya HR/Head hanya memiliki fitur `hold` KPI, menyembunyikan capaian aktual, atau mengedit target per orang. Belum ada opsi eksplisit untuk menutup KPI (`closed`) per item maupun sekaligus seluruh KPI aktif dalam periode bulan tertentu (`close all`), serta membuka kembali (`open all` / buka kembali).
+
+### Akar Masalah & Cakupan
+1. Tipe status KPI (`KpiStatus`) di `src/types/index.ts` hanya mencakup `"active" | "draft" | "archived" | "hold"`.
+2. Belum ada fungsi massal di DAL (`src/server/dal/kpi.ts`) untuk melakukan transisi status KPI ke `closed` atau `active` secara batch per bulan dan departemen.
+3. API route `/api/kpis` belum menangani aksi `close-all`, `open-all`, dan bulk update status.
+4. API route `/api/daily-reports` (POST, PATCH, DELETE) belum memvalidasi apakah master KPI yang bersangkutan berstatus `closed` atau `hold`, sehingga staf masih bisa mengirimkan atau mengubah realisasi harian di endpoint backend.
+5. Antarmuka Staf (`DailyInputForm`, `KpiCard`, `TimInputPage`, `TimDashboard`) belum memiliki penanda visual bahwa KPI ditutup oleh HR, serta form input belum terkunci secara otomatis.
+6. Halaman Manajemen KPI HR (`/dashboard/hr/kpi`) dan Kelola KPI Tim Head (`/dashboard/head/kpi-setup`) belum menyediakan tombol `Close All`, `Buka Semua`, tombol aksi massal checkbox, filter status `closed`, serta tombol per baris `Close` / `Buka Kembali`.
+
+### Solusi & Implementasi
+1. **Type Definition & Utility**:
+   - Memperluas `KpiStatus` di `src/types/index.ts` dengan menyertakan `"closed"`.
+   - Memperbarui helper `pesanKpiReadonly` di `src/lib/utils.ts` untuk mendeteksi `kpi.status === "closed"` (pesan: `"KPI Ditutup oleh HR"`) dan `kpi.status === "hold"` (pesan: `"KPI Sedang Di-Hold"`).
+2. **Server DAL (`src/server/dal/kpi.ts`)**:
+   - Menambahkan fungsi `closeAllKpis(year, month, departmentIds, actorId)` untuk menutup seluruh KPI aktif/hold di periode bulan tertentu.
+   - Menambahkan fungsi `openAllKpis(year, month, departmentIds, actorId)` untuk membuka kembali KPI yang ditutup.
+   - Menambahkan fungsi `bulkSetKpiStatus(ids, status, actorId)` untuk mengubah status multiple KPI via checkbox massal.
+   - Menghapus 2 karakter null byte `\0` pada delimiter `copyKpisFromMonth` dan menstandarkannya dengan `::`.
+3. **API Endpoints (`/api/kpis` & `/api/daily-reports`)**:
+   - Di `src/app/api/kpis/route.ts`: Menangani aksi `close-all`, `open-all`, dan `bulk-status` / `set-status`.
+   - Di `src/app/api/daily-reports/route.ts`: Pada operasi POST, PATCH, dan DELETE, memverifikasi status KPI. Jika `status === "closed"` atau `"hold"`, request ditolak dengan `ValidationError("KPI ini sedang ditutup / hold oleh HR. Penginputan realisasi tidak diizinkan.")`.
+4. **Proteksi Form Input & Dashboard Staf**:
+   - Di `src/components/kpi/DailyInputForm.tsx`: Menambahkan pengecekan status `closed`/`hold`. Jika terkunci, form menampilkan banner peringatan dengan ikon `Lock`, mendisable seluruh kolom input angka/catatan, tombol Simpan/Update, dan tombol Hapus.
+   - Di `src/app/dashboard/tim/page.tsx`: Memperbarui prompt input cepat harian agar hanya memilih KPI yang fillable (`firstFillableAssignment`), sehingga staf tidak diarahkan ke KPI yang sudah ditutup.
+5. **UI Manajemen KPI HR & Head Divisi**:
+   - Di `src/app/dashboard/hr/kpi/page.tsx` & `src/app/dashboard/head/kpi-setup/page.tsx`:
+     - Menambahkan badge status `closed` dengan warna destructive dan icon `Lock`.
+     - Menambahkan filter dropdown status "Ditutup".
+     - Menambahkan tombol header **Close All** (dengan dialog konfirmasi bahaya & penjelasan dampak) dan **Buka Semua**.
+     - Menambahkan tombol aksi massal checkbox: **Close ({count})** dan **Buka ({count})**.
+     - Menambahkan tombol aksi per baris: tombol **Close** (merah muda) jika aktif/hold, dan tombol **Buka Kembali** (emerald) jika berstatus closed.
+6. **Verifikasi & Test Suite**:
+   - Menambahkan test suite `scripts/verify-close-kpi.ts` (25 assertions) yang terdaftar di `package.json` (`npm run verify:closekpi`).
+   - Lolos seluruh test: `verify:closekpi` (25 pass), `verify:kpitampil` (26 pass), `tsc --noEmit` (0 error), `npm run verify` (10 smoke tests pass), dan `npm run verify:build` (Next.js 15 production build lolos 63/63 route).
+
