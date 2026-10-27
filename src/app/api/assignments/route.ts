@@ -15,11 +15,14 @@ import {
   createAssignments,
   setAssignmentStatus,
   setAssignmentTarget,
+  bulkSetAssignmentStatus,
+  setUserAssignmentsStatus,
+  setUsersAssignmentsStatus,
   deleteAssignment,
 } from "@/server/dal/assignments";
 import { getWorkingDaysInMonth } from "@/lib/performance";
 import { db } from "@/db";
-import { eq, inArray, sql } from "drizzle-orm";
+import { eq, inArray, sql, or, and } from "drizzle-orm";
 import { kpiAssignments, users } from "@/db/schema";
 import type { AssignmentStatus } from "@/types";
 
@@ -330,7 +333,99 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   return withAuth(async () => {
     const actor = await requireKpiRole("head", "hr", "executive");
-    const { id, action, status, monthlyTarget } = await request.json();
+    const body = await request.json();
+    const { id, action, status, monthlyTarget, ids, userId, userIds, year, month } = body;
+
+    const isSuperRole = ["hr", "executive", "developer"].includes(actor.kpiRole);
+    const managedDepartments = Array.isArray(actor.managedDepartments)
+      ? actor.managedDepartments
+      : [];
+
+    if (action === "bulk-status") {
+      const targetIds = Array.isArray(ids) ? ids.map(String) : [];
+      if (targetIds.length === 0) {
+        return Response.json(
+          { ok: false, error: "Parameter 'ids' wajib berupa array id." },
+          { status: 400 },
+        );
+      }
+      if (!VALID_STATUS.includes(status)) {
+        return Response.json(
+          { ok: false, error: `Status tidak valid: ${status}` },
+          { status: 400 },
+        );
+      }
+      if (!isSuperRole) {
+        const allowedRecords = await db
+          .select({ id: kpiAssignments.id })
+          .from(kpiAssignments)
+          .where(
+            and(
+              inArray(kpiAssignments.id, targetIds),
+              or(
+                eq(kpiAssignments.userId, actor.id),
+                inArray(kpiAssignments.departmentId, managedDepartments),
+              ),
+            ),
+          );
+        const allowedIds = allowedRecords.map((r) => r.id);
+        const updatedCount = await bulkSetAssignmentStatus(allowedIds, status, actor.id);
+        return { updated: updatedCount };
+      }
+      const updatedCount = await bulkSetAssignmentStatus(targetIds, status, actor.id);
+      return { updated: updatedCount };
+    }
+
+    if (action === "set-user-status") {
+      if (!userId || !year || !month) {
+        return Response.json(
+          { ok: false, error: "Parameter 'userId', 'year', dan 'month' wajib diisi." },
+          { status: 400 },
+        );
+      }
+      if (!VALID_STATUS.includes(status)) {
+        return Response.json(
+          { ok: false, error: `Status tidak valid: ${status}` },
+          { status: 400 },
+        );
+      }
+      const deptFilter = isSuperRole ? undefined : managedDepartments;
+      const updatedCount = await setUserAssignmentsStatus(
+        String(userId),
+        Number(year),
+        Number(month),
+        status,
+        actor.id,
+        deptFilter,
+      );
+      return { updated: updatedCount };
+    }
+
+    if (action === "set-users-status") {
+      const targetUserIds = Array.isArray(userIds) ? userIds.map(String) : [];
+      if (targetUserIds.length === 0 || !year || !month) {
+        return Response.json(
+          { ok: false, error: "Parameter 'userIds', 'year', dan 'month' wajib diisi." },
+          { status: 400 },
+        );
+      }
+      if (!VALID_STATUS.includes(status)) {
+        return Response.json(
+          { ok: false, error: `Status tidak valid: ${status}` },
+          { status: 400 },
+        );
+      }
+      const deptFilter = isSuperRole ? undefined : managedDepartments;
+      const updatedCount = await setUsersAssignmentsStatus(
+        targetUserIds,
+        Number(year),
+        Number(month),
+        status,
+        actor.id,
+        deptFilter,
+      );
+      return { updated: updatedCount };
+    }
 
     if (!id) {
       return Response.json(
@@ -355,11 +450,7 @@ export async function PATCH(request: Request) {
       );
     }
 
-    const isSuperRole = ["hr", "executive", "developer"].includes(actor.kpiRole);
     if (!isSuperRole) {
-      const managedDepartments = Array.isArray(actor.managedDepartments)
-        ? actor.managedDepartments
-        : [];
       const allowed =
         target.userId === actor.id ||
         (target.departmentId !== null &&

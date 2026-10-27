@@ -131,16 +131,16 @@ export default function TimInputPage() {
                   </div>
                   <div className="ml-4 flex items-center gap-3">
                     <PerformanceBadge category={a.performanceCategory} />
-                    {pesanKpiReadonly(a.kpi, a.kpi?.type === "hr" ? "HR" : "Head") ? (
+                    {pesanKpiReadonly(a.kpi, a.kpi?.type === "hr" ? "HR" : "Head", a) ? (
                       // Badge ini menampilkan deskripsi KPI kalau ada, supaya
                       // staf tahu apa yang sebenarnya dinilai HR. Kalau
                       // deskripsinya kosong, jatuh ke kalimat pendek -- bukan
                       // badge kosong yang terlihat normal.
                       <span
-                        title={pesanKpiReadonly(a.kpi, a.kpi?.type === "hr" ? "HR" : "Head") ?? undefined}
+                        title={pesanKpiReadonly(a.kpi, a.kpi?.type === "hr" ? "HR" : "Head", a) ?? undefined}
                         className="text-[10px] uppercase font-bold text-slate-500 bg-slate-100 px-2 py-1.5 rounded-md max-w-[22rem] truncate"
                       >
-                        {pesanKpiReadonly(a.kpi, a.kpi?.type === "hr" ? "HR" : "Head")}
+                        {pesanKpiReadonly(a.kpi, a.kpi?.type === "hr" ? "HR" : "Head", a)}
                       </span>
                     ) : (
                       <Button size="sm" onClick={() => setSelected(a)}>

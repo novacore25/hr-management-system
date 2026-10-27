@@ -327,6 +327,8 @@ export function DailyInputForm({
                   <Lock className="h-4 w-4" />
                   {isKpiClosed
                     ? "KPI Ditutup oleh HR"
+                    : assignment.status === "hold"
+                    ? "KPI Ditutup / Di-Hold untuk Anda"
                     : isKpiHold
                     ? "KPI Sedang Di-Hold"
                     : "Penugasan KPI Dibatalkan"}
@@ -334,6 +336,8 @@ export function DailyInputForm({
                 <p className="text-xs mt-1 text-destructive/80">
                   {isKpiClosed
                     ? "HR telah menutup KPI ini. Pengisian atau pengubahan capaian realisasi dinonaktifkan."
+                    : assignment.status === "hold"
+                    ? "Penugasan KPI Anda telah ditutup / di-hold oleh HR/Head. Pengisian realisasi dinonaktifkan."
                     : "Pengisian realisasi untuk KPI ini dinonaktifkan sementara."}
                 </p>
               </div>

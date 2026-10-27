@@ -83,7 +83,7 @@ export default function TimDashboard() {
   const todayDisplay = formatDateDisplay((() => { const _d = new Date(); return `${_d.getFullYear()}-${String(_d.getMonth() + 1).padStart(2, "0")}-${String(_d.getDate()).padStart(2, "0")}`; })());
   const weightedScore = assignments.length > 0 ? calcWeightedScore(assignments, weights) : null;
   const firstFillableAssignment = filteredAssignments.find(
-    (a) => !pesanKpiReadonly(a.kpi, a.kpi?.type === "hr" ? "HR" : "Head")
+    (a) => !pesanKpiReadonly(a.kpi, a.kpi?.type === "hr" ? "HR" : "Head", a)
   );
 
   return (
@@ -306,6 +306,7 @@ export default function TimDashboard() {
                       pesanKpiReadonly(
                         a.kpi,
                         a.kpi?.type === "hr" ? "HR" : "Head",
+                        a,
                       ) ?? undefined
                     }
                   />

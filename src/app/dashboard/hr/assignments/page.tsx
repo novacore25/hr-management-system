@@ -21,7 +21,7 @@ import {
   getBrandColor,
   monthName,
 } from "@/lib/utils";
-import { Plus, PauseCircle, XCircle, CheckCircle, Search, ArrowUpDown, Pencil, Check } from "lucide-react";
+import { Plus, PauseCircle, XCircle, CheckCircle, Search, ArrowUpDown, Pencil, Check, Lock, Unlock } from "lucide-react";
 import type { KpiAssignment } from "@/types";
 
 type UserSortKey = "name" | "score";
@@ -61,6 +61,8 @@ export default function HrAssignmentsPage() {
   const [editValue, setEditValue] = useState("");
   const [listSearch, setListSearch] = useState("");
   const [listSort, setListSort] = useState<UserSortKey>("name");
+  const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set());
+  const [isBulkLoading, setIsBulkLoading] = useState(false);
 
   const workingDays = getWorkingDaysInMonth(year, month);
   const userMap = Object.fromEntries(users.map((u) => [u.id, u]));
@@ -158,6 +160,63 @@ export default function HrAssignmentsPage() {
     }
   }
 
+  async function handleUserStatusChange(userId: string, status: "hold" | "active") {
+    setActionLoading(`user-${userId}`);
+    setActionError(null);
+    const res = await patchAssignment.mutate({
+      action: "set-user-status",
+      userId,
+      year,
+      month,
+      status,
+    });
+    setActionLoading(null);
+    if (res.ok) {
+      setActionError(null);
+      void refresh();
+    } else {
+      setActionError(res.error ?? `Gagal ${status === "hold" ? "menutup" : "membuka"} KPI karyawan ini.`);
+    }
+  }
+
+  async function handleBulkUsersStatusChange(status: "hold" | "active") {
+    if (selectedUsers.size === 0) return;
+    setIsBulkLoading(true);
+    setActionError(null);
+    const res = await patchAssignment.mutate({
+      action: "set-users-status",
+      userIds: Array.from(selectedUsers),
+      year,
+      month,
+      status,
+    });
+    setIsBulkLoading(false);
+    if (res.ok) {
+      setSelectedUsers(new Set());
+      setActionError(null);
+      void refresh();
+    } else {
+      setActionError(res.error ?? `Gagal ${status === "hold" ? "menutup" : "membuka"} KPI karyawan terpilih.`);
+    }
+  }
+
+  function toggleSelectUser(userId: string) {
+    setSelectedUsers((prev) => {
+      const next = new Set(prev);
+      if (next.has(userId)) next.delete(userId);
+      else next.add(userId);
+      return next;
+    });
+  }
+
+  function toggleSelectAllUsers() {
+    if (selectedUsers.size === userGroups.length) {
+      setSelectedUsers(new Set());
+    } else {
+      setSelectedUsers(new Set(userGroups));
+    }
+  }
+
   if (isLoading) {
     return (
       <div className="space-y-6 animate-pulse">
@@ -233,6 +292,59 @@ export default function HrAssignmentsPage() {
         </div>
       )}
 
+      {userGroups.length > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-muted/40 rounded-xl border border-border">
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-2 text-xs font-medium cursor-pointer">
+              <input
+                type="checkbox"
+                checked={selectedUsers.size > 0 && selectedUsers.size === userGroups.length}
+                onChange={toggleSelectAllUsers}
+                className="h-4 w-4 rounded border-border text-primary focus:ring-primary/20 cursor-pointer"
+              />
+              Pilih Semua ({userGroups.length} Karyawan)
+            </label>
+            {selectedUsers.size > 0 && (
+              <span className="text-xs text-muted-foreground font-medium">
+                • <strong className="text-foreground">{selectedUsers.size}</strong> terpilih
+              </span>
+            )}
+          </div>
+          {selectedUsers.size > 0 && (
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => handleBulkUsersStatusChange("hold")}
+                disabled={isBulkLoading || isPastMonth}
+                className="h-7 text-xs border-amber-300 text-amber-700 bg-amber-50 hover:bg-amber-100 hover:text-amber-800"
+              >
+                <Lock className="mr-1.5 h-3.5 w-3.5" />
+                Tutup KPI ({selectedUsers.size} Karyawan)
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => handleBulkUsersStatusChange("active")}
+                disabled={isBulkLoading || isPastMonth}
+                className="h-7 text-xs border-emerald-300 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 hover:text-emerald-800"
+              >
+                <Unlock className="mr-1.5 h-3.5 w-3.5" />
+                Buka KPI ({selectedUsers.size} Karyawan)
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setSelectedUsers(new Set())}
+                className="h-7 text-xs text-muted-foreground"
+              >
+                Batal
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
+
       {userGroups.length === 0 ? (
         <div className="flex h-40 items-center justify-center rounded-xl border border-dashed border-border">
           <p className="text-sm text-muted-foreground">
@@ -249,6 +361,9 @@ export default function HrAssignmentsPage() {
             const weights = getWeights(userId);
             const score = calcWeightedScore(userAssignments, weights);
             const initials = (u?.name ?? userId).slice(0, 2).toUpperCase();
+            const activeCount = userAssignments.filter((a) => a.status === "active").length;
+            const holdCount = userAssignments.filter((a) => a.status === "hold").length;
+            const allHold = userAssignments.length > 0 && activeCount === 0;
 
             const byType: Record<string, KpiAssignment[]> = {
               result: [],
@@ -265,24 +380,66 @@ export default function HrAssignmentsPage() {
 
             return (
               <div key={userId} className="rounded-xl border border-border bg-card overflow-hidden">
-                <div className="flex items-center gap-3 px-4 py-3 bg-muted/30 border-b border-border">
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
-                    {initials}
+                <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 bg-muted/30 border-b border-border">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <input
+                      type="checkbox"
+                      checked={selectedUsers.has(userId)}
+                      onChange={() => toggleSelectUser(userId)}
+                      aria-label={`Pilih ${u?.name ?? userId}`}
+                      className="h-4 w-4 rounded border-border text-primary focus:ring-primary/20 cursor-pointer"
+                    />
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+                      {initials}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-sm font-semibold truncate">{u?.name ?? userId}</p>
+                        {allHold && (
+                          <Badge variant="outline" className="text-[10px] font-semibold border-amber-400 text-amber-700 bg-amber-50 px-1.5 py-0">
+                            <Lock className="mr-1 h-2.5 w-2.5 inline text-amber-600" />Semua KPI Ditutup
+                          </Badge>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground">{u?.department ?? "—"}</p>
+                    </div>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{u?.name ?? userId}</p>
-                    <p className="text-xs text-muted-foreground">{u?.department ?? "—"}</p>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <span className="text-xs text-muted-foreground hidden sm:block">
-                      R {formatPercentage(score.resultAvg, 0)}
-                      {score.activityCount > 0 && ` · A ${formatPercentage(score.activityAvg, 0)}`}
-                      {score.qualityCount > 0 && ` · Q ${formatPercentage(score.qualityAvg, 0)}`}
-                      {score.leadTimCount > 0 && ` · L ${formatPercentage(score.leadTimAvg, 0)}`}
-                      {score.hrCount > 0 && ` · H ${formatPercentage(score.hrAvg, 0)}`}
-                    </span>
-                    <span className="text-sm font-semibold tabular-nums">{formatPercentage(score.total)}</span>
-                    <PerformanceBadge category={score.category} />
+
+                  <div className="flex items-center gap-3 shrink-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground hidden sm:block">
+                        R {formatPercentage(score.resultAvg, 0)}
+                        {score.activityCount > 0 && ` · A ${formatPercentage(score.activityAvg, 0)}`}
+                        {score.qualityCount > 0 && ` · Q ${formatPercentage(score.qualityAvg, 0)}`}
+                        {score.leadTimCount > 0 && ` · L ${formatPercentage(score.leadTimAvg, 0)}`}
+                        {score.hrCount > 0 && ` · H ${formatPercentage(score.hrAvg, 0)}`}
+                      </span>
+                      <span className="text-sm font-semibold tabular-nums">{formatPercentage(score.total)}</span>
+                      <PerformanceBadge category={score.category} />
+                    </div>
+
+                    <div className="flex items-center gap-1.5 border-l border-border pl-3">
+                      {activeCount > 0 && (
+                        <button
+                          onClick={() => handleUserStatusChange(userId, "hold")}
+                          disabled={actionLoading === `user-${userId}` || isPastMonth}
+                          className="flex items-center gap-1 rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700 hover:bg-amber-100 disabled:opacity-50 transition-colors"
+                          title="Tutup semua KPI staf ini agar tidak bisa input"
+                        >
+                          <Lock className="h-3 w-3" /> Tutup Semua
+                        </button>
+                      )}
+                      {holdCount > 0 && (
+                        <button
+                          onClick={() => handleUserStatusChange(userId, "active")}
+                          disabled={actionLoading === `user-${userId}` || isPastMonth}
+                          className="flex items-center gap-1 rounded-md border border-emerald-300 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-100 disabled:opacity-50 transition-colors"
+                          title="Buka kembali semua KPI staf ini agar bisa input"
+                        >
+                          <Unlock className="h-3 w-3" /> Buka Semua
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
 
@@ -305,9 +462,9 @@ export default function HrAssignmentsPage() {
                               </span>
                               <p className="text-sm truncate">{k.title}</p>
                               {a.status !== "active" && (
-                                <Badge variant="outline" className="text-xs shrink-0 px-2 py-0.5">
+                                <Badge variant="outline" className={`text-xs shrink-0 px-2 py-0.5 ${a.status === "hold" ? "border-amber-400 text-amber-700 bg-amber-50" : "border-destructive/40 text-destructive bg-destructive/5"}`}>
                                   {a.status === "hold" ? (
-                                    <><PauseCircle className="mr-1 h-3 w-3 inline" />Hold</>
+                                    <><Lock className="mr-1 h-3 w-3 inline text-amber-600" />Ditutup</>
                                   ) : (
                                     <><XCircle className="mr-1 h-3 w-3 inline" />Batal</>
                                   )}
@@ -371,16 +528,27 @@ export default function HrAssignmentsPage() {
                               {a.status === "active" && (
                                 <button
                                   onClick={() => handleStatusChange(a, "hold")}
-                                  disabled={actionLoading === a.id}
-                                  className="flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-amber-600 hover:bg-amber-50 disabled:opacity-50"
+                                  disabled={actionLoading === a.id || isPastMonth}
+                                  className="flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-amber-700 bg-amber-50 border border-amber-200 hover:bg-amber-100 disabled:opacity-50 transition-colors"
+                                  title="Tutup KPI ini untuk staf ini"
                                 >
-                                  <PauseCircle className="h-3 w-3" /> Hold
+                                  <Lock className="h-3 w-3" /> Tutup
                                 </button>
                               )}
-                              {(a.status === "hold" || a.status === "cancelled") && (
+                              {a.status === "hold" && (
                                 <button
                                   onClick={() => handleStatusChange(a, "active")}
-                                  disabled={actionLoading === a.id}
+                                  disabled={actionLoading === a.id || isPastMonth}
+                                  className="flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 disabled:opacity-50 transition-colors"
+                                  title="Buka kembali KPI ini untuk staf ini"
+                                >
+                                  <Unlock className="h-3 w-3" /> Buka
+                                </button>
+                              )}
+                              {a.status === "cancelled" && (
+                                <button
+                                  onClick={() => handleStatusChange(a, "active")}
+                                  disabled={actionLoading === a.id || isPastMonth}
                                   className="flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-green-600 hover:bg-green-50 disabled:opacity-50"
                                 >
                                   <CheckCircle className="h-3 w-3" /> Aktifkan

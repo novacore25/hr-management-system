@@ -142,5 +142,68 @@ assert(
   headKpiPage.includes('<SelectItem value="closed">Ditutup</SelectItem>'),
 );
 
+// 8. Verifikasi Per-Person & Multi-User Assignment Closing
+console.log("\n8. Per-Person & Multi-User Assignment Closing");
+assert(
+  "pesanKpiReadonly mendukung assignment status hold",
+  pesanKpiReadonly({ status: "active", type: "result" }, "HR", { status: "hold" }) === "KPI Ditutup / Di-Hold untuk Anda",
+);
+
+const assignDal = readFileSync("src/server/dal/assignments.ts", "utf8");
+assert(
+  "DAL assignments.ts mengekspor bulkSetAssignmentStatus",
+  assignDal.includes("export async function bulkSetAssignmentStatus"),
+);
+assert(
+  "DAL assignments.ts mengekspor setUserAssignmentsStatus",
+  assignDal.includes("export async function setUserAssignmentsStatus"),
+);
+assert(
+  "DAL assignments.ts mengekspor setUsersAssignmentsStatus",
+  assignDal.includes("export async function setUsersAssignmentsStatus"),
+);
+
+const assignRoute = readFileSync("src/app/api/assignments/route.ts", "utf8");
+assert(
+  "PATCH /api/assignments menangani bulk-status",
+  assignRoute.includes('action === "bulk-status"'),
+);
+assert(
+  "PATCH /api/assignments menangani set-user-status",
+  assignRoute.includes('action === "set-user-status"'),
+);
+assert(
+  "PATCH /api/assignments menangani set-users-status",
+  assignRoute.includes('action === "set-users-status"'),
+);
+
+const hrAssignPage = readFileSync("src/app/dashboard/hr/assignments/page.tsx", "utf8");
+assert(
+  "HR Assignments Page memiliki tombol Tutup Semua per user",
+  hrAssignPage.includes("Tutup Semua") && hrAssignPage.includes("handleUserStatusChange"),
+);
+assert(
+  "HR Assignments Page memiliki tombol Buka Semua per user",
+  hrAssignPage.includes("Buka Semua") && hrAssignPage.includes("handleUserStatusChange"),
+);
+assert(
+  "HR Assignments Page memiliki checklist multi-user dan tombol massal",
+  hrAssignPage.includes("handleBulkUsersStatusChange") && hrAssignPage.includes("toggleSelectAllUsers"),
+);
+
+const headAssignPage = readFileSync("src/app/dashboard/head/penugasan/page.tsx", "utf8");
+assert(
+  "Head Penugasan Page memiliki tombol Tutup Semua per user",
+  headAssignPage.includes("Tutup Semua") && headAssignPage.includes("handleUserStatusChange"),
+);
+assert(
+  "Head Penugasan Page memiliki tombol Buka Semua per user",
+  headAssignPage.includes("Buka Semua") && headAssignPage.includes("handleUserStatusChange"),
+);
+assert(
+  "Head Penugasan Page memiliki checklist multi-user dan tombol massal",
+  headAssignPage.includes("handleBulkUsersStatusChange") && headAssignPage.includes("toggleSelectAllUsers"),
+);
+
 console.log(`\n=== HASIL: ${pass} pass, ${fail} fail ===`);
 if (fail > 0) process.exit(1);

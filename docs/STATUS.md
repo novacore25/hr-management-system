@@ -2146,3 +2146,32 @@ Manajemen KPI memerlukan mekanisme kontrol untuk membatasi penginputan realisasi
    - Menambahkan test suite `scripts/verify-close-kpi.ts` (25 assertions) yang terdaftar di `package.json` (`npm run verify:closekpi`).
    - Lolos seluruh test: `verify:closekpi` (25 pass), `verify:kpitampil` (26 pass), `tsc --noEmit` (0 error), `npm run verify` (10 smoke tests pass), dan `npm run verify:build` (Next.js 15 production build lolos 63/63 route).
 
+---
+
+## Update 2026-10-27: Fitur Tutup & Buka KPI Khusus Beberapa Karyawan (Per-Person & Multi-User)
+
+### Kebutuhan & Masalah
+Selain menutup master KPI untuk semua staf, HR dan Head membutuhkan fleksibilitas untuk menutup atau membuka KPI **hanya untuk beberapa karyawan tertentu** (misalnya staf tertentu sudah selesai/cut-off pengisian sementara staf lain masih diizinkan mengisi). Sebelumnya, tombol penahanan hanya berupa status "Hold" per baris assignment yang harus diklik satu per satu dan belum memiliki aksi massal per orang maupun checklist multi-orang.
+
+### Solusi & Implementasi
+1. **Server DAL (`src/server/dal/assignments.ts`)**:
+   - Menambahkan fungsi `bulkSetAssignmentStatus(ids, status, actorId)` untuk update massal array ID penugasan + pencatatan audit log `kpiHistories`.
+   - Menambahkan fungsi `setUserAssignmentsStatus(userId, year, month, status, actorId, departmentIds)` untuk menutup/membuka seluruh KPI milik satu karyawan pada periode tertentu dengan filter otorisasi divisi.
+   - Menambahkan fungsi `setUsersAssignmentsStatus(userIds, year, month, status, actorId, departmentIds)` untuk menutup/membuka KPI banyak karyawan sekaligus via checklist.
+2. **API Endpoint (`PATCH /api/assignments`)**:
+   - Menangani `action === "bulk-status"` (array `ids`).
+   - Menangani `action === "set-user-status"` (`userId`, `year`, `month`, `status`).
+   - Menangani `action === "set-users-status"` (`userIds`, `year`, `month`, `status`).
+   - Penegakan scoping divisi di server untuk Head: hanya assignment dalam `managedDepartments` yang dapat diperbarui.
+3. **UI Penugasan KPI HR (`/dashboard/hr/assignments`) & Head (`/dashboard/head/penugasan`)**:
+   - **Header Kartu Karyawan**: Ditambahkan tombol **Tutup Semua** (kuning/amber dengan ikon `Lock`) dan **Buka Semua** (hijau/emerald dengan ikon `Unlock`). Jika seluruh KPI karyawan ditutup, muncul badge status `Semua KPI Ditutup`.
+   - **Checklist Multi-Karyawan & Toolbar Massal**: Ditambahkan checkbox di header setiap karyawan beserta tombol "Pilih Semua". Jika dipilih, muncul bar aksi: **Tutup KPI ({count} Karyawan)** dan **Buka KPI ({count} Karyawan)**.
+   - **Baris KPI Karyawan**: Label tombol diselaraskan menjadi **Tutup** (saat aktif) dan **Buka** (saat ditutup/hold). Badge status menampilkan `Ditutup` berikon `Lock` kuning.
+4. **Proteksi & Visualisasi di Dashboard Staf**:
+   - Helper `pesanKpiReadonly` di `src/lib/utils.ts` kini menerima parameter assignment; jika `assignment.status === "hold"`, mengembalikan pesan `"KPI Ditutup / Di-Hold untuk Anda"`.
+   - Halaman `tim/page.tsx`, `tim/input/page.tsx`, dan `tim/kpi/page.tsx` otomatis mengunci kartu dan menampilkan badge pemberitahuan.
+   - Form input `DailyInputForm.tsx` menampilkan banner bahwa penugasan KPI telah ditutup/di-hold untuk staf tersebut dan menonaktifkan seluruh form pengisian.
+5. **Verifikasi Test Suite**:
+   - Menambahkan 13 assertions baru di `scripts/verify-close-kpi.ts` (total 38 assertions pass).
+   - Lolos verifikasi build Next.js 15 (63/63 route), `tsc --noEmit`, dan seluruh smoke test tanpa error.
+

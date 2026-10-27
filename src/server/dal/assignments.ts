@@ -636,6 +636,177 @@ export async function setAssignmentStatus(
   });
 }
 
+/** Ubah status multiple assignments sekaligus + audit log. */
+export async function bulkSetAssignmentStatus(
+  ids: string[],
+  status: AssignmentStatus,
+  actorId: string,
+): Promise<number> {
+  if (ids.length === 0) return 0;
+
+  const records = await db
+    .select({
+      id: kpiAssignments.id,
+      userId: kpiAssignments.userId,
+      status: kpiAssignments.status,
+    })
+    .from(kpiAssignments)
+    .where(inArray(kpiAssignments.id, ids));
+
+  if (records.length === 0) return 0;
+
+  const toUpdate = records.filter((r) => r.status !== status);
+  if (toUpdate.length === 0) return 0;
+
+  const now = new Date();
+  const patch: Record<string, unknown> = { status, updatedAt: now };
+  if (status === "hold") patch.heldAt = now;
+  if (status === "cancelled") patch.cancelledAt = now;
+  if (status === "completed") patch.completedAt = now;
+
+  const updateIds = toUpdate.map((r) => r.id);
+  await db
+    .update(kpiAssignments)
+    .set(patch)
+    .where(inArray(kpiAssignments.id, updateIds));
+
+  await db.insert(kpiHistories).values(
+    toUpdate.map((r) => ({
+      assignmentId: r.id,
+      userId: r.userId,
+      action: `status_${status}`,
+      oldValue: { status: r.status },
+      newValue: { status },
+      triggeredBy: actorId,
+      createdAt: now,
+    })),
+  );
+
+  return toUpdate.length;
+}
+
+/** Tutup atau buka semua assignment milik satu karyawan pada periode tertentu. */
+export async function setUserAssignmentsStatus(
+  userId: string,
+  year: number,
+  month: number,
+  status: AssignmentStatus,
+  actorId: string,
+  departmentIds?: string[],
+): Promise<number> {
+  const conditions = [
+    eq(kpiAssignments.userId, userId),
+    eq(kpiAssignments.year, year),
+    eq(kpiAssignments.month, month),
+  ];
+
+  if (departmentIds && departmentIds.length > 0) {
+    conditions.push(inArray(kpiAssignments.departmentId, departmentIds));
+  }
+
+  const records = await db
+    .select({
+      id: kpiAssignments.id,
+      userId: kpiAssignments.userId,
+      status: kpiAssignments.status,
+    })
+    .from(kpiAssignments)
+    .where(and(...conditions));
+
+  if (records.length === 0) return 0;
+
+  const toUpdate = records.filter((r) => r.status !== status);
+  if (toUpdate.length === 0) return 0;
+
+  const now = new Date();
+  const patch: Record<string, unknown> = { status, updatedAt: now };
+  if (status === "hold") patch.heldAt = now;
+  if (status === "cancelled") patch.cancelledAt = now;
+  if (status === "completed") patch.completedAt = now;
+
+  const updateIds = toUpdate.map((r) => r.id);
+  await db
+    .update(kpiAssignments)
+    .set(patch)
+    .where(inArray(kpiAssignments.id, updateIds));
+
+  await db.insert(kpiHistories).values(
+    toUpdate.map((r) => ({
+      assignmentId: r.id,
+      userId: r.userId,
+      action: `status_${status}`,
+      oldValue: { status: r.status },
+      newValue: { status },
+      triggeredBy: actorId,
+      createdAt: now,
+    })),
+  );
+
+  return toUpdate.length;
+}
+
+/** Tutup atau buka assignment untuk beberapa karyawan sekaligus pada periode tertentu. */
+export async function setUsersAssignmentsStatus(
+  userIds: string[],
+  year: number,
+  month: number,
+  status: AssignmentStatus,
+  actorId: string,
+  departmentIds?: string[],
+): Promise<number> {
+  if (userIds.length === 0) return 0;
+
+  const conditions = [
+    inArray(kpiAssignments.userId, userIds),
+    eq(kpiAssignments.year, year),
+    eq(kpiAssignments.month, month),
+  ];
+
+  if (departmentIds && departmentIds.length > 0) {
+    conditions.push(inArray(kpiAssignments.departmentId, departmentIds));
+  }
+
+  const records = await db
+    .select({
+      id: kpiAssignments.id,
+      userId: kpiAssignments.userId,
+      status: kpiAssignments.status,
+    })
+    .from(kpiAssignments)
+    .where(and(...conditions));
+
+  if (records.length === 0) return 0;
+
+  const toUpdate = records.filter((r) => r.status !== status);
+  if (toUpdate.length === 0) return 0;
+
+  const now = new Date();
+  const patch: Record<string, unknown> = { status, updatedAt: now };
+  if (status === "hold") patch.heldAt = now;
+  if (status === "cancelled") patch.cancelledAt = now;
+  if (status === "completed") patch.completedAt = now;
+
+  const updateIds = toUpdate.map((r) => r.id);
+  await db
+    .update(kpiAssignments)
+    .set(patch)
+    .where(inArray(kpiAssignments.id, updateIds));
+
+  await db.insert(kpiHistories).values(
+    toUpdate.map((r) => ({
+      assignmentId: r.id,
+      userId: r.userId,
+      action: `status_${status}`,
+      oldValue: { status: r.status },
+      newValue: { status },
+      triggeredBy: actorId,
+      createdAt: now,
+    })),
+  );
+
+  return toUpdate.length;
+}
+
 /** Ubah target per orang. Total KPI ikut di-recalc. */
 export async function setAssignmentTarget(
   id: string,

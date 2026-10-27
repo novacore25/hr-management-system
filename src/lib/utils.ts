@@ -241,6 +241,7 @@ export function calcWeightedScore(
 export function pesanKpiReadonly(
   kpi: { type?: string | null; description?: string | null; status?: string | null } | null | undefined,
   penilai: "Head" | "HR" = "HR",
+  assignment?: { status?: string | null } | null,
 ): string | null {
   if (!kpi) return null;
   if (kpi.status === "closed") {
@@ -248,6 +249,12 @@ export function pesanKpiReadonly(
   }
   if (kpi.status === "hold") {
     return "KPI Sedang Di-Hold";
+  }
+  if (assignment?.status === "hold") {
+    return "KPI Ditutup / Di-Hold untuk Anda";
+  }
+  if (assignment?.status === "cancelled") {
+    return "Penugasan Dibatalkan";
   }
   if (kpi.type !== "quality" && kpi.type !== "lead_tim" && kpi.type !== "hr") {
     return null;

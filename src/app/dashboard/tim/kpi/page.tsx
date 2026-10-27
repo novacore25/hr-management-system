@@ -187,6 +187,7 @@ export default function TimKpiPage() {
                     pesanKpiReadonly(
                       a.kpi,
                       a.kpi?.type === "hr" ? "HR" : "Head",
+                      a,
                     ) ?? undefined
                   }
                 />
