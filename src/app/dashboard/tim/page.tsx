@@ -34,7 +34,8 @@ export default function TimDashboard() {
   const [searchQuery, setSearchQuery] = useState("");
   const [showTour, setShowTour] = useState(false);
 
-  const filteredAssignments = assignments.filter((a) =>
+  const activeAssignments = assignments.filter((a) => a.status !== "cancelled");
+  const filteredAssignments = activeAssignments.filter((a) =>
     a.kpi && a.kpi.title?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
@@ -81,7 +82,7 @@ export default function TimDashboard() {
   }
 
   const todayDisplay = formatDateDisplay((() => { const _d = new Date(); return `${_d.getFullYear()}-${String(_d.getMonth() + 1).padStart(2, "0")}-${String(_d.getDate()).padStart(2, "0")}`; })());
-  const weightedScore = assignments.length > 0 ? calcWeightedScore(assignments, weights) : null;
+  const weightedScore = activeAssignments.length > 0 ? calcWeightedScore(activeAssignments, weights) : null;
   const firstFillableAssignment = filteredAssignments.find(
     (a) => !pesanKpiReadonly(a.kpi, a.kpi?.type === "hr" ? "HR" : "Head", a)
   );
@@ -264,7 +265,7 @@ export default function TimDashboard() {
       )}
 
       {/* KPI grid & Search */}
-      {assignments.length === 0 ? (
+      {activeAssignments.length === 0 ? (
         <div className="flex h-40 flex-col items-center justify-center rounded-xl border border-dashed border-border text-center">
           <p className="text-sm font-medium">Belum ada KPI bulan ini</p>
           <p className="mt-1 text-xs text-muted-foreground">

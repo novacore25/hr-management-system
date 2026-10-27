@@ -272,5 +272,43 @@ assert(
   `resultCount: ${calculatedScore.resultCount}, resultAvg: ${calculatedScore.resultAvg}`,
 );
 
+// 11. Verifikasi Kebal Batal: Penugasan Batal (Cancelled) Tidak Boleh Muncul Lagi Saat KPI Ditutup/Dibuka
+console.log("\n11. Kebal Batal: Penugasan Cancelled Tidak Boleh Tersentuh Buka/Tutup");
+const assignDalUpdated = readFileSync("src/server/dal/assignments.ts", "utf8");
+assert(
+  "DAL assignments.ts melindungi status cancelled saat tutup/buka massal",
+  assignDalUpdated.includes('r.status !== "cancelled"') &&
+  assignDalUpdated.includes('if (status === "hold") return r.status === "active";'),
+);
+
+assert(
+  "pesanKpiReadonly memprioritaskan cancelled di atas kpi closed",
+  pesanKpiReadonly({ status: "closed", type: "result" }, "HR", { status: "cancelled" }) === "Penugasan Dibatalkan",
+);
+
+const timDashboardCode = readFileSync("src/app/dashboard/tim/page.tsx", "utf8");
+assert(
+  "Dashboard Tim memfilter penugasan cancelled",
+  timDashboardCode.includes('a.status !== "cancelled"'),
+);
+
+const timInputCode = readFileSync("src/app/dashboard/tim/input/page.tsx", "utf8");
+assert(
+  "Input Tim memfilter penugasan cancelled",
+  timInputCode.includes('a.status !== "cancelled"'),
+);
+
+const hrAssignUpdated = readFileSync("src/app/dashboard/hr/assignments/page.tsx", "utf8");
+assert(
+  "HR Assignments page allHold hanya aktif bila ada penugasan hold",
+  hrAssignUpdated.includes("allHold = holdCount > 0 && activeCount === 0"),
+);
+
+const headAssignUpdated = readFileSync("src/app/dashboard/head/penugasan/page.tsx", "utf8");
+assert(
+  "Head Penugasan page allHold hanya aktif bila ada penugasan hold",
+  headAssignUpdated.includes("allHold = holdCount > 0 && activeCount === 0"),
+);
+
 console.log(`\n=== HASIL: ${pass} pass, ${fail} fail ===`);
 if (fail > 0) process.exit(1);

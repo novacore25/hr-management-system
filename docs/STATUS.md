@@ -2230,3 +2230,31 @@ Ketika staf ingin melakukan update, pengisian, atau pengubahan pada KPI yang tel
 4. **Verifikasi Test Suite**:
    - Menambahkan section pengujian ke-10 di `scripts/verify-close-kpi.ts` (total 46 assertions, seluruhnya PASS).
 
+---
+
+## Kebal Batal: Penugasan Cancelled Tidak Boleh Tersentuh Tutup/Buka Semua
+
+### Masalah yang Ditemukan
+1. **Penugasan Dibatalkan (Cancelled) Tertimpa Menjadi Hold / Active**:
+   - Di `src/server/dal/assignments.ts`, fungsi `setUserAssignmentsStatus` dan `setUsersAssignmentsStatus` sebelumnya memfilter penugasan dengan `toUpdate = records.filter((r) => r.status !== status);`.
+   - Ketika HR menekan tombol **"Tutup Semua"** (`status: "hold"`), penugasan karyawan yang tadinya sudah dibatalkan (`status: "cancelled"`) ikut lolos filter (`"cancelled" !== "hold"` bernilai true) dan statusnya diubah menjadi `"hold"`.
+   - Akibatnya: KPI yang awalnya dibatalkan muncul kembali di dashboard staf sebagai KPI berstatus "Ditutup".
+   - Lebih parah lagi: ketika HR mengklik **"Buka Semua"** (`status: "active"`), penugasan tersebut diubah statusnya menjadi `"active"`, sehingga KPI yang sudah dibatalkan menjadi aktif kembali dan HR harus membatalkannya ulang.
+2. **False-Positive Badge "Semua KPI Ditutup"**:
+   - Di halaman penugasan HR & Head, evaluasi `const allHold = userAssignments.length > 0 && activeCount === 0;` mengaktifkan badge `"Semua KPI Ditutup"` pada karyawan yang seluruh penugasannya berstatus `cancelled` (meskipun `holdCount === 0`).
+
+### Solusi & Implementasi
+1. **Server-Side Immunity di DAL (`src/server/dal/assignments.ts`)**:
+   - Pada `setUserAssignmentsStatus`, `setUsersAssignmentsStatus`, dan `bulkSetAssignmentStatus`:
+     - Jika target `status === "hold"` (Tutup): HANYA penugasan yang sedang `'active'` yang diubah ke `'hold'`.
+     - Jika target `status === "active"` (Buka): HANYA penugasan yang sedang `'hold'` yang diubah ke `'active'`.
+     - Penugasan `'cancelled'` di-skip mutlak dan kebal terhadap aksi tutup/buka massal.
+2. **Client-Side Sanitation di Dashboard Staf (`tim/page.tsx` & `tim/input/page.tsx`)**:
+   - Memastikan `assignments.filter((a) => a.status !== "cancelled")` diterapkan pada kartu KPI, ringkasan, dan formulir input harian.
+3. **Penyelarasan Read-Only Pesan (`src/lib/utils.ts`)**:
+   - `pesanKpiReadonly` mengevaluasi `assignment?.status === "cancelled"` lebih dulu sebelum mengecek `kpi.status === "closed"`, menjamin status "Penugasan Dibatalkan" tidak tertimpa status penutupan KPI global.
+4. **Koreksi Badge Penugasan (`hr/assignments/page.tsx` & `head/penugasan/page.tsx`)**:
+   - `allHold` dikoreksi menjadi `holdCount > 0 && activeCount === 0`.
+5. **Verifikasi Test Suite**:
+   - Menambahkan section pengujian ke-11 di `scripts/verify-close-kpi.ts` (total 52 assertions, seluruhnya PASS).
+

@@ -45,7 +45,8 @@ export default function TimInputPage() {
   const [selected, setSelected] = useState<KpiAssignmentWithDetails | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
 
-  const filteredAssignments = assignments.filter((a) =>
+  const activeAssignments = assignments.filter((a) => a.status !== "cancelled");
+  const filteredAssignments = activeAssignments.filter((a) =>
     a.kpi?.title?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
@@ -66,7 +67,7 @@ export default function TimInputPage() {
         </p>
       </div>
 
-      {assignments.length === 0 ? (
+      {activeAssignments.length === 0 ? (
         <div className="flex h-40 flex-col items-center justify-center rounded-xl border border-dashed border-border text-center">
           <p className="text-sm font-medium">Tidak ada KPI aktif</p>
         </div>

@@ -368,7 +368,7 @@ export default function HrAssignmentsPage() {
             const initials = (u?.name ?? userId).slice(0, 2).toUpperCase();
             const activeCount = userAssignments.filter((a) => a.status === "active").length;
             const holdCount = userAssignments.filter((a) => a.status === "hold").length;
-            const allHold = userAssignments.length > 0 && activeCount === 0;
+            const allHold = holdCount > 0 && activeCount === 0;
 
             const byType: Record<string, KpiAssignment[]> = {
               result: [],

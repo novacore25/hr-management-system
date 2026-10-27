@@ -360,7 +360,7 @@ export default function HeadPenugasanPage() {
             const activeAssignments = userAssignments.filter(a => a.status === 'active' || a.status === 'completed' || a.status === 'hold');
             const activeCount = userAssignments.filter((a) => a.status === "active").length;
             const holdCount = userAssignments.filter((a) => a.status === "hold").length;
-            const allHold = userAssignments.length > 0 && activeCount === 0;
+            const allHold = holdCount > 0 && activeCount === 0;
             const avgPct = activeAssignments.length > 0
               ? calcWeightedScore(activeAssignments, getWeights(userId)).total
               : 0;

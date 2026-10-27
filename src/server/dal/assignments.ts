@@ -655,7 +655,15 @@ export async function bulkSetAssignmentStatus(
 
   if (records.length === 0) return 0;
 
-  const toUpdate = records.filter((r) => r.status !== status);
+  // Hanya ubah status yang relevan:
+  // - Tutup semua ('hold'): hanya ubah penugasan yang sedang 'active'
+  // - Buka semua ('active'): hanya ubah penugasan yang sedang 'hold'
+  // Penugasan yang sudah 'cancelled' (dibatalkan) atau 'completed' TIDAK BOLEH tersentuh!
+  const toUpdate = records.filter((r) => {
+    if (status === "hold") return r.status === "active";
+    if (status === "active") return r.status === "hold";
+    return r.status !== status && r.status !== "cancelled";
+  });
   if (toUpdate.length === 0) return 0;
 
   const now = new Date();
@@ -715,7 +723,15 @@ export async function setUserAssignmentsStatus(
 
   if (records.length === 0) return 0;
 
-  const toUpdate = records.filter((r) => r.status !== status);
+  // Hanya ubah status yang relevan:
+  // - Tutup semua ('hold'): hanya ubah penugasan yang sedang 'active'
+  // - Buka semua ('active'): hanya ubah penugasan yang sedang 'hold'
+  // Penugasan yang sudah 'cancelled' (dibatalkan) atau 'completed' TIDAK BOLEH tersentuh!
+  const toUpdate = records.filter((r) => {
+    if (status === "hold") return r.status === "active";
+    if (status === "active") return r.status === "hold";
+    return r.status !== status && r.status !== "cancelled";
+  });
   if (toUpdate.length === 0) return 0;
 
   const now = new Date();
@@ -777,7 +793,15 @@ export async function setUsersAssignmentsStatus(
 
   if (records.length === 0) return 0;
 
-  const toUpdate = records.filter((r) => r.status !== status);
+  // Hanya ubah status yang relevan:
+  // - Tutup semua ('hold'): hanya ubah penugasan yang sedang 'active'
+  // - Buka semua ('active'): hanya ubah penugasan yang sedang 'hold'
+  // Penugasan yang sudah 'cancelled' (dibatalkan) atau 'completed' TIDAK BOLEH tersentuh!
+  const toUpdate = records.filter((r) => {
+    if (status === "hold") return r.status === "active";
+    if (status === "active") return r.status === "hold";
+    return r.status !== status && r.status !== "cancelled";
+  });
   if (toUpdate.length === 0) return 0;
 
   const now = new Date();
