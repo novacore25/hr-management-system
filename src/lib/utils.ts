@@ -239,11 +239,14 @@ export function calcWeightedScore(
  * `null` berarti KPI ini boleh diinput staf.
  */
 export function pesanKpiReadonly(
-  kpi: { type?: string | null; description?: string | null; status?: string | null } | null | undefined,
+  kpi: { type?: string | null; description?: string | null; status?: string | null; deletedAt?: string | null } | null | undefined,
   penilai: "Head" | "HR" = "HR",
   assignment?: { status?: string | null } | null,
 ): string | null {
   if (!kpi) return null;
+  if (kpi.deletedAt) {
+    return "KPI Dihapus / Masuk Sampah";
+  }
   if (assignment?.status === "cancelled") {
     return "Penugasan Dibatalkan";
   }

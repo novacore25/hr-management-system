@@ -473,6 +473,10 @@ async function restoreCancelledAssignments(
   actorId?: string,
 ): Promise<number> {
   const now = new Date();
+  const safeActorId =
+    actorId && typeof actorId === "string" && actorId.trim().length > 0
+      ? actorId.trim()
+      : null;
 
   const restored = await db
     .update(kpiAssignments)
@@ -483,15 +487,22 @@ async function restoreCancelledAssignments(
     .returning({ id: kpiAssignments.id, userId: kpiAssignments.userId });
 
   for (const a of restored) {
-    await db.insert(kpiHistories).values({
-      assignmentId: a.id,
-      userId: a.userId,
-      action: "status_restored",
-      oldValue: { status: "cancelled" },
-      newValue: { status: "active", reason: "kpi_restored" },
-      triggeredBy: actorId ?? "",
-      createdAt: now,
-    });
+    try {
+      await db.insert(kpiHistories).values({
+        assignmentId: a.id,
+        userId: a.userId,
+        action: "status_restored",
+        oldValue: { status: "cancelled" },
+        newValue: { status: "active", reason: "kpi_restored" },
+        triggeredBy: safeActorId,
+        createdAt: now,
+      });
+    } catch (e) {
+      console.warn(
+        `[restoreCancelledAssignments] Catat audit history gagal untuk assignment ${a.id}:`,
+        e,
+      );
+    }
   }
 
   return restored.length;

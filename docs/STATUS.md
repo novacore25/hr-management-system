@@ -2318,3 +2318,54 @@ Ketika staf ingin melakukan update, pengisian, atau pengubahan pada KPI yang tel
    - Menambahkan suite pengujian `scripts/verify-leave-rejection.ts` (`npm run verify:leavereject`) yang menguji 24 assertions di seluruh lapisan DAL, API, dialog, admin approvals, dan tampilan staf (24 PASS, 0 FAIL).
    - Seluruh suite `verify` (typecheck + smoke test) dan `verify:build` (63 route Next.js) lolos 100%.
 
+---
+
+## Sinkronisasi Master KPI Sampah (Soft-Delete) & Penugasan Staf
+
+### Masalah yang Ditemukan
+1. **Kebocoran Penugasan KPI Terhapus ke Dashboard Staf**:
+   - HR salah menginput target KPI (contoh: KPI "Absensi Karyawan"), lalu tidak sengaja memindahkan KPI tersebut ke tempat sampah (`soft-delete`) di menu Manajemen KPI (`/dashboard/hr/kpi`).
+   - Di menu Manajemen KPI, KPI lama sudah masuk ke tab **Sampah (1)** dan HR telah membuat KPI baru dengan target yang benar.
+   - Namun, pada antarmuka staf (`/dashboard/tim`), kartu KPI lama yang sudah di-trash tetap muncul berdampingan dengan kartu KPI baru (duplikat). Kartu lama berstatus hold dan menampilkan pesan error merah `"KPI ini sudah di tutup anda terlambat silahkan hubungi HR jika ini kesalahan"`.
+2. **Akar Masalah di Server DAL**:
+   - Fungsi `listUserAssignments`, `listAllAssignments`, `listDepartmentAssignments`, `listManagedAssignments`, dan `listUserAssignmentsInRange` di `src/server/dal/assignments.ts` melakukan `innerJoin(kpis, eq(kpiAssignments.kpiId, kpis.id))` **tanpa** menyertakan klausa `isNull(kpis.deletedAt)`.
+   - Karena master KPI hanya di-soft-delete (`kpis.deleted_at = now()`), baris di tabel `kpis` masih ada dan query tetap mencocokkan penugasan staf yang terhubung ke master KPI di sampah.
+   - Proyeksi `assignmentSelect` dan transformasi `toAssignment` di `assignments.ts` dan `period.ts` meng-hardcode nilai `deletedAt: null`, sehingga client tidak pernah mengetahui bahwa master KPI-nya sudah masuk ke tempat sampah.
+3. **Penyebab Status Hold & Kerentanan Audit Log di `cancelAssignmentsForKpi`**:
+   - `cancelAssignmentsForKpi` mencoba memasukkan audit history ke `kpiHistories` dengan `triggeredBy: actorId`. Jika `actorId` berupa string kosong `""` atau tidak valid, operasi gagal akibat foreign key constraint (`kpi_histories_triggered_by_fkey`).
+   - Query pembatalan penugasan sebelumnya hanya mengecek status `["active", "hold"]`, mengabaikan status non-cancelled lainnya.
+4. **Kebocoran pada API Period, Quality, dan Daily Reports**:
+   - `getAssignmentsForPeriod` di `src/server/dal/period.ts` dan `listQualityRows` di `src/server/dal/quality.ts` tidak memfilter `isNull(kpis.deletedAt)`.
+   - Endpoint `/api/daily-reports` (POST/PATCH/DELETE) tidak mengecek apakah KPI penugasan sudah berada di sampah (`assignment.kpi?.deletedAt`).
+
+### Solusi & Implementasi
+1. **Server-Side Enforcement di Seluruh Lapisan DAL (`src/server/dal/assignments.ts`, `period.ts`, `quality.ts`)**:
+   - Seluruh query penugasan (`listUserAssignments`, `listAllAssignments`, `listDepartmentAssignments`, `listManagedAssignments`, `listUserAssignmentsInRange`, `getAssignmentsForPeriod`, dan `listQualityRows`) kini mewajibkan klausa:
+     ```ts
+     isNull(kpis.deletedAt)
+     ```
+   - `assignmentSelect` dan `toAssignment` kini membaca `kpiDeletedAt: kpis.deletedAt` dan memproyeksikannya secara tepat ke tipe `deletedAt: row.kpiDeletedAt ? row.kpiDeletedAt.toISOString() : null`.
+2. **Robust `cancelAssignmentsForKpi` & `restoreCancelledAssignments`**:
+   - Menggunakan `safeActorId = actorId && actorId.trim().length > 0 ? actorId.trim() : null` agar aman terhadap foreign key constraint.
+   - Membatalkan seluruh penugasan aktif/hold dengan kondisi `sql`${kpiAssignments.status} <> 'cancelled'``.
+   - Membungkus penyimpanan audit log dalam blok `try-catch` sehingga kegagalan logging tidak membatalkan update penugasan.
+3. **Guard Ketat di API Daily Reports (`src/app/api/daily-reports/route.ts`)**:
+   - Operasi `POST`, `PATCH`, dan `DELETE` langsung menolak dengan `ValidationError("KPI ini telah dipindahkan ke sampah atau dihapus. Tidak dapat menginput laporan.")` bila `assignment.kpi?.deletedAt` terisi.
+4. **Pencegahan di Readonly Logic & Client-Side Sanitation**:
+   - `pesanKpiReadonly` di `src/lib/utils.ts` mendeteksi `if (kpi.deletedAt) return "KPI Dihapus / Masuk Sampah";`.
+   - Seluruh halaman dashboard (`/dashboard/tim/page.tsx`, `/dashboard/tim/kpi/page.tsx`, `/dashboard/tim/input/page.tsx`, dan `/dashboard/head/page.tsx`) memfilter defensif:
+     ```ts
+     a.status !== "cancelled" && !a.kpi?.deletedAt
+     ```
+5. **Migrasi Data 0020 (`drizzle/0020_cancel_trash_kpi_assignments.sql`)**:
+   - Menyiapkan migrasi SQL untuk menyinkronkan status seluruh assignment lama yang master KPI-nya berada di sampah menjadi `'cancelled'`:
+     ```sql
+     UPDATE kpi_assignments ka
+     SET status = 'cancelled', cancelled_at = COALESCE(ka.cancelled_at, NOW()), updated_at = NOW()
+     FROM kpis k
+     WHERE ka.kpi_id = k.id AND k.deleted_at IS NOT NULL AND ka.status <> 'cancelled';
+     ```
+6. **Verifikasi Test Suite**:
+   - Menambahkan test suite baru `scripts/verify-trash-kpi-sync.ts` (`npm run verify:trashsync`) yang memvalidasi 24 assertions (24 PASS, 0 FAIL).
+   - Seluruh suite verifikasi sistem (`npm run verify`, `npm run verify:closekpi`, `npm run verify:trashsync`, dan `npm run verify:build`) lolos 100% tanpa error (63 route Next.js build sukses).
+

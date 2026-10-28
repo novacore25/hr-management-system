@@ -1,6 +1,6 @@
 import "server-only";
 import { db } from "@/db";
-import { and, eq, inArray, desc, sql, gte, lte } from "drizzle-orm";
+import { and, eq, inArray, isNull, desc, sql, gte, lte } from "drizzle-orm";
 import {
   kpiAssignments,
   kpis,
@@ -30,8 +30,10 @@ type Row = typeof kpiAssignments.$inferSelect & {
   kpiDescription: string | null;
   kpiUnit: string | null;
   kpiPeriod: string | null;
+  kpiStatus: string | null;
   kpiHideActual: boolean | null;
   kpiBrand: string | null;
+  kpiDeletedAt: Date | null;
   userName: string | null;
   userPhoto: string | null;
   userKpiRole: string | null;
@@ -67,8 +69,10 @@ const select = {
   kpiDescription: kpis.description,
   kpiUnit: kpis.unit,
   kpiPeriod: kpis.period,
+  kpiStatus: kpis.status,
   kpiHideActual: kpis.hideActual,
   kpiBrand: kpis.brand,
+  kpiDeletedAt: kpis.deletedAt,
   userName: users.name,
   userPhoto: users.photoUrl,
   userKpiRole: users.kpiRole,
@@ -83,14 +87,14 @@ function toAssignment(row: Row, scores: Record<string, QualityMonthScore>) {
     type: row.kpiType,
     unit: row.kpiUnit as never,
     period: row.kpiPeriod as never,
-    status: "active" as never,
+    status: (row.kpiStatus ?? "active") as never,
     department: row.departmentName ?? "",
     brand: row.kpiBrand ?? undefined,
     createdBy: "",
     monthlyTarget: 0,
     year: row.year,
     month: row.month,
-    deletedAt: null,
+    deletedAt: row.kpiDeletedAt ? row.kpiDeletedAt.toISOString() : null,
     hideActual: row.kpiHideActual ?? false,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -233,6 +237,8 @@ export async function getAssignmentsForPeriod(params: {
           "hold",
         ]),
   );
+
+  conds.push(isNull(kpis.deletedAt));
 
   let rows: Row[];
 

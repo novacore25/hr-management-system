@@ -1,6 +1,6 @@
 import "server-only";
 import { db } from "@/db";
-import { and, eq, or, desc, inArray, sql } from "drizzle-orm";
+import { and, eq, or, desc, inArray, isNull, sql } from "drizzle-orm";
 import {
   kpiAssignments,
   kpis,
@@ -99,6 +99,7 @@ export async function listQualityRows(params: {
     eq(kpiAssignments.month, params.month),
     inArray(kpiAssignments.kpiType, kpiTypes),
     inArray(kpiAssignments.status, ["active", "hold", "completed"]),
+    isNull(kpis.deletedAt),
   ];
 
   if (kpiTypes.length === 0) return [];

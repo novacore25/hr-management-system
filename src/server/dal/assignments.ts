@@ -1,6 +1,6 @@
 import "server-only";
 import { db } from "@/db";
-import { and, eq, inArray, sql, desc, gte, lte } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql, desc, gte, lte } from "drizzle-orm";
 import {
   kpiAssignments,
   kpis,
@@ -35,9 +35,11 @@ type AssignmentRow = typeof kpiAssignments.$inferSelect & {
   kpiDescription: string | null;
   kpiUnit: string | null;
   kpiPeriod: string | null;
+  kpiStatus: string | null;
   kpiDepartmentId: string | null;
   kpiHideActual: boolean | null;
   kpiBrand: string | null;
+  kpiDeletedAt: Date | null;
   userName: string | null;
   userPhoto: string | null;
   userKpiRole: string | null;
@@ -55,14 +57,14 @@ function toAssignment(
     type: row.kpiType,
     unit: row.kpiUnit as never,
     period: row.kpiPeriod as never,
-    status: "active" as never,
+    status: (row.kpiStatus ?? "active") as never,
     department: row.departmentName ?? "",
     brand: row.kpiBrand ?? undefined,
     createdBy: "",
     monthlyTarget: 0,
     year: row.year,
     month: row.month,
-    deletedAt: null,
+    deletedAt: row.kpiDeletedAt ? row.kpiDeletedAt.toISOString() : null,
     hideActual: row.kpiHideActual ?? false,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -173,9 +175,11 @@ const assignmentSelect = {
   kpiDescription: kpis.description,
   kpiUnit: kpis.unit,
   kpiPeriod: kpis.period,
+  kpiStatus: kpis.status,
   kpiDepartmentId: kpis.departmentId,
   kpiHideActual: kpis.hideActual,
   kpiBrand: kpis.brand,
+  kpiDeletedAt: kpis.deletedAt,
   userName: users.name,
   userPhoto: users.photoUrl,
   userKpiRole: users.kpiRole,
@@ -239,6 +243,7 @@ export async function listUserAssignments(
         eq(kpiAssignments.year, year),
         eq(kpiAssignments.month, month),
         inArray(kpiAssignments.status, statuses),
+        isNull(kpis.deletedAt),
       ),
     )
     .orderBy(desc(kpiAssignments.createdAt));
@@ -256,6 +261,7 @@ export async function listAllAssignments(
     eq(kpiAssignments.year, year),
     eq(kpiAssignments.month, month),
   ];
+  conds.push(isNull(kpis.deletedAt));
   if (statuses?.length) conds.push(inArray(kpiAssignments.status, statuses));
 
   const rows = await db
@@ -282,6 +288,7 @@ export async function listDepartmentAssignments(
     eq(kpiAssignments.year, year),
     eq(kpiAssignments.month, month),
   ];
+  conds.push(isNull(kpis.deletedAt));
   if (statuses?.length) conds.push(inArray(kpiAssignments.status, statuses));
 
   const rows = await db
@@ -321,6 +328,8 @@ export async function listManagedAssignments(
     eq(kpiAssignments.month, month),
     inArray(kpiAssignments.status, statuses),
   ];
+
+  conds.push(isNull(kpis.deletedAt));
 
   if (managedDepartmentIds.length === 0) {
     // Tidak mengelola satu divisi pun: hanya assignment miliknya sendiri.
@@ -364,6 +373,7 @@ export async function listUserAssignmentsInRange(
     .where(
       and(
         eq(kpiAssignments.userId, userId),
+        isNull(kpis.deletedAt),
         inArray(kpiAssignments.status, [
           "active",
           "completed",
@@ -593,9 +603,13 @@ export async function countActiveAssignments(kpiId: string): Promise<number> {
  */
 export async function cancelAssignmentsForKpi(
   kpiId: string,
-  actorId: string,
+  actorId?: string,
 ): Promise<number> {
   const now = new Date();
+  const safeActorId =
+    actorId && typeof actorId === "string" && actorId.trim().length > 0
+      ? actorId.trim()
+      : null;
 
   const cancelled = await db
     .update(kpiAssignments)
@@ -603,21 +617,28 @@ export async function cancelAssignmentsForKpi(
     .where(
       and(
         eq(kpiAssignments.kpiId, kpiId),
-        inArray(kpiAssignments.status, ["active", "hold"]),
+        sql`${kpiAssignments.status} <> 'cancelled'`,
       ),
     )
     .returning({ id: kpiAssignments.id, userId: kpiAssignments.userId });
 
   for (const a of cancelled) {
-    await db.insert(kpiHistories).values({
-      assignmentId: a.id,
-      userId: a.userId,
-      action: "status_cancelled",
-      oldValue: { status: "active_or_hold" },
-      newValue: { status: "cancelled", reason: "kpi_deleted" },
-      triggeredBy: actorId,
-      createdAt: now,
-    });
+    try {
+      await db.insert(kpiHistories).values({
+        assignmentId: a.id,
+        userId: a.userId,
+        action: "status_cancelled",
+        oldValue: { status: "active_or_hold" },
+        newValue: { status: "cancelled", reason: "kpi_deleted" },
+        triggeredBy: safeActorId,
+        createdAt: now,
+      });
+    } catch (e) {
+      console.warn(
+        `[cancelAssignmentsForKpi] Catat audit history gagal untuk assignment ${a.id}:`,
+        e,
+      );
+    }
   }
 
   return cancelled.length;

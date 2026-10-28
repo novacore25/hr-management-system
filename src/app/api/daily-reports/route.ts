@@ -204,6 +204,11 @@ export async function POST(request: Request) {
       }
     } else {
       // Pembatasan untuk staf: KPI/penugasan yang ditutup atau di-hold tidak boleh diisi
+      if (assignment.kpi?.deletedAt) {
+        throw new ValidationError(
+          "KPI ini telah dipindahkan ke sampah atau dihapus. Tidak dapat menginput laporan.",
+        );
+      }
       if (assignment.status === "cancelled") {
         throw new ValidationError(
           "Penugasan KPI ini telah dibatalkan. Tidak dapat menginput laporan.",
@@ -324,6 +329,11 @@ export async function PATCH(request: Request) {
         );
       }
     } else {
+      if (assignment?.kpi?.deletedAt) {
+        throw new ValidationError(
+          "KPI ini telah dipindahkan ke sampah atau dihapus.",
+        );
+      }
       if (assignment?.kpi?.status === "closed" || assignment?.status === "hold") {
         throw new ValidationError(
           "KPI ini sudah di tutup anda terlambat silahkan hubungi HR jika ini kesalahan",
@@ -369,6 +379,11 @@ export async function DELETE(request: Request) {
     if (!isOwner) {
       await requireKpiRole("hr", "executive");
     } else {
+      if (assignment?.kpi?.deletedAt) {
+        throw new ValidationError(
+          "KPI ini telah dipindahkan ke sampah atau dihapus.",
+        );
+      }
       if (assignment?.kpi?.status === "closed" || assignment?.status === "hold") {
         throw new ValidationError(
           "KPI ini sudah di tutup anda terlambat silahkan hubungi HR jika ini kesalahan",

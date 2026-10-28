@@ -36,7 +36,7 @@ export default function TimKpiPage() {
   const [period, setPeriod] = useState<Period>({ type: "month" });
   const [tab, setTab] = useState<"active" | "completed_daily" | "all">("active");
 
-  const validAssignments = assignments.filter((a) => a.status !== "cancelled");
+  const validAssignments = assignments.filter((a) => a.status !== "cancelled" && !a.kpi?.deletedAt);
   const hasDailyKpis = validAssignments.some((a) => a.kpi?.period === "daily");
 
   const activeAssignments = validAssignments.filter((a) => {

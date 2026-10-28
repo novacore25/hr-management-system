@@ -34,7 +34,7 @@ export default function TimDashboard() {
   const [searchQuery, setSearchQuery] = useState("");
   const [showTour, setShowTour] = useState(false);
 
-  const activeAssignments = assignments.filter((a) => a.status !== "cancelled");
+  const activeAssignments = assignments.filter((a) => a.status !== "cancelled" && !a.kpi?.deletedAt);
   const filteredAssignments = activeAssignments.filter((a) =>
     a.kpi && a.kpi.title?.toLowerCase().includes(searchQuery.toLowerCase())
   );

@@ -43,6 +43,9 @@ export default function HeadDashboard() {
     now.getFullYear(),
     now.getMonth() + 1
   );
+  const myActiveAssignments = myAssignments.filter(
+    (a) => a.status !== "cancelled" && !a.kpi?.deletedAt,
+  );
   const { getWeights, isLoading: settingsLoading } = useAllKpiSettings();
   const isRange = period.type === "range";
 
@@ -121,11 +124,11 @@ export default function HeadDashboard() {
         </div>
       </div>
 
-      {myAssignments.length > 0 && (
+      {myActiveAssignments.length > 0 && (
         <div className="space-y-3">
           <h2 className="text-sm font-semibold">KPI Saya (Bulan Ini)</h2>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {myAssignments.map((a) => (
+            {myActiveAssignments.map((a) => (
               <KpiCard
                 key={a.id}
                 assignment={a}

@@ -45,7 +45,7 @@ export default function TimInputPage() {
   const [selected, setSelected] = useState<KpiAssignmentWithDetails | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
 
-  const activeAssignments = assignments.filter((a) => a.status !== "cancelled");
+  const activeAssignments = assignments.filter((a) => a.status !== "cancelled" && !a.kpi?.deletedAt);
   const filteredAssignments = activeAssignments.filter((a) =>
     a.kpi?.title?.toLowerCase().includes(searchQuery.toLowerCase())
   );
