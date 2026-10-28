@@ -96,7 +96,9 @@ export function KpiCard({ assignment, onClick, showNotes = true, period, readonl
   const expectedPct = monthlyTarget > 0 ? (assignment.expectedTotal / monthlyTarget) * 100 : 0;
 
   const isCompleted = displayPct >= 100;
-  const isKpiClosed = kpi.status === "closed" || assignment.status === "hold";
+  const isKpiClosed =
+    assignment.status === "hold" ||
+    (kpi.status === "closed" && assignment.status !== "active");
 
   const handleCardClick = () => {
     if (isKpiClosed) {

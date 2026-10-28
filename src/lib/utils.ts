@@ -250,14 +250,14 @@ export function pesanKpiReadonly(
   if (assignment?.status === "cancelled") {
     return "Penugasan Dibatalkan";
   }
-  if (kpi.status === "closed") {
-    return "KPI Ditutup oleh HR";
-  }
-  if (kpi.status === "hold") {
-    return "KPI Sedang Di-Hold";
-  }
   if (assignment?.status === "hold") {
     return "KPI Ditutup / Di-Hold untuk Anda";
+  }
+  if (kpi.status === "closed" && assignment?.status !== "active") {
+    return "KPI Ditutup oleh HR";
+  }
+  if (kpi.status === "hold" && assignment?.status !== "active") {
+    return "KPI Sedang Di-Hold";
   }
   if (kpi.type !== "quality" && kpi.type !== "lead_tim" && kpi.type !== "hr") {
     return null;

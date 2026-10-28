@@ -340,6 +340,27 @@ export async function updateKpi(
   }
 
   await db.update(kpis).set(values).where(eq(kpis.id, id));
+
+  // Sinkronisasi status penugasan (assignments) dengan status master KPI:
+  // Bila master KPI diaktifkan kembali ('active'), buka penugasan yang sedang 'hold'.
+  // Bila master KPI ditutup ('closed' / 'hold'), tutup penugasan yang sedang 'active'.
+  if (patch.status === "active") {
+    await db
+      .update(kpiAssignments)
+      .set({ status: "active", heldAt: null, updatedAt: new Date() })
+      .where(
+        and(eq(kpiAssignments.kpiId, id), eq(kpiAssignments.status, "hold")),
+      );
+  } else if (patch.status === "closed" || patch.status === "hold") {
+    const now = new Date();
+    await db
+      .update(kpiAssignments)
+      .set({ status: "hold", heldAt: now, updatedAt: now })
+      .where(
+        and(eq(kpiAssignments.kpiId, id), eq(kpiAssignments.status, "active")),
+      );
+  }
+
   return findKpiById(id);
 }
 
@@ -828,6 +849,19 @@ export async function closeAllKpis(
     .where(and(...conds))
     .returning({ id: kpis.id });
 
+  const closedIds = res.map((r) => r.id);
+  if (closedIds.length > 0) {
+    await db
+      .update(kpiAssignments)
+      .set({ status: "hold", heldAt: now, updatedAt: now })
+      .where(
+        and(
+          inArray(kpiAssignments.kpiId, closedIds),
+          eq(kpiAssignments.status, "active"),
+        ),
+      );
+  }
+
   return { closedCount: res.length };
 }
 
@@ -857,6 +891,19 @@ export async function openAllKpis(
     .where(and(...conds))
     .returning({ id: kpis.id });
 
+  const openedIds = res.map((r) => r.id);
+  if (openedIds.length > 0) {
+    await db
+      .update(kpiAssignments)
+      .set({ status: "active", heldAt: null, updatedAt: now })
+      .where(
+        and(
+          inArray(kpiAssignments.kpiId, openedIds),
+          eq(kpiAssignments.status, "hold"),
+        ),
+      );
+  }
+
   return { openedCount: res.length };
 }
 
@@ -875,6 +922,31 @@ export async function bulkSetKpiStatus(
     .set({ status, updatedAt: now })
     .where(and(inArray(kpis.id, ids), isNull(kpis.deletedAt)))
     .returning({ id: kpis.id });
+
+  const updatedIds = res.map((r) => r.id);
+  if (updatedIds.length > 0) {
+    if (status === "active") {
+      await db
+        .update(kpiAssignments)
+        .set({ status: "active", heldAt: null, updatedAt: now })
+        .where(
+          and(
+            inArray(kpiAssignments.kpiId, updatedIds),
+            eq(kpiAssignments.status, "hold"),
+          ),
+        );
+    } else if (status === "closed" || status === "hold") {
+      await db
+        .update(kpiAssignments)
+        .set({ status: "hold", heldAt: now, updatedAt: now })
+        .where(
+          and(
+            inArray(kpiAssignments.kpiId, updatedIds),
+            eq(kpiAssignments.status, "active"),
+          ),
+        );
+    }
+  }
 
   return { updatedCount: res.length };
 }

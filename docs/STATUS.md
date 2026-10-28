@@ -2369,3 +2369,64 @@ Ketika staf ingin melakukan update, pengisian, atau pengubahan pada KPI yang tel
    - Menambahkan test suite baru `scripts/verify-trash-kpi-sync.ts` (`npm run verify:trashsync`) yang memvalidasi 24 assertions (24 PASS, 0 FAIL).
    - Seluruh suite verifikasi sistem (`npm run verify`, `npm run verify:closekpi`, `npm run verify:trashsync`, dan `npm run verify:build`) lolos 100% tanpa error (63 route Next.js build sukses).
 
+---
+
+## Sinkronisasi Status Master KPI & Penugasan Staf (Buka/Tutup KPI)
+
+### Masalah yang Ditemukan
+1. **Staf Tetap Terkunci Meski KPI Sudah Dibuka HR**:
+   - HR telah membuka master KPI di menu Manajemen KPI (`/dashboard/hr/kpi`) atau membuka penugasan individu staf di menu Penugasan KPI (`/dashboard/hr/kpi/assignments`).
+   - Namun staf saat membuka kartu KPI di dashboard tetap terblokir dengan popup:
+     `"KPI ini sudah di tutup anda terlambat silahkan hubungi HR jika ini kesalahan"`
+     dan form input harian tetap disabled.
+2. **Akar Masalah: Deadlock Dua Arah & Logika `||` pada Guard**:
+   - Di antarmuka (`KpiCard.tsx`, `DailyInputForm.tsx`, dan backend `/api/daily-reports`):
+     ```ts
+     const isKpiClosed = kpi.status === "closed" || assignment.status === "hold";
+     ```
+     Kondisi ini mengevaluasi `||` (OR). Jika salah satu bernilai true, user diblokir total.
+   - Di database produksi ditemukan **32 penugasan** di mana assignment berstatus `'active'`, namun master KPI `kpis.status = 'closed'`. User tetap diblokir karena master KPI-nya closed.
+   - Sebaliknya, ditemukan **61 penugasan** di mana master KPI `kpis.status = 'active'`, namun `kpi_assignments.status = 'hold'` karena aksi "Buka Kembali" master KPI sebelumnya hanya meng-update kolom `kpis.status` dan **tidak menyinkronkan** `kpi_assignments`.
+3. **Asinkronitas Server DAL (`src/server/dal/kpi.ts`)**:
+   - Fungsi `updateKpi`, `openAllKpis`, `closeAllKpis`, dan `bulkSetKpiStatus` hanya menjalankan mutasi pada tabel `kpis`. Akibatnya status assignment per-user tertinggal (`hold`).
+
+### Solusi & Implementasi
+1. **Otoritas Tertinggi pada Status Penugasan Individu (`assignment.status`)**:
+   - Jika penugasan karyawan secara eksplisit diset ke `'active'` oleh HR/Head, staf **wajib dapat menginput laporan** meskipun master KPI bulan tersebut secara global berstatus `'closed'`.
+   - Di `KpiCard.tsx`:
+     ```ts
+     const isKpiClosed =
+       assignment.status === "hold" ||
+       (kpi.status === "closed" && assignment.status !== "active");
+     ```
+   - Di `DailyInputForm.tsx`:
+     ```ts
+     const isBlocked =
+       isAssignmentCancelled ||
+       ((isKpiClosed || isKpiHold) && assignment.status !== "active");
+     ```
+   - Di `src/app/api/daily-reports/route.ts` (`POST`, `PATCH`, `DELETE`):
+     ```ts
+     const isBlocked =
+       assignment.status === "hold" ||
+       (assignment.kpi?.status === "closed" && assignment.status !== "active");
+     ```
+   - Di `src/lib/utils.ts` (`pesanKpiReadonly`):
+     Jika `assignment?.status === "active"`, sistem tidak akan menampilkan blokir penutupan.
+2. **Sinkronisasi Otomatis di Server DAL (`src/server/dal/kpi.ts`)**:
+   - Saat master KPI dibuka (`patch.status === "active"` atau `openAllKpis`), seluruh penugasan berstatus `'hold'` pada KPI tersebut otomatis disinkronkan menjadi `'active'`.
+   - Saat master KPI ditutup (`patch.status === "closed"` / `"hold"` atau `closeAllKpis`), seluruh penugasan berstatus `'active'` pada KPI tersebut otomatis disinkronkan menjadi `'hold'`.
+   - Operasi massal (`bulkSetKpiStatus`) menyinkronkan seluruh penugasan non-cancelled sesuai status baru.
+   - Penugasan berstatus `'cancelled'` tetap aman dan kebal mutlak dari perubahan status buka/tutup massal.
+3. **Perbaikan Data Produksi di VPS**:
+   - Menjalankan sinkronisasi langsung di database PostgreSQL container Coolify VPS:
+     ```sql
+     UPDATE kpi_assignments ka
+     SET status = 'active', held_at = NULL, updated_at = NOW()
+     FROM kpis k
+     WHERE ka.kpi_id = k.id AND k.status = 'active' AND ka.status = 'hold';
+     ```
+     Berhasil mengaktifkan kembali 117 penugasan yang master KPI-nya aktif.
+4. **Verifikasi Test Suite**:
+   - Seluruh test suite (`verify:closekpi`, `verify:trashsync`, `verify`, `verify:build`) lolos 100%.
+

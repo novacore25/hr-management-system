@@ -214,12 +214,18 @@ export async function POST(request: Request) {
           "Penugasan KPI ini telah dibatalkan. Tidak dapat menginput laporan.",
         );
       }
-      if (assignment.kpi?.status === "closed" || assignment.status === "hold") {
+      if (
+        assignment.status === "hold" ||
+        (assignment.kpi?.status === "closed" && assignment.status !== "active")
+      ) {
         throw new ValidationError(
           "KPI ini sudah di tutup anda terlambat silahkan hubungi HR jika ini kesalahan",
         );
       }
-      if (assignment.kpi?.status === "hold") {
+      if (
+        assignment.kpi?.status === "hold" &&
+        assignment.status !== "active"
+      ) {
         throw new ValidationError(
           "KPI ini sedang di-hold oleh HR. Penginputan realisasi dinonaktifkan.",
         );
@@ -334,7 +340,10 @@ export async function PATCH(request: Request) {
           "KPI ini telah dipindahkan ke sampah atau dihapus.",
         );
       }
-      if (assignment?.kpi?.status === "closed" || assignment?.status === "hold") {
+      if (
+        assignment?.status === "hold" ||
+        (assignment?.kpi?.status === "closed" && assignment?.status !== "active")
+      ) {
         throw new ValidationError(
           "KPI ini sudah di tutup anda terlambat silahkan hubungi HR jika ini kesalahan",
         );
@@ -384,7 +393,10 @@ export async function DELETE(request: Request) {
           "KPI ini telah dipindahkan ke sampah atau dihapus.",
         );
       }
-      if (assignment?.kpi?.status === "closed" || assignment?.status === "hold") {
+      if (
+        assignment?.status === "hold" ||
+        (assignment?.kpi?.status === "closed" && assignment?.status !== "active")
+      ) {
         throw new ValidationError(
           "KPI ini sudah di tutup anda terlambat silahkan hubungi HR jika ini kesalahan",
         );
