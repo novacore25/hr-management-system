@@ -77,6 +77,11 @@ export default function MyPayrollPage() {
               json.data.setting.defaultMobilityAllowance,
             ),
             notes: json.data.setting.notes,
+            department_name: json.data.setting.departmentName,
+            employment_status: json.data.setting.employmentStatus,
+            bank_name: json.data.setting.bankName,
+            bank_account_number: json.data.setting.bankAccountNumber,
+            bank_account_name: json.data.setting.bankAccountName,
           } as PayrollStaffSetting
         : null;
 
@@ -102,6 +107,8 @@ export default function MyPayrollPage() {
           snapshot_name: p.snapshotName ?? null,
           snapshot_position: p.snapshotPosition ?? null,
           snapshot_company: p.snapshotCompany ?? null,
+          created_at: p.createdAt ?? null,
+          updated_at: p.updatedAt ?? null,
         } as Payroll;
 
         return { ...row, setting };
@@ -259,6 +266,14 @@ export default function MyPayrollPage() {
                   deductionNotes={previewPayroll.deduction_notes}
                   deductionsDetail={previewPayroll.deductions_detail}
                   notes={previewPayroll.notes}
+                  departmentName={previewPayroll.setting?.department_name || null}
+                  employmentStatus={previewPayroll.setting?.employment_status || null}
+                  bankName={previewPayroll.setting?.bank_name || null}
+                  bankAccountNumber={previewPayroll.setting?.bank_account_number || null}
+                  bankAccountName={previewPayroll.setting?.bank_account_name || null}
+                  createdAt={previewPayroll.created_at || null}
+                  updatedAt={previewPayroll.updated_at || null}
+                  approvedByName="Marcella Dian Mutiara"
                 />
               </div>
             </div>

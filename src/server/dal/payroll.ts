@@ -38,6 +38,10 @@ export type StaffSettingRow = {
   userEmail: string | null;
   departmentId: string | null;
   departmentName: string | null;
+  employmentStatus?: string | null;
+  bankName?: string | null;
+  bankAccountNumber?: string | null;
+  bankAccountName?: string | null;
 };
 
 const COMPANY_VALUES: PayrollCompany[] = ["TNT", "Hype", "Nova"];
@@ -56,6 +60,10 @@ export async function listStaffSettings(): Promise<StaffSettingRow[]> {
       userEmail: users.email,
       departmentId: users.departmentId,
       departmentName: departments.name,
+      employmentStatus: users.employmentStatus,
+      bankName: users.bankName,
+      bankAccountNumber: users.bankAccountNumber,
+      bankAccountName: users.bankAccountName,
     })
     .from(payrollStaffSettings)
     .innerJoin(users, eq(payrollStaffSettings.userId, users.id))
@@ -79,6 +87,10 @@ export async function listActiveStaff() {
       email: users.email,
       departmentId: users.departmentId,
       departmentName: departments.name,
+      employmentStatus: users.employmentStatus,
+      bankName: users.bankName,
+      bankAccountNumber: users.bankAccountNumber,
+      bankAccountName: users.bankAccountName,
     })
     .from(users)
     .leftJoin(departments, eq(users.departmentId, departments.id))
@@ -217,6 +229,10 @@ export async function listPayrolls(year: number, month: number) {
       updatedAt: payrolls.updatedAt,
       userName: users.name,
       departmentName: departments.name,
+      employmentStatus: users.employmentStatus,
+      bankName: users.bankName,
+      bankAccountNumber: users.bankAccountNumber,
+      bankAccountName: users.bankAccountName,
     })
     .from(payrolls)
     .innerJoin(users, eq(payrolls.userId, users.id))
@@ -282,6 +298,7 @@ export async function listPublishedPayrollsFor(me: string) {
       snapshotPosition: payrolls.snapshotPosition,
       snapshotCompany: payrolls.snapshotCompany,
       createdAt: payrolls.createdAt,
+      updatedAt: payrolls.updatedAt,
     })
     .from(payrolls)
     .where(and(eq(payrolls.userId, me), eq(payrolls.status, "published")))
@@ -302,6 +319,7 @@ export async function listPublishedPayrollsFor(me: string) {
     overtimeNotes: r.overtimeNotes ?? "",
     notes: r.notes ?? "",
     createdAt: r.createdAt.toISOString(),
+    updatedAt: r.updatedAt.toISOString(),
   }));
 }
 
@@ -325,6 +343,10 @@ export async function getStaffSetting(userId: string) {
       defaultBaseSalary: payrollStaffSettings.defaultBaseSalary,
       defaultMobilityAllowance: payrollStaffSettings.defaultMobilityAllowance,
       notes: payrollStaffSettings.notes,
+      employmentStatus: users.employmentStatus,
+      bankName: users.bankName,
+      bankAccountNumber: users.bankAccountNumber,
+      bankAccountName: users.bankAccountName,
     })
     .from(users)
     .leftJoin(
@@ -347,6 +369,10 @@ export async function getStaffSetting(userId: string) {
     defaultBaseSalary: String(Number(row.defaultBaseSalary ?? 0)),
     defaultMobilityAllowance: String(Number(row.defaultMobilityAllowance ?? 0)),
     notes: row.notes ?? "",
+    employmentStatus: row.employmentStatus ?? null,
+    bankName: row.bankName ?? null,
+    bankAccountNumber: row.bankAccountNumber ?? null,
+    bankAccountName: row.bankAccountName ?? null,
   };
 }
 

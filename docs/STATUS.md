@@ -2430,3 +2430,33 @@ Ketika staf ingin melakukan update, pengisian, atau pengubahan pada KPI yang tel
 4. **Verifikasi Test Suite**:
    - Seluruh test suite (`verify:closekpi`, `verify:trashsync`, `verify`, `verify:build`) lolos 100%.
 
+---
+
+## Upgrade Desain Slip Gaji: Tata Letak Korporat Modern (Corporate Payslip)
+
+### Latar Belakang & Kebutuhan
+- Tampilan slip gaji sebelumnya menggunakan format tabel vertikal sederhana satu kolom (seluruh komponen gaji ditumpuk ke bawah) dengan rincian yang terbatas.
+- Dilakukan perombakan menyeluruh pada komponen cetak/PDF (`PayslipPrintView.tsx`) dan pratinjau slip gaji admin (`admin/payroll/page.tsx`) agar berstandar korporat modern (akuntansi 2 kolom sejajar: Pendapatan vs Potongan).
+
+### Data & Aturan Bisnis yang Diterapkan
+1. **Identitas Perusahaan & Kop Surat**:
+   - Alamat kantor resmi: `Jalan Kavling Perkebunan Raya #C225A, RT.006/RW.013, Panunggangan Bar., Kec. Cibodas, Kota Tangerang, Banten 15139`.
+   - Nama entitas: `PT TNT KREATIF DIGITAL` (TNT), `PT SYNERA KREATIF GRUP` (Nova), `HYPE MEDIA INDONESIA` (Hype).
+   - Aksen dekoratif garis ganda emas korporat di bagian atas kop.
+2. **Metadata Karyawan & Dokumen (Grid 2 Kolom)**:
+   - Kiri: Nama, Jabatan, Departemen, Status Kerja (`employmentStatus`: "Karyawan tetap" / dsb), dan Periode Gaji format rentang (`1 [Bulan] [Tahun] – [Tgl Akhir] [Bulan] [Tahun]`).
+   - Kanan: Status dokumen (`Disetujui`), Waktu Terbit (WIB). Nomor dokumen, versi, dan ID karyawan ditiadakan sesuai preferensi operasional.
+3. **Format Rincian Finansial 2 Kolom Sejajar**:
+   - **PENDAPATAN (Kiri)**: Gaji Pokok, Allowance/Tunjangan, Bonus Performa, Upah Lembur, Tambahan Lainnya (`additionsDetail`), dan subtotal *Total pendapatan (bruto)* tebal.
+   - **POTONGAN (Kanan)**: Rincian potongan (`deductionsDetail`), dan subtotal *Total potongan* merah tebal.
+4. **Banner Highlight "GAJI BERSIH DITERIMA (TAKE HOME PAY)"**:
+   - Kotak horizontal berlatar emas lembut (*soft amber/beige* `#FAF6EC`) dengan nominal THP besar dan tebal font monospace.
+5. **Rincian Sesi Jam Lembur**:
+   - Menampilkan tabel rincian sesi lembur harian jika karyawan memiliki riwayat lembur yang difinalisasi pada periode tersebut.
+6. **Informasi Pembayaran & Persetujuan (Grid 2 Kolom Bawah)**:
+   - Kiri: Bank karyawan, nomor rekening dimasking (`****1234`), nama pemilik rekening, status pembayaran, dan tanggal bayar.
+   - Kanan: Disetujui oleh **Marcella Dian Mutiara** (*Human Resources Manager*), slot tanda tangan digital resmi, dan tanda tangan penerima/karyawan.
+7. **Keamanan & Konsistensi**:
+   - Footer kerahasiaan (*Confidential*).
+   - Pratinjau slip gaji di halaman admin HR (`/absensi/admin/payroll`) menggunakan `PayslipPrintView` langsung di dalam modal lebar sehingga 100% identik dengan hasil cetak/PDF staf.
+

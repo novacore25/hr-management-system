@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { createPortal } from "react-dom";
+import { PayslipPrintView } from "@/components/absensi/PayslipPrintView";
 import OvertimeFinalizeModal from "@/components/absensi/OvertimeFinalizeModal";
 import type { OvertimeRequest } from "@/types/absensi";
 import type { Payroll, PayrollStaffSetting, DeductionType, AdditionType, PayrollOvertimeDetailItem } from "@/types";
@@ -317,6 +318,8 @@ function payrollPayload(row: StaffRow, isPublished: boolean) {
       deduction_notes: p.deductionNotes ?? "",
       notes: p.notes ?? "",
       status: p.status,
+      created_at: p.createdAt ?? null,
+      updated_at: p.updatedAt ?? null,
     })) as Payroll[];
 
     /**
@@ -343,6 +346,10 @@ function payrollPayload(row: StaffRow, isPublished: boolean) {
           default_base_salary: Number(s.defaultBaseSalary),
           default_mobility_allowance: Number(s.defaultMobilityAllowance),
           notes: s.notes,
+          employment_status: s.employmentStatus ?? null,
+          bank_name: s.bankName ?? null,
+          bank_account_number: s.bankAccountNumber ?? null,
+          bank_account_name: s.bankAccountName ?? null,
         }) as PayrollStaffSetting,
     );
 
@@ -1404,201 +1411,42 @@ function payrollPayload(row: StaffRow, isPublished: boolean) {
       {/* Preview Modal */}
       {previewRow && typeof document !== "undefined" && createPortal(
         <div className="ab-confirm-overlay" onClick={(e) => { if (e.target === e.currentTarget) setPreviewRow(null); }}>
-          <div className="w-full max-w-md rounded-[30px] shadow-2xl overflow-hidden ab-animate-scaleIn border border-[var(--ab-border)]" style={{ background: "var(--ab-bg-surface)" }}>
-            <div className="p-6">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="text-sm font-black uppercase tracking-widest text-[var(--ab-text-main)]">Preview Slip Gaji</h3>
-                <button onClick={() => setPreviewRow(null)} className="text-[var(--ab-text-dim)] hover:text-red-500">
-                  <X size={20} />
-                </button>
-              </div>
+          <div className="relative w-full max-w-4xl max-h-[92vh] bg-[var(--ab-bg-surface)] rounded-[30px] shadow-2xl border border-[var(--ab-border)] overflow-hidden flex flex-col ab-animate-scaleIn">
+            <div className="flex justify-between items-center p-4 px-6 border-b border-[var(--ab-border)] shrink-0 bg-[var(--ab-bg-main)]">
+              <h3 className="text-sm font-black uppercase tracking-widest text-[var(--ab-text-main)]">Preview Slip Gaji</h3>
+              <button onClick={() => setPreviewRow(null)} className="p-2 rounded-full hover:bg-[var(--ab-bg-surface)] text-[var(--ab-text-dim)] hover:text-red-500 transition-colors">
+                <X size={20} />
+              </button>
+            </div>
 
-              {/* Slip Preview */}
-              <div className="bg-white text-slate-900 rounded-2xl p-6 border shadow-inner">
-                <div className="flex flex-col items-center text-center mb-6 pb-4 border-b-2" style={{ borderColor: COMPANY_COLORS[previewRow.setting?.company || "Nova"] }}>
-                  <img 
-                    src={`/logos/${(previewRow.setting?.company || "Nova").toLowerCase()}.png`}
-                    alt={previewRow.setting?.company || "Nova"}
-                    className="h-12 mb-2 object-contain"
-                  />
-                  <div className="text-[9px] font-medium text-slate-500 mb-3 space-y-0.5">
-                    {previewRow.setting?.company === "TNT" && (
-                      <>
-                        <p className="font-bold text-slate-700">PT TNT Kreatif Digital, MCN & TAP Agency</p>
-                        <p>Official TikTok Shop Partner & MCN</p>
-                        <p>Email: hr.tntmedia@gmail.com</p>
-                      </>
-                    )}
-                    {(previewRow.setting?.company === "Nova" || !previewRow.setting?.company) && (
-                      <>
-                        <p className="font-bold text-slate-700">PT Synera Kreatif Grup</p>
-                        <p>Official TikTok Shop Partner & MCN</p>
-                      </>
-                    )}
-                    {previewRow.setting?.company === "Hype" && (
-                      <>
-                        <p className="font-bold text-slate-700">HYPE Media Indonesia</p>
-                        <p>Official TikTok GO Agency Partner</p>
-                        <p>Email: hypeprojectt@gmail.com</p>
-                      </>
-                    )}
-                  </div>
-                  <p className="text-lg font-black uppercase tracking-widest" style={{ color: COMPANY_COLORS[previewRow.setting?.company || "Nova"] }}>
-                    SLIP GAJI
-                  </p>
-                </div>
-
-                <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs mb-6">
-                  <span className="font-black text-slate-500">Nama Karyawan</span>
-                  <span className="font-bold">: {previewRow.name}</span>
-                  <span className="font-black text-slate-500">Bulan/Tahun</span>
-                  <span className="font-bold">: {MONTH_NAMES[month - 1]} {year}</span>
-                  <span className="font-black text-slate-500">Jabatan</span>
-                  <span className="font-bold">: {previewRow.setting?.contract_position || "-"}</span>
-                </div>
-
-                <table className="w-full text-xs border-collapse mb-6">
-                  <thead>
-                    <tr className="border-y-2" style={{ borderColor: COMPANY_COLORS[previewRow.setting?.company || "Nova"] }}>
-                      <th className="py-2 text-left font-black uppercase text-slate-500">Rincian</th>
-                      <th className="py-2 text-right font-black uppercase text-slate-500">Nominal</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {[
-                      { label: "Gaji Pokok", val: previewRow.payroll.base_salary || 0 },
-                      { label: "Allowance", val: previewRow.payroll.mobility_allowance || 0 },
-                      { label: "Bonus Performa", val: previewRow.payroll.performance_bonus || 0 },
-                    ].map((item) => (
-                      <tr key={item.label} className="border-b border-slate-100">
-                        <td className="py-2 whitespace-pre-wrap leading-tight">{item.label}</td>
-                        <td className="py-2 text-right font-mono font-bold">{formatRp(item.val)}</td>
-                      </tr>
-                    ))}
-
-                    {/* Upah Lembur with Session Table in Preview */}
-                    <tr className="border-b border-slate-100">
-                      <td colSpan={2} className="py-2 leading-tight">
-                        <span className="font-semibold block mb-1.5">Upah Lembur</span>
-                        {previewRow.payroll.overtime_detail && previewRow.payroll.overtime_detail.length > 0 ? (
-                          <div className="space-y-1.5">
-                            <table className="w-full text-xs border-collapse border border-slate-200">
-                              <thead>
-                                <tr className="bg-slate-100 text-slate-700">
-                                  <th className="border border-slate-200 px-2 py-1 text-left font-bold">Tanggal Lembur</th>
-                                  <th className="border border-slate-200 px-2 py-1 text-center font-bold">Total Jam Lembur</th>
-                                  <th className="border border-slate-200 px-2 py-1 text-right font-bold">Nominal Total Lembur</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {previewRow.payroll.overtime_detail.map((s, idx) => {
-                                  const mins = s.durationMinutes || 0;
-                                  const h = Math.floor(mins / 60);
-                                  const m = mins % 60;
-                                  const durationStr = s.hoursFormatted || `${h} Jam ${m > 0 ? `${m} Menit` : ""}`.trim();
-
-                                  return (
-                                    <tr key={idx}>
-                                      <td className="border border-slate-200 px-2 py-1">
-                                        <div className="flex items-center gap-1.5 flex-wrap">
-                                          <span>{format(new Date(s.date + "T00:00:00"), "dd MMM yyyy", { locale: localeId })}</span>
-                                          {s.dayType === "weekend" && (
-                                            <span className="text-[9px] text-purple-700 bg-purple-50 px-1 rounded border border-purple-200 font-medium">
-                                              Weekend
-                                            </span>
-                                          )}
-                                          {s.dayType === "holiday" && (
-                                            <span className="text-[9px] text-rose-700 bg-rose-50 px-1 rounded border border-rose-200 font-medium">
-                                              Libur
-                                            </span>
-                                          )}
-                                        </div>
-                                      </td>
-                                      <td className="border border-slate-200 px-2 py-1 text-center font-mono">{durationStr}</td>
-                                      <td className="border border-slate-200 px-2 py-1 text-right font-mono font-medium">{formatRp(s.pay || 0)}</td>
-                                    </tr>
-                                  );
-                                })}
-                              </tbody>
-                              <tfoot>
-                                <tr className="bg-slate-100 font-bold">
-                                  <td colSpan={2} className="border border-slate-200 px-2 py-1 text-right font-bold text-slate-800">
-                                    Total Upah Lembur
-                                  </td>
-                                  <td className="border border-slate-200 px-2 py-1 text-right font-mono font-bold text-slate-900">
-                                    {formatRp(previewRow.payroll.overtime_pay || 0)}
-                                  </td>
-                                </tr>
-                              </tfoot>
-                            </table>
-                            {previewRow.payroll.overtime_notes && (
-                              <div className="text-[10px] text-slate-500 italic mt-1 whitespace-pre-wrap">{previewRow.payroll.overtime_notes}</div>
-                            )}
-                          </div>
-                        ) : (
-                          <div className="flex justify-between items-center">
-                            <div>
-                              {previewRow.payroll.overtime_notes && (
-                                <div className="text-xs text-slate-500 italic whitespace-pre-wrap">{previewRow.payroll.overtime_notes}</div>
-                              )}
-                            </div>
-                            <span className="font-bold font-mono">{formatRp(previewRow.payroll.overtime_pay || 0)}</span>
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                    {previewRow.payroll.additions_detail && previewRow.payroll.additions_detail.length > 0 && (
-                      <tr className="border-b border-slate-100">
-                        <td className="py-2 leading-tight">
-                          <span className="font-medium block">Upah Tambahan Lainnya</span>
-                            {(previewRow.payroll.additions_detail || []).map((add, i) => (
-                              <div key={"a-"+i} className="mb-2 last:mb-0">
-                                <div className="text-xs ml-2">- {add.name} {add.amount > 0 ? `(${formatRp(add.amount)})` : ''}</div>
-                                {add.note && <div className="text-[10px] text-slate-500 italic ml-4 whitespace-pre-wrap">{add.note}</div>}
-                              </div>
-                            ))}
-                        </td>
-                        <td className="py-2 text-right font-mono font-bold">{formatRp((previewRow.payroll.additions_detail || []).reduce((sum, a) => sum + (a.amount || 0), 0))}</td>
-                      </tr>
-                    )}
-                    {(previewRow.payroll.deductions || 0) > 0 && (
-                      <tr className="border-b border-slate-100 text-rose-600">
-                        <td className="py-2 leading-tight">
-                          <span className="font-medium block">Potongan</span>
-                          {(previewRow.payroll.deductions_detail || []).map((ded, i) => (
-                              <div key={"d-"+i} className="mb-2 last:mb-0">
-                                <div className="text-xs ml-2 text-rose-500">- {ded.name}</div>
-                                {ded.note && <div className="text-[10px] text-slate-500 italic ml-4 whitespace-pre-wrap">{ded.note}</div>}
-                              </div>
-                            ))}
-                        </td>
-                        <td className="py-2 text-right font-mono font-bold">({formatRp(previewRow.payroll.deductions || 0)})</td>
-                      </tr>
-                    )}
-                  </tbody>
-                  <tfoot>
-                    {previewRow.payroll.notes && (
-                      <tr>
-                        <td colSpan={2} className="py-3 px-3 italic text-slate-600 bg-slate-50 text-sm whitespace-pre-wrap rounded-md mb-2">
-                          <span className="font-semibold block mb-1 not-italic text-slate-800">Catatan:</span>
-                          {previewRow.payroll.notes}
-                        </td>
-                      </tr>
-                    )}
-                    <tr className="border-t-2" style={{ borderColor: COMPANY_COLORS[previewRow.setting?.company || "Nova"] }}>
-                      <td className="py-3 font-black uppercase">Total Diterima</td>
-                      <td className="py-3 text-right font-black font-mono text-lg" style={{ color: COMPANY_COLORS[previewRow.setting?.company || "Nova"] }}>
-                        {formatRp(calcTHP(previewRow.payroll))}
-                      </td>
-                    </tr>
-                  </tfoot>
-                </table>
-
-                <div className="text-center mt-8 pt-4 border-t border-slate-200">
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">Penerima,</p>
-                  <p className="font-black text-sm mt-8">{previewRow.name}</p>
-                  <p className="text-[10px] text-slate-500">{previewRow.setting?.contract_position || "-"}</p>
-                </div>
+            <div className="flex-1 overflow-y-auto p-4 md:p-8 bg-slate-200 dark:bg-slate-900 ab-scrollbar flex justify-center">
+              <div className="scale-90 md:scale-100 origin-top">
+                <PayslipPrintView
+                  employeeName={previewRow.name}
+                  contractPosition={previewRow.setting?.contract_position || "Karyawan"}
+                  company={previewRow.setting?.company || "Nova"}
+                  month={month}
+                  year={year}
+                  baseSalary={previewRow.payroll.base_salary || 0}
+                  mobilityAllowance={previewRow.payroll.mobility_allowance || 0}
+                  performanceBonus={previewRow.payroll.performance_bonus || 0}
+                  overtimePay={previewRow.payroll.overtime_pay || 0}
+                  overtimeNotes={previewRow.payroll.overtime_notes}
+                  overtimeDetail={previewRow.payroll.overtime_detail}
+                  additionsDetail={previewRow.payroll.additions_detail}
+                  deductions={previewRow.payroll.deductions || 0}
+                  deductionNotes={previewRow.payroll.deduction_notes}
+                  deductionsDetail={previewRow.payroll.deductions_detail}
+                  notes={previewRow.payroll.notes}
+                  departmentName={previewRow.departmentName}
+                  employmentStatus={previewRow.setting?.employment_status}
+                  bankName={previewRow.setting?.bank_name}
+                  bankAccountNumber={previewRow.setting?.bank_account_number}
+                  bankAccountName={previewRow.setting?.bank_account_name}
+                  createdAt={previewRow.payroll.created_at}
+                  updatedAt={previewRow.payroll.updated_at}
+                  approvedByName="Marcella Dian Mutiara"
+                />
               </div>
             </div>
           </div>

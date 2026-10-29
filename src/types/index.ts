@@ -390,7 +390,7 @@ export interface CompanyLetter {
 export type PayrollCompany = 'TNT' | 'Hype' | 'Nova';
 
 export interface PayrollStaffSetting {
-  id: string;
+  id?: string;
   user_id: string;
   contract_position: string;
   company: PayrollCompany;
@@ -399,6 +399,11 @@ export interface PayrollStaffSetting {
   notes: string;
   created_at?: string;
   updated_at?: string;
+  department_name?: string | null;
+  employment_status?: string | null;
+  bank_name?: string | null;
+  bank_account_number?: string | null;
+  bank_account_name?: string | null;
 }
 
 export interface Payroll {
@@ -428,6 +433,11 @@ export interface Payroll {
   payroll_overtime_minutes?: number | null;
   overtime_rate?: number | null;
   system_overtime_days?: number | null;
+  department_name?: string | null;
+  employment_status?: string | null;
+  bank_name?: string | null;
+  bank_account_number?: string | null;
+  bank_account_name?: string | null;
 }
 
 export interface PayrollOvertimeDetailItem {
