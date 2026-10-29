@@ -232,8 +232,12 @@ export function ExpandableStaffGrid({
                     // All KPI types: pakai nilai dari DB (actual_total dijaga oleh trigger PostgreSQL).
                     // Daily reports hanya untuk rincian list di bawah, bukan kalkulasi utama.
                     const isQuality = kpi.type === "quality";
+                    const isEval = kpi.type === "quality" || kpi.type === "lead_tim" || kpi.type === "hr";
                     const displayActual = a.actualTotal;
-                    const displayPct = a.achievementPercentage;
+                    // Opsi A: Tampilkan Completion Rate (aktual / target bulanan)
+                    const displayPct = !isEval && a.monthlyTarget > 0
+                      ? (displayActual / a.monthlyTarget) * 100
+                      : a.achievementPercentage;
                     const displayCategory = getPerformanceCategory(displayPct);
                       
                     const workingDaysRemaining = getLiveWorkingDaysRemaining(a.year, a.month);

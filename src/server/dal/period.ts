@@ -119,6 +119,13 @@ function toAssignment(row: Row, scores: Record<string, QualityMonthScore>) {
     isHidden: false,
   };
 
+  const target = Number(row.monthlyTarget);
+  const actual = Number(row.actualTotal);
+  const isMonthlyResultOrActivity = row.kpiType === "result" || row.kpiType === "activity";
+  const achievementPercentage = isMonthlyResultOrActivity && target > 0
+    ? (actual / target) * 100
+    : Number(row.achievementPercentage);
+
   return {
     id: row.id,
     kpiId: row.kpiId,
@@ -126,13 +133,13 @@ function toAssignment(row: Row, scores: Record<string, QualityMonthScore>) {
     userId: row.userId,
     department: row.departmentName ?? "",
     status: row.status,
-    monthlyTarget: Number(row.monthlyTarget),
+    monthlyTarget: target,
     currentDailyTarget: Number(row.currentDailyTarget),
-    actualTotal: Number(row.actualTotal),
+    actualTotal: actual,
     expectedTotal: Number(row.expectedTotal),
-    achievementPercentage: Number(row.achievementPercentage),
+    achievementPercentage,
     performanceCategory: getPerformanceCategory(
-      Number(row.achievementPercentage),
+      achievementPercentage,
     ),
     workingDaysTotal: row.workingDaysTotal,
     workingDaysElapsed: row.workingDaysElapsed,
@@ -333,7 +340,13 @@ export async function getAssignmentsForPeriod(params: {
         a.kpiType !== "lead_tim" &&
         a.kpiType !== "hr"
       ) {
-        return a;
+        // Mode bulan: pastikan completion rate (aktual / monthlyTarget * 100)
+        const pct = a.monthlyTarget > 0 ? (a.actualTotal / a.monthlyTarget) * 100 : 0;
+        return {
+          ...a,
+          achievementPercentage: pct,
+          performanceCategory: getPerformanceCategory(pct),
+        } as KpiAssignmentWithDetails;
       }
       const ms = (a.monthlyScores as Record<string, QualityMonthScore>)?.[key];
       if (!ms) return a;

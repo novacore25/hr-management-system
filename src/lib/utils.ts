@@ -162,11 +162,13 @@ export function calcWeightedScore(
     const t = a.kpiType ?? "result";
     if (t !== "result" && t !== "activity" && t !== "quality" && t !== "lead_tim" && t !== "hr") continue;
 
-    const reports = reportsByAssignment?.[a.id];
     let pct: number;
-    if (reports && reports.length > 0) {
-      const displayActual = reports.reduce((s, r) => s + r.actualValue, 0);
-      pct = a.monthlyTarget > 0 ? (displayActual / a.monthlyTarget) * 100 : 0;
+    if (t === "result" || t === "activity") {
+      const reports = reportsByAssignment?.[a.id];
+      const actual = reports && reports.length > 0
+        ? reports.reduce((s, r) => s + r.actualValue, 0)
+        : a.actualTotal;
+      pct = a.monthlyTarget > 0 ? (actual / a.monthlyTarget) * 100 : 0;
     } else {
       pct = a.achievementPercentage;
     }

@@ -103,12 +103,15 @@ function toAssignment(
       ? monthScore.actualTotal
       : Number(row.actualTotal);
 
+  const target = Number(row.monthlyTarget);
   const achievementPercentage =
     isSpecialType &&
     monthScore?.achievementPercentage !== undefined &&
     monthScore.achievementPercentage !== null
       ? monthScore.achievementPercentage
-      : Number(row.achievementPercentage);
+      : target > 0
+        ? (actualTotal / target) * 100
+        : Number(row.achievementPercentage);
 
   return {
     id: row.id,
@@ -901,6 +904,7 @@ export async function setAssignmentTarget(
     createdAt: new Date(),
   });
 
+  await recalcAssignmentTotals(id);
   await recalcKpiTargetSafe(before.kpiId);
 }
 
@@ -1120,10 +1124,11 @@ export async function deleteDailyReport(
 }
 
 /**
- * Hitung ulang actualTotal + achievementPercentage (pace rate).
+ * Hitung ulang actualTotal + achievementPercentage (completion rate).
  *
- * PACE RATE = actual / expected-by-now, BUKAN completion rate.
- * expected = monthlyTarget / workingDaysTotal * workingDaysElapsed
+ * Opsi A: COMPLETION RATE = (actual / monthlyTarget) * 100.
+ * Kolom expectedTotal dan currentDailyTarget tetap dijaga akurat
+ * untuk progress marker harian di UI.
  *
  * Ini pengganti trigger PostgreSQL `recalculate_assignment_totals`.
  */
@@ -1155,35 +1160,37 @@ export async function recalcAssignmentTotals(assignmentId: string): Promise<void
 
   const monthlyTarget = Number(a.monthlyTarget);
   const isDaily = a.kpiPeriod === "daily";
+  const wdTotal = a.workingDaysTotal || 1;
 
   let expectedTotal: number;
-  let pacePct: number;
   let wdElapsed: number;
   let wdRemaining: number;
 
   if (isDaily) {
     // KPI harian: target berlaku penuh untuk tugas itu sendiri
     expectedTotal = monthlyTarget;
-    pacePct = expectedTotal > 0 ? (total / expectedTotal) * 100 : 0;
     wdElapsed = a.workingDaysTotal || 1;
     wdRemaining = 0;
   } else {
-    const wdTotal = a.workingDaysTotal || 1;
     wdElapsed = elapsedWorkingDays(a.year, a.month, a.workingDaysElapsed);
     expectedTotal = wdElapsed > 0 ? (monthlyTarget / wdTotal) * wdElapsed : 0;
-    pacePct = expectedTotal > 0 ? (total / expectedTotal) * 100 : 0;
     wdRemaining = Math.max(wdTotal - wdElapsed, 0);
   }
+
+  // Completion Rate (aktual / target bulanan penuh)
+  const completionPct = monthlyTarget > 0 ? (total / monthlyTarget) * 100 : 0;
+  const currentDailyTarget = isDaily ? monthlyTarget : (wdTotal > 0 ? monthlyTarget / wdTotal : 0);
 
   await db
     .update(kpiAssignments)
     .set({
       actualTotal: String(total),
       expectedTotal: String(expectedTotal),
+      currentDailyTarget: String(currentDailyTarget),
       workingDaysElapsed: wdElapsed,
       workingDaysRemaining: wdRemaining,
-      achievementPercentage: pacePct.toFixed(2),
-      performanceCategory: getPerformanceCategory(pacePct) as never,
+      achievementPercentage: completionPct.toFixed(2),
+      performanceCategory: getPerformanceCategory(completionPct) as never,
       updatedAt: new Date(),
     })
     .where(eq(kpiAssignments.id, assignmentId));
