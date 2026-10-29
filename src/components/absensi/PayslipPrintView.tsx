@@ -450,10 +450,11 @@ export const PayslipPrintView = forwardRef<HTMLDivElement, PayslipPrintViewProps
                 </thead>
                 <tbody>
                   {sortedSessions.map((ot, idx) => {
-                    const mins = ot.durationMinutes || 0;
+                    const mins = ot.durationMinutes || (ot as any).minutes || 0;
                     const h = Math.floor(mins / 60);
                     const m = mins % 60;
                     const durationStr = ot.hoursFormatted || `${h} Jam ${m > 0 ? `${m} Menit` : ""}`.trim();
+                    const payAmount = ot.pay || (ot as any).amount || 0;
 
                     return (
                       <tr key={idx} className="hover:bg-gray-50">
@@ -473,7 +474,7 @@ export const PayslipPrintView = forwardRef<HTMLDivElement, PayslipPrintViewProps
                           </div>
                         </td>
                         <td className="border border-gray-300 px-2.5 py-1.5 text-center font-mono">{durationStr}</td>
-                        <td className="border border-gray-300 px-2.5 py-1.5 text-right font-mono font-medium">{formatCurrency(ot.pay || 0)}</td>
+                        <td className="border border-gray-300 px-2.5 py-1.5 text-right font-mono font-medium">{formatCurrency(payAmount)}</td>
                       </tr>
                     );
                   })}
