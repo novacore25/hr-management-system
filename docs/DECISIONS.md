@@ -325,3 +325,19 @@ dua tempat harus konsisten — dan tidak ada tooling untuk itu.
 **Alasan:**
 1. Kebijakan operasional perusahaan memperbolehkan pencairan lembur melebihi siklus 30 hari (misal lembur terjadi di Oktober, namun karena pertimbangan cashflow/approval manajemen baru dicairkan di slip gaji November atau Desember). Tanpa pemisahan ini, modul payroll otomatis menyedot lembur berdasarkan `overtime_date`, memaksa finance membayar lembur yang belum disetujui waktu pembayarannya.
 2. Menghindari kebocoran nominal upah antar-staf saat layar admin/staf terbuka, menjaga kerahasiaan nominal sebelum slip resmi diterbitkan.
+
+---
+
+## 19. Normalisasi Tanggal Rentang Laporan Harian KPI & Proteksi Nilai Evaluasi (Period Range Rekap)
+
+**Pilihan:**
+1. **Normalisasi Format Tanggal di Server DAL (`src/server/dal/period.ts`)**:
+   - Fungsi `rekapFromReports` menormalisasi parameter `from` dan `to` menjadi format tanggal ISO penuh (`YYYY-MM-DD`). Jika string hanya berformat 7 karakter (`YYYY-MM`), `from` dinormalisasi ke `${from}-01`, dan `to` dinormalisasi ke hari terakhir bulan tersebut (`${to}-${lastDay}`).
+   - Menghilangkan pemotongan tanggal `.slice(0, 7)` di sisi hook client `useAssignmentsForPeriod.ts`, sehingga parameter tanggal harian spesifik diteruskan secara presisi.
+2. **Proteksi Nilai KPI Evaluasi & Rekap Manual**:
+   - Untuk KPI tipe evaluasi (`quality`, `lead_tim`, `hr`), jika tidak ditemukan skor di tabel `monthly_scores` pada bulan akhir rentang, sistem mempertahankan nilai asli yang tersimpan pada assignment (`a.actualTotal`), bukan menimpanya dengan nol (`sums[a.id] ?? 0`).
+   - Untuk KPI tipe aktivitas dan hasil (`activity`, `result`), jika tidak memiliki baris rincian di tabel `daily_reports` (misal data historis atau rekap nilai bulanan), sistem mempertahankan nilai `a.actualTotal` tersimpan.
+
+**Alasan:**
+1. Kolom `daily_reports.date` pada PostgreSQL bertipe `date`. Query perbandingan string 7 karakter (`date >= '2026-10'`) memicu fatal error PostgreSQL: `invalid input syntax for type date: "2026-10"`. Hal ini menyebabkan endpoint `/api/assignments/period` crash (500 Error) dan membuat seluruh tampilan overview KPI pada mode rentang tanggal kosong (*"Belum ada KPI"* / *0.0% Critical*).
+2. KPI kualitatif tidak menggunakan tabel `daily_reports`, sehingga operasi `sums[a.id]` selalu `undefined`. Fallback ke nilai assignment mencegah hilangnya capaian performa karyawan saat diinspeksi dalam mode rentang.

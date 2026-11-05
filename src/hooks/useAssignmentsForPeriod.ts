@@ -29,8 +29,8 @@ export function useAssignmentsForPeriod(
       period.type === "range"
         ? withQuery("/api/assignments/period", {
             type: "range",
-            from: period.start.slice(0, 7), // "2026-01-15" -> "2026-01"
-            to: period.end.slice(0, 7),
+            from: period.start,
+            to: period.end,
             departments: deptKey || undefined,
           })
         : withQuery("/api/assignments/period", {

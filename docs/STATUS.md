@@ -2499,3 +2499,22 @@ Ketika staf ingin melakukan update, pengisian, atau pengubahan pada KPI yang tel
 6. **Verifikasi Teruji (`scripts/verify-overtime-payout.ts`)**:
    - Script verifikasi komprehensif menguji 31 assertions (31 PASS, 0 FAIL) mencakup migrasi SQL, schema, types, DAL overtime, DAL payroll, API route, serta privasi UI.
 
+---
+
+## Perbaikan Bug Mode Rentang Tanggal KPI (Period Range Rekap)
+
+### Latar Belakang & Masalah
+- Pada halaman Executive Overview (`/dashboard/executive/overview`) dan 7 halaman laporan KPI lainnya, pengguna dapat memilih rentang tanggal kustom melalui komponen `PeriodPicker` (contoh: `01/10/2026` s/d `31/10/2026`).
+- Namun saat rentang tanggal dipilih, sistem gagal menampilkan data dan seluruh staf menampilkan status *"Belum ada KPI"* atau skor performa *0.0% Critical*.
+- Penyebab utama:
+  1. Hook client `useAssignmentsForPeriod.ts` memotong string tanggal dengan `.slice(0, 7)`, sehingga mengirim `from=2026-10` dan `to=2026-10`.
+  2. Fungsi `rekapFromReports` di `src/server/dal/period.ts` membandingkan kolom `daily_reports.date` langsung dengan string 7 karakter tersebut: `date >= '2026-10' AND date <= '2026-10'`.
+  3. PostgreSQL menolak query dengan fatal error: `invalid input syntax for type date: "2026-10"` (error code `22007`), memicu crash 500 pada Route Handler `/api/assignments/period`.
+  4. Untuk KPI tipe kualitatif (`quality`, `lead_tim`, `hr`), jika tidak ada record di `monthly_scores`, kalkulasi rentang menimpanya dengan nol (`sums[a.id] ?? 0`) karena tidak ada laporan harian.
+
+### Perbaikan yang Diterapkan
+1. `src/hooks/useAssignmentsForPeriod.ts`: Menghapus pemotongan `.slice(0, 7)` dan meneruskan tanggal harian penuh (`period.start` dan `period.end`).
+2. `src/server/dal/period.ts` (`rekapFromReports`): Menambahkan normalisasi format tanggal defensif di server; string `YYYY-MM` dikonversi menjadi tanggal awal bulan (`YYYY-MM-01`) dan akhir bulan (`YYYY-MM-lastDay`), menjamin kompatibilitas sintaks PostgreSQL 100%.
+3. Proteksi Nilai Evaluasi & Rekap: KPI kualitatif mempertahankan capaian penugasan yang sudah tersimpan jika tidak memiliki riwayat `monthly_scores` spesifik. KPI aktivitas/hasil mempertahankan nilai `actualTotal` tersimpan jika tidak terdapat rincian laporan harian.
+4. Verifikasi: `npm run typecheck` lolos 0 error, `npm run verify` 10/10 PASS.
+

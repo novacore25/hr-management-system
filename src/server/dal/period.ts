@@ -190,6 +190,15 @@ async function rekapFromReports(
 ): Promise<Record<string, number>> {
   if (assignmentIds.length === 0) return {};
 
+  // Normalisasi tanggal agar selalu valid format YYYY-MM-DD
+  const fromDate = from.length === 7 ? `${from}-01` : from;
+  let toDate = to;
+  if (to.length === 7) {
+    const [y, m] = to.split("-").map(Number);
+    const lastDay = new Date(y, m, 0).getDate();
+    toDate = `${to}-${String(lastDay).padStart(2, "0")}`;
+  }
+
   const rows = await db
     .select({
       assignmentId: dailyReports.assignmentId,
@@ -199,8 +208,8 @@ async function rekapFromReports(
     .where(
       and(
         inArray(dailyReports.assignmentId, assignmentIds),
-        gte(dailyReports.date, from),
-        lte(dailyReports.date, to),
+        gte(dailyReports.date, fromDate),
+        lte(dailyReports.date, toDate),
       ),
     );
 
@@ -302,24 +311,30 @@ export async function getAssignmentsForPeriod(params: {
         endScoreKey
       ];
 
-      // KPI evaluasi (quality, lead_tim, hr): pakai skor bulan akhir
+      // KPI evaluasi (quality, lead_tim, hr): pakai skor evaluasi bulan akhir
       if (
-        (a.kpiType === "quality" ||
-          a.kpiType === "lead_tim" ||
-          a.kpiType === "hr") &&
-        ms
+        a.kpiType === "quality" ||
+        a.kpiType === "lead_tim" ||
+        a.kpiType === "hr"
       ) {
-        return {
-          ...a,
-          actualTotal: ms.actualTotal,
-          achievementPercentage: ms.achievementPercentage,
-          performanceCategory: ms.performanceCategory,
-          qualityNotes: ms.qualityNotes ?? "",
-        };
+        if (ms) {
+          return {
+            ...a,
+            actualTotal: ms.actualTotal,
+            achievementPercentage: ms.achievementPercentage,
+            performanceCategory: ms.performanceCategory,
+            qualityNotes: ms.qualityNotes ?? "",
+          };
+        }
+        // Jika tidak tercatat di monthlyScores, pertahankan nilai asli dari assignment
+        return a;
       }
 
-      // KPI lain: jumlahkan laporan harian dalam rentang
-      const actual = sums[a.id] ?? 0;
+      // KPI aktivitas / hasil:
+      // Jika ada laporan harian dalam rentang, jumlahkan.
+      // Jika tidak ada laporan harian (misal rekap manual), pertahankan actualTotal tersimpan.
+      const actual =
+        sums[a.id] !== undefined ? sums[a.id] : Number(a.actualTotal) || 0;
       const pct =
         a.monthlyTarget > 0 ? (actual / a.monthlyTarget) * 100 : 0;
 
