@@ -14,10 +14,19 @@ import { Download } from "lucide-react";
 
 export default function ExecutiveReportsPage() {
   const now = new Date();
-  const monthLabel = `${monthName(now.getMonth() + 1)} ${now.getFullYear()}`;
+
   const today = todayISODate();
 
-  const [period, setPeriod] = useState<Period>({ type: "month" });
+  const [period, setPeriod] = useState<Period>({
+    type: "month",
+    year: now.getFullYear(),
+    month: now.getMonth() + 1,
+  });
+  const selectedYear =
+    period.type === "month" && period.year ? period.year : now.getFullYear();
+  const selectedMonth =
+    period.type === "month" && period.month ? period.month : now.getMonth() + 1;
+  const monthLabel = `${monthName(selectedMonth)} ${selectedYear}`;
   const { departments } = useDepartments();
   const { getWeights } = useAllKpiSettings();
   const { assignments, kpisMap, isLoading } = useAssignmentsForPeriod(period);

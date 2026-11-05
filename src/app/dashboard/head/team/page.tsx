@@ -24,14 +24,23 @@ import type { KpiAssignment } from "@/types";
 export default function HeadTeamPage() {
   const { user } = useAuth();
   const now = new Date();
-  const year = now.getFullYear();
-  const month = now.getMonth() + 1;
+
+
   const today = todayISODate();
-  const monthLabel = `${monthName(month)} ${year}`;
+
   const departments = user ? getManagedDepartments(user) : [];
   const departmentLabel = departments.length > 1 ? departments.join(", ") : departments[0] ?? "Umum";
 
-  const [period, setPeriod] = useState<Period>({ type: "month" });
+  const [period, setPeriod] = useState<Period>({
+    type: "month",
+    year: now.getFullYear(),
+    month: now.getMonth() + 1,
+  });
+  const selectedYear =
+    period.type === "month" && period.year ? period.year : now.getFullYear();
+  const selectedMonth =
+    period.type === "month" && period.month ? period.month : now.getMonth() + 1;
+  const monthLabel = `${monthName(selectedMonth)} ${selectedYear}`;
 
   const { members, isLoading: usersLoading } = useDivisionMembers(departments);
   const { getWeights, isLoading: settingsLoading } = useAllKpiSettings();

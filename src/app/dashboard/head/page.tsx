@@ -26,13 +26,22 @@ import type { KpiAssignment, KpiAssignmentWithDetails } from "@/types";
 export default function HeadDashboard() {
   const { user } = useAuth();
   const now = new Date();
-  const monthLabel = `${monthName(now.getMonth() + 1)} ${now.getFullYear()}`;
+
   const today = (() => { const _d = new Date(); return `${_d.getFullYear()}-${String(_d.getMonth() + 1).padStart(2, "0")}-${String(_d.getDate()).padStart(2, "0")}`; })();
   const todayDisplay = formatDateDisplay((() => { const _d = new Date(); return `${_d.getFullYear()}-${String(_d.getMonth() + 1).padStart(2, "0")}-${String(_d.getDate()).padStart(2, "0")}`; })());
   const departments = user ? getManagedDepartments(user) : [];
   const departmentLabel = departments.length > 1 ? departments.join(", ") : departments[0] ?? "Umum";
 
-  const [period, setPeriod] = useState<Period>({ type: "month" });
+  const [period, setPeriod] = useState<Period>({
+    type: "month",
+    year: now.getFullYear(),
+    month: now.getMonth() + 1,
+  });
+  const selectedYear =
+    period.type === "month" && period.year ? period.year : now.getFullYear();
+  const selectedMonth =
+    period.type === "month" && period.month ? period.month : now.getMonth() + 1;
+  const monthLabel = `${monthName(selectedMonth)} ${selectedYear}`;
   const [expandedUsers, setExpandedUsers] = useState<Set<string>>(new Set());
   const [selectedKpi, setSelectedKpi] = useState<KpiAssignmentWithDetails | null>(null);
 
@@ -40,8 +49,8 @@ export default function HeadDashboard() {
   const { assignments, kpisMap, isLoading } = useAssignmentsForPeriod(period, departments);
   const { assignments: myAssignments, isLoading: myLoading } = useMyAssignments(
     user?.id,
-    now.getFullYear(),
-    now.getMonth() + 1
+    selectedYear,
+    selectedMonth
   );
   const myActiveAssignments = myAssignments.filter(
     (a) => a.status !== "cancelled" && !a.kpi?.deletedAt,

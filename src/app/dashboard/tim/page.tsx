@@ -20,17 +20,28 @@ import type { KpiAssignmentWithDetails } from "@/types";
 export default function TimDashboard() {
   const { user } = useAuth();
   const now = new Date();
-  const monthLabel = `${monthName(now.getMonth() + 1)} ${now.getFullYear()}`;
+
   const today = (() => { const _d = new Date(); return `${_d.getFullYear()}-${String(_d.getMonth() + 1).padStart(2, "0")}-${String(_d.getDate()).padStart(2, "0")}`; })();
+
+  const [period, setPeriod] = useState<Period>({
+    type: "month",
+    year: now.getFullYear(),
+    month: now.getMonth() + 1,
+  });
+  const selectedYear =
+    period.type === "month" && period.year ? period.year : now.getFullYear();
+  const selectedMonth =
+    period.type === "month" && period.month ? period.month : now.getMonth() + 1;
+  const monthLabel = `${monthName(selectedMonth)} ${selectedYear}`;
 
   const { assignments, isLoading } = useMyAssignments(
     user?.id,
-    now.getFullYear(),
-    now.getMonth() + 1
+    selectedYear,
+    selectedMonth
   );
   const { weights } = useKpiSettings(user?.id);
   const [selected, setSelected] = useState<KpiAssignmentWithDetails | null>(null);
-  const [period, setPeriod] = useState<Period>({ type: "month" });
+
   const [searchQuery, setSearchQuery] = useState("");
   const [showTour, setShowTour] = useState(false);
 

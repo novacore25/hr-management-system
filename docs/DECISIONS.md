@@ -341,3 +341,25 @@ dua tempat harus konsisten — dan tidak ada tooling untuk itu.
 **Alasan:**
 1. Kolom `daily_reports.date` pada PostgreSQL bertipe `date`. Query perbandingan string 7 karakter (`date >= '2026-10'`) memicu fatal error PostgreSQL: `invalid input syntax for type date: "2026-10"`. Hal ini menyebabkan endpoint `/api/assignments/period` crash (500 Error) dan membuat seluruh tampilan overview KPI pada mode rentang tanggal kosong (*"Belum ada KPI"* / *0.0% Critical*).
 2. KPI kualitatif tidak menggunakan tabel `daily_reports`, sehingga operasi `sums[a.id]` selalu `undefined`. Fallback ke nilai assignment mencegah hilangnya capaian performa karyawan saat diinspeksi dalam mode rentang.
+
+
+---
+
+## 20. Penyederhanaan Pemilihan Periode KPI: Penggantian Rentang Tanggal dengan Dropdown Pilihan Bulan (Month Dropdown)
+
+**Pilihan:**
+1. **Penghapusan Antarmuka Rentang Tanggal Harian di `PeriodPicker.tsx`**:
+   - Menghilangkan input tanggal harian ("Dari tanggal", "Sampai tanggal", tanda panah "→", dan tombol reset) yang membingungkan alur kerja manajerial.
+   - Menggantikannya dengan elemen `<select>` dropdown bulan elegan dan ringkas dengan ikon kalender dan chevron dropdown.
+   - Menyediakan pilihan bulan mundur hingga 28 bulan ke belakang dan 1 bulan ke depan secara dinamis, otomatis menandai bulan berjalan dengan label `(Bulan Ini)`.
+   - Menyediakan tombol pemulihan cepat satu klik `[ ⟲ Bulan Ini ]` ketika pengguna memilih bulan selain bulan berjalan.
+2. **Sinkronisasi Parameter Periode Bulan di Hook & Seluruh Halaman Dashboard**:
+   - Memperbarui interface `Period` untuk menyimpan `year` dan `month`:
+     `export type Period = | { type: "month"; year?: number; month?: number } | { type: "range"; start: string; end: string; year?: number; month?: number };`
+   - Memperbarui `useAssignmentsForPeriod.ts` agar menyertakan `period.year` dan `period.month` terpilih ke parameter API `/api/assignments/period?type=month&year=YYYY&month=M`.
+   - Menghubungkan state dinamis `selectedYear` dan `selectedMonth` pada seluruh 9 halaman konsumen KPI (`dashboard/executive/overview`, `dashboard/executive`, `dashboard/executive/reports`, `dashboard/executive/team`, `dashboard/head`, `dashboard/head/reports`, `dashboard/head/team`, `dashboard/hr/reports`, `dashboard/tim`).
+
+**Alasan:**
+1. Sesuai arahan eksplisit pengguna (*"ganti aja gausah rentang deh gausah ada fitur itu langsung aja dropdown bulan"*), peninjauan KPI staf dan evaluasi performa perusahaan berbasis pada siklus bulanan resmi, bukan irisan tanggal arbitrary.
+2. Memudahkan eksekutif dan HR untuk langsung melompat ke bulan tertentu (misalnya Oktober 2026 yang memiliki 958 penugasan dan 514 evaluasi kualitatif) hanya dengan satu klik dropdown tanpa perlu mengisi dua input tanggal manual.
+3. Seluruh kalkulasi performa, bobot, dan data riil langsung ditarik dari database server secara instan dan akurat.

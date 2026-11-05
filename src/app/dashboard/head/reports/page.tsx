@@ -16,10 +16,19 @@ import { useAllKpiSettings } from "@/hooks/useKpiSettings";
 export default function HeadReportsPage() {
   const { user } = useAuth();
   const now = new Date();
-  const monthLabel = `${monthName(now.getMonth() + 1)} ${now.getFullYear()}`;
+
   const today = todayISODate();
 
-  const [period, setPeriod] = useState<Period>({ type: "month" });
+  const [period, setPeriod] = useState<Period>({
+    type: "month",
+    year: now.getFullYear(),
+    month: now.getMonth() + 1,
+  });
+  const selectedYear =
+    period.type === "month" && period.year ? period.year : now.getFullYear();
+  const selectedMonth =
+    period.type === "month" && period.month ? period.month : now.getMonth() + 1;
+  const monthLabel = `${monthName(selectedMonth)} ${selectedYear}`;
   const departments = user ? getManagedDepartments(user) : [];
   const departmentLabel = departments.length > 1 ? departments.join(", ") : departments[0] ?? "Umum";
   const { members } = useDivisionMembers(departments);

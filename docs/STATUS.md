@@ -2518,3 +2518,39 @@ Ketika staf ingin melakukan update, pengisian, atau pengubahan pada KPI yang tel
 3. Proteksi Nilai Evaluasi & Rekap: KPI kualitatif mempertahankan capaian penugasan yang sudah tersimpan jika tidak memiliki riwayat `monthly_scores` spesifik. KPI aktivitas/hasil mempertahankan nilai `actualTotal` tersimpan jika tidak terdapat rincian laporan harian.
 4. Verifikasi: `npm run typecheck` lolos 0 error, `npm run verify` 10/10 PASS.
 
+
+
+---
+
+## Migrasi Pemilih Periode KPI ke Dropdown Pilihan Bulan (Month Dropdown)
+
+### Latar Belakang & Kebutuhan
+- Pada halaman Executive Overview (`/dashboard/executive/overview`) dan dashboard KPI lainnya, fitur pemilih periode sebelumnya menggunakan pemilih rentang tanggal (dua input tanggal `start` dan `end`).
+- Sesuai instruksi pengguna: *"ganti aja gausah rentang deh gausah ada fitur itu langsung aja dropdown bulan"*.
+- Modul KPI dan evaluasi berorientasi pada pencatatan siklus bulanan, sehingga dropdown bulan langsung menyediakan akses instan ke seluruh data historis maupun bulan berjalan.
+
+### Perubahan yang Diterapkan
+1. **`src/components/kpi/PeriodPicker.tsx`**:
+   - Menghapus input tanggal `start` dan `end`.
+   - Menggantikannya dengan elemen `<select>` dropdown bulan dengan ikon kalender di sisi kiri dan chevron dropdown di sisi kanan.
+   - Menyediakan 28 opsi bulan secara otomatis (1 bulan ke depan s.d. 26 bulan ke belakang), ditandai dengan `(Bulan Ini)` pada bulan berjalan.
+   - Menambahkan tombol aksi cepat satu klik `[ ⟲ Bulan Ini ]` saat pengguna memilih bulan di luar bulan berjalan.
+   - Mempertahankan kompatibilitas tipe `Period` dengan `year` dan `month`.
+2. **`src/hooks/useAssignmentsForPeriod.ts`**:
+   - Mengambil `targetYear` dan `targetMonth` dari `period` saat `period.type === "month"`.
+   - Meneruskan `year` dan `month` ke query API `/api/assignments/period`.
+   - Memastikan `useApiQuery` mendeteksi perubahan bulan dan langsung melakukan refetch.
+3. **Penyelarasan Seluruh Konsumen Dashboard**:
+   - `src/app/dashboard/executive/overview/page.tsx`
+   - `src/app/dashboard/executive/page.tsx`
+   - `src/app/dashboard/executive/reports/page.tsx`
+   - `src/app/dashboard/executive/team/page.tsx`
+   - `src/app/dashboard/head/page.tsx`
+   - `src/app/dashboard/head/reports/page.tsx`
+   - `src/app/dashboard/head/team/page.tsx`
+   - `src/app/dashboard/hr/reports/page.tsx`
+   - `src/app/dashboard/tim/page.tsx`
+   - Pada seluruh halaman di atas, `period` diinisialisasi dengan tahun dan bulan saat ini, dan `monthLabel` dihitung secara dinamis dari `selectedYear` dan `selectedMonth`.
+4. **Verifikasi**:
+   - `npm run typecheck`: 0 error.
+   - `npm run verify`: 10/10 PASS.

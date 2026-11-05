@@ -23,12 +23,22 @@ import type { KpiAssignment } from "@/types";
 
 export default function ExecutiveOverviewPage() {
   const now = new Date();
-  const year = now.getFullYear();
-  const month = now.getMonth() + 1;
-  const today = todayISODate();
-  const monthLabel = `${monthName(month)} ${year}`;
 
-  const [period, setPeriod] = useState<Period>({ type: "month" });
+
+  const today = todayISODate();
+
+
+  const [period, setPeriod] = useState<Period>({
+    type: "month",
+    year: now.getFullYear(),
+    month: now.getMonth() + 1,
+  });
+
+  const selectedYear =
+    period.type === "month" && period.year ? period.year : now.getFullYear();
+  const selectedMonth =
+    period.type === "month" && period.month ? period.month : now.getMonth() + 1;
+  const monthLabel = `${monthName(selectedMonth)} ${selectedYear}`;
 
   const { users, isLoading: usersLoading } = useAllUsers();
   const { getWeights, isLoading: settingsLoading } = useAllKpiSettings();
@@ -172,7 +182,7 @@ export default function ExecutiveOverviewPage() {
         <div>
           <h2 className="text-base font-semibold">Overview Seluruh Karyawan</h2>
           <p className="text-sm text-muted-foreground">
-            {timUsers.length} karyawan • {deptNames.length} departemen
+            {timUsers.length} karyawan • {deptNames.length} departemen • Periode {monthLabel}
           </p>
         </div>
         <PeriodPicker

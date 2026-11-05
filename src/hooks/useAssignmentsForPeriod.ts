@@ -7,14 +7,10 @@ import type { KpiAssignmentWithDetails, KPI } from "@/types";
 import type { Period } from "@/components/kpi/PeriodPicker";
 
 /**
- * Assignment untuk periode terpilih (bulan atau rentang).
- *
- * formerly: query multi-round + realtime Supabase dari browser,
- * plus rekap rentang yang hanya jalan di sebagian halaman
- * (4 halaman punya array kosong sehingga selalu 0%).
+ * Assignment untuk periode terpilih (bulan).
  *
  * Sekarang: satu request ke /api/assignments/period, semua
- * perhitungan rentang dilakukan di server — seragam untuk semua halaman.
+ * perhitungan dilakukan di server — seragam untuk semua halaman.
  */
 export function useAssignmentsForPeriod(
   period: Period,
@@ -24,9 +20,18 @@ export function useAssignmentsForPeriod(
     ? department.join(",")
     : (department ?? "");
 
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1;
+
+  const targetYear =
+    period.type === "month" && period.year ? period.year : currentYear;
+  const targetMonth =
+    period.type === "month" && period.month ? period.month : currentMonth;
+
   const build = useCallback(() => {
     const base =
-      period.type === "range"
+      period.type === "range" && period.start && period.end
         ? withQuery("/api/assignments/period", {
             type: "range",
             from: period.start,
@@ -35,12 +40,19 @@ export function useAssignmentsForPeriod(
           })
         : withQuery("/api/assignments/period", {
             type: "month",
-            year: new Date().getFullYear(),
-            month: new Date().getMonth() + 1,
+            year: targetYear,
+            month: targetMonth,
             departments: deptKey || undefined,
           });
     return base;
-  }, [period.type, period.type === "range" ? period.start : "", period.type === "range" ? period.end : "", deptKey]);
+  }, [
+    period.type,
+    period.type === "range" ? period.start : "",
+    period.type === "range" ? period.end : "",
+    targetYear,
+    targetMonth,
+    deptKey,
+  ]);
 
   const { data, isLoading, error, refetch } = useApiQuery<{
     assignments: KpiAssignmentWithDetails[];
@@ -49,6 +61,8 @@ export function useAssignmentsForPeriod(
     period.type,
     period.type === "range" ? period.start : "",
     period.type === "range" ? period.end : "",
+    targetYear,
+    targetMonth,
     deptKey,
   ]);
 
