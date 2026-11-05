@@ -17,6 +17,8 @@ import {
   submitOvertimeReport,
   setFinalDuration,
   finalizeOvertime,
+  scheduleOvertimePayout,
+  bulkScheduleOvertimePayout,
   cancelOwnOvertime,
   deleteOvertime,
   listPayrollStaffSettings,
@@ -186,11 +188,24 @@ export async function POST(request: Request) {
  *   action=reject   → HR menolak
  *   action=report   → staf melaporkan waktu aktual (pemilik saja)
  *   action=finalize → HR memfinalisasi; gaji dihitung SERVER
+ *   action=schedule-payout → HR menetapkan bulan pencairan slip gaji
+ *   action=bulk-schedule-payout → HR menetapkan pencairan massal
  */
 export async function PATCH(request: Request) {
   return withAuth(async () => {
     const me = await requireUser();
     const b = await request.json();
+
+    if (b.action === "bulk-schedule-payout") {
+      await requireKpiRole("hr", "executive");
+      const ids = Array.isArray(b.ids) ? b.ids.map(String) : [];
+      if (ids.length === 0 || !ids.every((it: string) => isUuid(it))) {
+        throw new ValidationError("Daftar 'ids' harus berupa array UUID yang valid.");
+      }
+      const payoutYear = b.payoutYear != null ? Number(b.payoutYear) : null;
+      const payoutMonth = b.payoutMonth != null ? Number(b.payoutMonth) : null;
+      return await bulkScheduleOvertimePayout(ids, payoutYear, payoutMonth, me.id);
+    }
 
     const id = b.id ? String(b.id) : null;
     if (!id) {
@@ -288,7 +303,33 @@ export async function PATCH(request: Request) {
               overrideReason: b.overrideReason ?? null,
               finalNotes: b.finalNotes ?? null,
               finalizedDate: b.finalizedDate,
+              payoutYear:
+                b.payoutYear !== undefined
+                  ? b.payoutYear !== null
+                    ? Number(b.payoutYear)
+                    : null
+                  : undefined,
+              payoutMonth:
+                b.payoutMonth !== undefined
+                  ? b.payoutMonth !== null
+                    ? Number(b.payoutMonth)
+                    : null
+                  : undefined,
             },
+            me.id,
+          ),
+        };
+      }
+
+      case "schedule-payout": {
+        await requireKpiRole("hr", "executive");
+        const payoutYear = b.payoutYear != null ? Number(b.payoutYear) : null;
+        const payoutMonth = b.payoutMonth != null ? Number(b.payoutMonth) : null;
+        return {
+          overtime: await scheduleOvertimePayout(
+            id,
+            payoutYear,
+            payoutMonth,
             me.id,
           ),
         };

@@ -6,8 +6,10 @@ import type { OvertimeRequest } from "@/types/absensi";
 import type { PayrollStaffSetting } from "@/types";
 import OvertimeFinalizeModal from "@/components/absensi/OvertimeFinalizeModal";
 import OvertimeDetailModal from "@/components/absensi/OvertimeDetailModal";
+import OvertimePayoutScheduleModal from "@/components/absensi/OvertimePayoutScheduleModal";
 import ImageLightboxModal from "@/components/absensi/ImageLightboxModal";
 import ConfirmDialog from "@/components/absensi/ConfirmDialog";
+import { monthName } from "@/lib/utils";
 import {
   formatDurationDetail,
   formatScheduleRange,
@@ -58,7 +60,7 @@ export default function AdminOvertimePage() {
 
   // Search & Filter
   const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "reported" | "finalized">("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "reported" | "finalized" | "pending_payout">("all");
 
   // Accordion open states (keyed by user_id)
   const [expandedUsers, setExpandedUsers] = useState<Record<string, boolean>>({});
@@ -68,6 +70,7 @@ export default function AdminOvertimePage() {
   const [selectedDetailReq, setSelectedDetailReq] = useState<OvertimeRequest | null>(null);
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
   const [deletingReq, setDeletingReq] = useState<OvertimeRequest | null>(null);
+  const [schedulingReq, setSchedulingReq] = useState<OvertimeRequest | null>(null);
 
   // Approve Schedule Modal (for initial pending review)
   const [approvingScheduleReq, setApprovingScheduleReq] = useState<OvertimeRequest | null>(null);
@@ -164,6 +167,7 @@ export default function AdminOvertimePage() {
         totalFinalMinutes: number;
         totalFinalPay: number;
         pendingActionCount: number;
+        pendingPayoutCount: number;
       }
     > = {};
 
@@ -192,6 +196,7 @@ export default function AdminOvertimePage() {
           totalFinalMinutes: 0,
           totalFinalPay: 0,
           pendingActionCount: 0,
+          pendingPayoutCount: 0,
         };
       }
 
@@ -201,6 +206,10 @@ export default function AdminOvertimePage() {
         map[uId].totalFinalDays += 1;
         map[uId].totalFinalMinutes += Number(o.finalDurationMinutes) || 0;
         map[uId].totalFinalPay += Number(o.totalOvertimePay) || 0;
+
+        if (o.payoutStatus === "pending_payout") {
+          map[uId].pendingPayoutCount = (map[uId].pendingPayoutCount || 0) + 1;
+        }
       }
 
       if (o.status === "pending" || o.status === "reported") {
@@ -235,6 +244,11 @@ export default function AdminOvertimePage() {
       } else if (statusFilter === "reported") {
         const hasReported = staffGroup.items.some((it) => it.status === "reported");
         if (!hasReported) return false;
+      } else if (statusFilter === "pending_payout") {
+        const hasPendingPayout = staffGroup.items.some(
+          (it) => it.status === "finalized" && it.payoutStatus === "pending_payout"
+        );
+        if (!hasPendingPayout) return false;
       } else if (statusFilter === "finalized") {
         const hasFinal = staffGroup.items.some((it) => it.status === "finalized");
         if (!hasFinal) return false;
@@ -252,6 +266,7 @@ export default function AdminOvertimePage() {
     let totalFinalNominal = 0;
     let totalPendingReview = 0;
     let totalNeedFinalize = 0;
+    let totalPendingPayout = 0;
 
     const uniqueUsers = new Set<string>();
 
@@ -260,6 +275,9 @@ export default function AdminOvertimePage() {
       if (o.status === "finalized") {
         totalFinalMins += Number(o.finalDurationMinutes) || 0;
         totalFinalNominal += Number(o.totalOvertimePay) || 0;
+        if (o.payoutStatus === "pending_payout") {
+          totalPendingPayout++;
+        }
       }
       if (o.status === "pending") totalPendingReview++;
       if (o.status === "reported") totalNeedFinalize++;
@@ -274,6 +292,7 @@ export default function AdminOvertimePage() {
       totalFinalNominal,
       totalPendingReview,
       totalNeedFinalize,
+      totalPendingPayout,
     };
   }, [overtimes]);
 
@@ -457,16 +476,21 @@ export default function AdminOvertimePage() {
             <span className="text-[10px] font-black uppercase tracking-wider">Perlu Tindakan HR</span>
             <AlertCircle size={16} className="text-purple-500" />
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <span className="text-sm font-black px-2 py-0.5 rounded-lg bg-amber-500/15 text-amber-600 border border-amber-500/30">
               {overallStats.totalPendingReview} Review
             </span>
             <span className="text-sm font-black px-2 py-0.5 rounded-lg bg-purple-500/15 text-purple-600 border border-purple-500/30">
               {overallStats.totalNeedFinalize} Finalize
             </span>
+            {overallStats.totalPendingPayout > 0 && (
+              <span className="text-sm font-black px-2 py-0.5 rounded-lg bg-blue-500/15 text-blue-600 border border-blue-500/30">
+                {overallStats.totalPendingPayout} Jadwal Cair
+              </span>
+            )}
           </div>
           <p className="text-[9.5px] font-bold text-[var(--ab-text-dim)]">
-            Menunggu persetujuan / finalisasi
+            Menunggu persetujuan / finalisasi / jadwal cair
           </p>
         </div>
       </div>
@@ -501,19 +525,25 @@ export default function AdminOvertimePage() {
               { id: "all", label: "Semua" },
               { id: "pending", label: "Review Jadwal" },
               { id: "reported", label: "Perlu Finalize" },
+              { id: "pending_payout", label: "Perlu Jadwal Cair" },
               { id: "finalized", label: "Sudah Sah" },
             ] as const
           ).map((st) => (
             <button
               key={st.id}
               onClick={() => setStatusFilter(st.id)}
-              className={`px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all ${
+              className={`px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 ${
                 statusFilter === st.id
                   ? "bg-amber-500 text-white shadow-sm"
                   : "bg-[var(--ab-bg-main)] text-[var(--ab-text-dim)] hover:text-[var(--ab-text-main)] border border-[var(--ab-border)]"
               }`}
             >
-              {st.label}
+              <span>{st.label}</span>
+              {st.id === "pending_payout" && overallStats.totalPendingPayout > 0 && (
+                <span className="px-1.5 py-0.5 rounded-full text-[8.5px] font-black bg-blue-600 text-white">
+                  {overallStats.totalPendingPayout}
+                </span>
+              )}
             </button>
           ))}
         </div>
@@ -591,6 +621,11 @@ export default function AdminOvertimePage() {
                         {staffGroup.pendingActionCount > 0 && (
                           <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase bg-purple-500/15 text-purple-600 border border-purple-500/30 animate-pulse">
                             {staffGroup.pendingActionCount} Perlu Aksi
+                          </span>
+                        )}
+                        {(staffGroup.pendingPayoutCount || 0) > 0 && (
+                          <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase bg-blue-500/15 text-blue-600 border border-blue-500/30">
+                            {staffGroup.pendingPayoutCount} Perlu Jadwal Cair
                           </span>
                         )}
                       </div>
@@ -827,33 +862,50 @@ export default function AdminOvertimePage() {
                                 </div>
                               )}
 
-                              {/* Pay Calculation Breakdown Box (if Finalized) */}
+                              {/* Status Sah & Jadwal Pencairan Payroll (Tanpa Nominal Terbuka) */}
                               {isFinal && (
-                                <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/25 space-y-1 text-xs">
+                                <div className="p-2.5 rounded-xl bg-[var(--ab-bg-main)] border border-[var(--ab-border)] space-y-1.5 text-xs">
                                   <div className="flex justify-between items-center">
-                                    <span className="text-[9.5px] font-black uppercase tracking-wider text-emerald-700 dark:text-emerald-300 flex items-center gap-1">
-                                      <Calculator size={12} /> Rincian Upah Sah
+                                    <span className="text-[10px] font-black uppercase tracking-wider text-[var(--ab-text-dim)] flex items-center gap-1">
+                                      <CalendarDays size={12} className="text-blue-500" /> Pencairan Payroll
                                     </span>
-                                    <span className="font-mono font-black text-emerald-600 dark:text-emerald-400 text-sm">
-                                      {formatRp(session.totalOvertimePay)}
-                                    </span>
-                                  </div>
-                                  {session.calculationBreakdown?.depnakerFormula ? (
-                                    <div className="flex flex-col text-[10px] text-[var(--ab-text-dim)] pt-0.5 space-y-0.5">
-                                      <div className="flex justify-between">
-                                        <span>Gaji: {formatRp(session.calculationBreakdown?.baseSalary)}</span>
-                                        <span>/jam: {formatRp(session.hourlyBaseRate)}</span>
-                                      </div>
-                                      <span className="text-[9px]">UU Cipta Kerja (Multiplier {session.dayType === 'weekday' ? 'Hari Kerja' : 'Hari Libur'})</span>
-                                    </div>
-                                  ) : (
-                                    <div className="flex items-center justify-between text-[10px] text-[var(--ab-text-dim)] pt-0.5">
-                                      <span>1 Jam: {formatRp(session.firstHourPay)}</span>
-                                      <span>
-                                        Sisa: {formatRp(session.subsequentHourPay)} (@ {formatRp(session.subsequentHourRate)}/j)
+                                    {session.payoutStatus === "paid" ? (
+                                      <span className="px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider bg-emerald-500/15 text-emerald-600 border border-emerald-500/30 flex items-center gap-1">
+                                        <CheckCircle2 size={10} /> Sudah Cair: Slip {monthName(session.payoutMonth ?? 1)} {session.payoutYear}
                                       </span>
-                                    </div>
-                                  )}
+                                    ) : session.payoutStatus === "scheduled" && session.payoutMonth ? (
+                                      <span className="px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider bg-blue-500/15 text-blue-600 border border-blue-500/30 flex items-center gap-1">
+                                        <CalendarDays size={10} /> Dijadwalkan: Slip {monthName(session.payoutMonth)} {session.payoutYear}
+                                      </span>
+                                    ) : (
+                                      <span className="px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider bg-amber-500/15 text-amber-600 border border-amber-500/30 flex items-center gap-1">
+                                        <Clock size={10} /> Belum Dijadwalkan Cair
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="pt-1 flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-t border-[var(--ab-border)]/50 mt-1">
+                                    <p className="text-[10px] text-[var(--ab-text-dim)] flex-1">
+                                      {session.payoutStatus === "paid"
+                                        ? `Upah lembur telah resmi dibayarkan pada slip gaji ${monthName(session.payoutMonth ?? 1)} ${session.payoutYear}.`
+                                        : session.payoutStatus === "scheduled" && session.payoutMonth
+                                        ? `Akan otomatis masuk ke slip gaji ${monthName(session.payoutMonth)} ${session.payoutYear}.`
+                                        : "Upah sah. Belum masuk ke payroll mana pun sebelum Anda menentukan jadwal pencairannya."}
+                                    </p>
+                                    {session.payoutStatus !== "paid" && (
+                                      <button
+                                        type="button"
+                                        onClick={() => setSchedulingReq(session)}
+                                        className={`px-3 py-1.5 rounded-xl text-[9.5px] font-black uppercase tracking-wider flex items-center justify-center gap-1 shadow-sm shrink-0 transition-transform active:scale-95 text-white ${
+                                          session.payoutStatus === "scheduled"
+                                            ? "bg-blue-600 hover:bg-blue-700 shadow-blue-500/20"
+                                            : "bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 shadow-indigo-500/20 ring-2 ring-blue-500/30"
+                                        }`}
+                                      >
+                                        <CalendarDays size={12} />
+                                        {session.payoutStatus === "scheduled" ? "Ubah Bulan Cair" : "Jadwalkan Bulan Cair"}
+                                      </button>
+                                    )}
+                                  </div>
                                 </div>
                               )}
                             </div>
@@ -911,8 +963,29 @@ export default function AdminOvertimePage() {
                                     }`}
                                   >
                                     <Edit3 size={12} />
-                                    {isFinal ? "Edit Finalize" : "Finalize & Upah"}
+                                    {isFinal ? "Edit Finalize" : "Finalize & Sahkan"}
                                   </button>
+                                )}
+
+                                {isFinal && (
+                                  session.payoutStatus === "paid" ? (
+                                    <span className="px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider bg-emerald-500/10 text-emerald-600 border border-emerald-500/20 flex items-center gap-1">
+                                      <CheckCircle2 size={12} /> Lunas
+                                    </span>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => setSchedulingReq(session)}
+                                      className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center gap-1 shadow-sm transition-all hover:-translate-y-0.5 active:translate-y-0 text-white ${
+                                        session.payoutStatus === "scheduled"
+                                          ? "bg-blue-600 hover:bg-blue-700 shadow-blue-500/20"
+                                          : "bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 shadow-indigo-500/20"
+                                      }`}
+                                    >
+                                      <CalendarDays size={12} />
+                                      {session.payoutStatus === "scheduled" ? "Ubah Jadwal" : "Cairkan di Payroll"}
+                                    </button>
+                                  )
                                 )}
                               </div>
                             </div>
@@ -964,6 +1037,16 @@ export default function AdminOvertimePage() {
           overtime={selectedDetailReq}
           onPreviewImage={(url) => setPreviewImageUrl(url)}
           showPay={true}
+        />
+      )}
+
+      {/* MODAL JADWAL PENCAIRAN: Kebijakan Baru Cair > 30 Hari */}
+      {schedulingReq && (
+        <OvertimePayoutScheduleModal
+          isOpen={!!schedulingReq}
+          onClose={() => setSchedulingReq(null)}
+          overtime={schedulingReq}
+          onSuccess={fetchData}
         />
       )}
 

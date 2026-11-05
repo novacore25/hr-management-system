@@ -1002,6 +1002,18 @@ export const overtimeRequests = pgTable(
       overrideReason?: string | null;
     }>(),
 
+    // ── Tahap 5: Jadwal & Realisasi Pencairan Payroll (Kebijakan >30 hari) ──
+    payoutMonth: integer("payout_month"),
+    payoutYear: integer("payout_year"),
+    payoutStatus: varchar("payout_status", { length: 32 })
+      .notNull()
+      .default("pending_payout"),
+    payoutScheduledAt: timestamp("payout_scheduled_at", { withTimezone: true }),
+    payoutScheduledBy: varchar("payout_scheduled_by", { length: 255 }).references(
+      () => users.id,
+      { onDelete: "set null" },
+    ),
+
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -1016,6 +1028,11 @@ export const overtimeRequests = pgTable(
     ),
     statusIdx: index("overtime_requests_status_idx").on(t.status),
     dateIdx: index("overtime_requests_date_idx").on(t.overtimeDate),
+    payoutIdx: index("overtime_requests_payout_idx").on(
+      t.payoutYear,
+      t.payoutMonth,
+      t.payoutStatus,
+    ),
   }),
 );
 

@@ -1,10 +1,11 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { createPortal } from "react-dom";
-import { X, Check, FileText, Info, RefreshCw, HandCoins, CalendarRange } from "lucide-react";
+import { X, Check, FileText, Info, RefreshCw, HandCoins, CalendarRange, CalendarDays } from "lucide-react";
 import { useApiMutation } from "@/hooks/useApi";
 import { toast } from "sonner";
+import { monthName } from "@/lib/utils";
 import {
   formatDurationDetail,
   formatRp,
@@ -41,6 +42,11 @@ export default function OvertimeFinalizeModal({
   const [totalPayOverride, setTotalPayOverride] = useState<number | null>(null);
   const [maxPayCap, setMaxPayCap] = useState<number | null>(null);
   const [finalNotes, setFinalNotes] = useState("");
+  /**
+   * Pilihan periode pencairan ke slip gaji (Kebijakan Baru > 30 Hari).
+   * Format: "YYYY-MM" atau "" (tahan dulu / pending_payout).
+   */
+  const [payoutPeriodChoice, setPayoutPeriodChoice] = useState<string>("");
   /**
    * Wajib diisi kalau `totalPayOverride` dipakai. Tanpa ini, override
    * jadi cara diam-diam mengubah gaji tanpa jejak.
@@ -117,6 +123,13 @@ export default function OvertimeFinalizeModal({
     setMaxPayCap(typeof savedCap === "number" && savedCap > 0 ? savedCap : null);
 
     setFinalNotes(overtime.finalNotes || "");
+
+    // Inisialisasi pilihan bulan slip gaji
+    if (overtime.payoutYear && overtime.payoutMonth) {
+      setPayoutPeriodChoice(`${overtime.payoutYear}-${String(overtime.payoutMonth).padStart(2, "0")}`);
+    } else {
+      setPayoutPeriodChoice("");
+    }
   }, [isOpen, overtime, baseSalary]);
 
   // Lock body scroll
@@ -139,6 +152,24 @@ export default function OvertimeFinalizeModal({
     hourlyBaseRate,
     dayType
   );
+
+  // Opsi periode slip gaji untuk pencairan (>30 hari)
+  const payoutOptions = useMemo(() => {
+    const now = new Date();
+    const list: { value: string; label: string }[] = [];
+    for (let i = -2; i <= 12; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+      const y = d.getFullYear();
+      const m = d.getMonth() + 1;
+      const val = `${y}-${String(m).padStart(2, "0")}`;
+      const name = monthName(m);
+      list.push({
+        value: val,
+        label: `Slip Gaji ${name} ${y}${i === 0 ? " (Bulan Berjalan)" : i === 1 ? " (Bulan Depan)" : ""}`,
+      });
+    }
+    return list;
+  }, []);
 
   // Plafon / Budget Cap logic
   const isCapActive = maxPayCap !== null && maxPayCap > 0;
@@ -184,6 +215,18 @@ export default function OvertimeFinalizeModal({
        * supaya HR bisa memeriksa angkanya sebelum menekan Simpan — tapi
        * yang tersimpan adalah hitungan server.
        */
+      let payoutYear: number | null | undefined = undefined;
+      let payoutMonth: number | null | undefined = undefined;
+
+      if (payoutPeriodChoice) {
+        const [y, m] = payoutPeriodChoice.split("-").map(Number);
+        payoutYear = y;
+        payoutMonth = m;
+      } else {
+        payoutYear = null;
+        payoutMonth = null;
+      }
+
       const res = await patchOvertime.mutate({
         id: overtime.id,
         action: "finalize",
@@ -194,6 +237,8 @@ export default function OvertimeFinalizeModal({
         totalPayOverride,
         overrideReason: totalPayOverride !== null ? (overrideReason || "").trim() : null,
         finalNotes: finalNotes.trim() || null,
+        payoutYear,
+        payoutMonth,
       });
 
       if (!res.ok) {
@@ -461,7 +506,36 @@ export default function OvertimeFinalizeModal({
               )}
             </div>
 
-            {/* 4. Notes */}
+            {/* 4. Jadwal Masuk ke Slip Gaji (Kebijakan Baru >30 Hari) */}
+            <div className="p-4 bg-[var(--ab-bg-main)] rounded-2xl border border-blue-500/20 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <label className="text-[10px] font-black uppercase tracking-wider text-[var(--ab-text-main)] flex items-center gap-1.5">
+                  <CalendarDays size={13} className="text-blue-500" /> Masuk ke Slip Gaji (Payroll)
+                </label>
+                <span className="text-[9px] font-bold text-blue-600 bg-blue-500/10 px-2 py-0.5 rounded-full border border-blue-500/20">
+                  Kebijakan &gt; 30 Hari
+                </span>
+              </div>
+              <select
+                value={payoutPeriodChoice}
+                onChange={(e) => setPayoutPeriodChoice(e.target.value)}
+                className="ab-input w-full text-xs font-bold py-2.5 rounded-xl bg-[var(--ab-bg-surface)] text-[var(--ab-text-main)]"
+              >
+                <option value="">⏳ Tahan Dulu (Belum Dijadwalkan / Tentukan Nanti)</option>
+                {payoutOptions.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    🗓️ {opt.label}
+                  </option>
+                ))}
+              </select>
+              <p className="text-[10px] text-[var(--ab-text-dim)]">
+                {payoutPeriodChoice
+                  ? "Upah lembur ini akan otomatis ditarik ke dalam draft slip gaji bulan yang Anda pilih di atas saat finance/HR memproses payroll."
+                  : "Jika ditahan, upah lembur berstatus sah namun tidak akan masuk ke payroll mana pun sebelum Anda menentukan jadwal cairnya."}
+              </p>
+            </div>
+
+            {/* 5. Notes */}
             <div className="space-y-1.5 pt-2">
               <label className="text-[10px] font-black uppercase tracking-wider text-[var(--ab-text-dim)] flex items-center gap-1.5">
                 <FileText size={12} /> Catatan HR untuk Slip Gaji (Opsional)

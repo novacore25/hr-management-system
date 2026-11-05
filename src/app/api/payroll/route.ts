@@ -102,15 +102,9 @@ export async function GET(request: Request) {
       countPayrolls(year, month),
     ]);
 
-    // Pengajuan lembur yang sudah final pada periode ini. Dulu diambil
-    // dari browser dengan filter tanggal sendiri — sekarang satu periode
-    // yang sama, jadi angka lembur dan slip gaji tidak bisa berbeda
-    // karena satu salah hitung bulan.
-    const lastDay = new Date(year, month, 0).getDate();
-    const pad = (n: number) => String(n).padStart(2, "0");
-    const from = `${year}-${pad(month)}-01`;
-    const to = `${year}-${pad(month)}-${pad(lastDay)}`;
-    const overtime = await listFinalizedOvertime(from, to);
+    // Pengajuan lembur yang dijadwalkan cair pada periode ini (kebijakan baru >30 hari).
+    // Lembur sebelum 1 Okt 2026 yang belum terjadwal tetap didukung via fallback tanggal.
+    const overtime = await listFinalizedOvertime(year, month);
 
     return { payrolls, staff, count, overtime, year, month };
   });

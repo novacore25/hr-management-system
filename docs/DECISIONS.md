@@ -304,3 +304,24 @@ dua tempat harus konsisten — dan tidak ada tooling untuk itu.
 **Alasan:**
 1. Mengaktifkan penyimpanan lokal di VPS memungkinkan operasional pelaporan lembur berjalan 100% tanpa hambatan dan tanpa ketergantungan konfigurasi R2 pihak ketiga. Dengan kompresi client-side WebP (~100-150KB), 3 foto per lembur hanya memakan ~350-450KB disk space sehingga sangat aman bagi VPS.
 2. Aturan minimal 2 foto memastikan integritas dan akuntabilitas pelaporan staf (mencegah klaim fiktif), sedangkan batasan maksimal 3 foto mencegah upload berlebihan yang membebani disk dan memperlambat evaluasi HR.
+
+---
+
+## 18. Pemisahan Hakiki Upah Lembur Sah vs Jadwal Pencairan Payroll (Kebijakan Lembur Cair > 30 Hari)
+
+**Pilihan:**
+1. **Pemisahan Validitas vs Pencairan**:
+   - Status `finalized` oleh HR bertindak mutlak sebagai pengesahan jam lembur riil dan perhitungan tarif gaji ("SAH").
+   - Lembur yang difinalisasi **tidak otomatis** masuk ke slip gaji bulan berjalan lembur. Sebaliknya, masuk ke status penampungan `payout_status = 'pending_payout'`.
+   - Lembur hanya masuk ke tabel payroll ketika HR secara eksplisit menjadwalkannya (`payout_month` & `payout_year`) melalui modal aksi `[ Cairkan di Payroll ]` di antarmuka admin overtime.
+2. **Batas Transisi Kebijakan (Cut-off 1 Oktober 2026)**:
+   - Lembur historis sebelum 1 Oktober 2026 (`overtime_date < '2026-10-01'`): Mengikuti kebijakan lama di mana lembur cair pada bulan lembur itu sendiri (`payout_status = 'paid'`, `payout_month = bulan lembur`, `payout_year = tahun lembur`).
+   - Lembur per 1 Oktober 2026 ke depan (`overtime_date >= '2026-10-01'`): Wajib mengikuti kebijakan baru (>30 hari), memerlukan penjadwalan eksplisit dari HR sebelum ditarik ke dalam draft payroll.
+3. **Pemberian Status Lunas Otomatis (Auto-Paid on Publish)**:
+   - Saat HR mempublikasikan slip gaji bulan tertentu (`publishPayrolls`), DAL `src/server/dal/payroll.ts` secara otomatis memperbarui status seluruh lembur yang terjadwal pada bulan tersebut menjadi `payout_status = 'paid'`. Lembur yang lunas tidak dapat diubah lagi jadwalnya untuk menjaga rekonsiliasi audit finansial.
+4. **Perlindungan Privasi Nominal Lembur**:
+   - Menghilangkan pemajangan nominal Rupiah terbuka secara vulgar pada kartu dan riwayat umum ("gausah ada nominalnya cukup sah aja"), digantikan dengan status "FINAL SAH" dan status penjadwalan slip gaji (misal: "Akan cair pada Slip Gaji November 2026" atau "Menunggu Jadwal Pencairan HR").
+
+**Alasan:**
+1. Kebijakan operasional perusahaan memperbolehkan pencairan lembur melebihi siklus 30 hari (misal lembur terjadi di Oktober, namun karena pertimbangan cashflow/approval manajemen baru dicairkan di slip gaji November atau Desember). Tanpa pemisahan ini, modul payroll otomatis menyedot lembur berdasarkan `overtime_date`, memaksa finance membayar lembur yang belum disetujui waktu pembayarannya.
+2. Menghindari kebocoran nominal upah antar-staf saat layar admin/staf terbuka, menjaga kerahasiaan nominal sebelum slip resmi diterbitkan.

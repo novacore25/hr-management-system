@@ -57,6 +57,11 @@ export type StaffRow = {
   joinDate: string | null;
   employmentStatus: string | null;
   contractEndDate: string | null;
+
+  // ── Data rekening bank (dipakai transfer gaji) ───────────────
+  bankName: string | null;
+  bankAccountNumber: string | null;
+  bankAccountName: string | null;
 };
 
 const staffSelect = {
@@ -95,6 +100,10 @@ const staffSelect = {
   joinDate: users.joinDate,
   employmentStatus: users.employmentStatus,
   contractEndDate: users.contractEndDate,
+
+  bankName: users.bankName,
+  bankAccountNumber: users.bankAccountNumber,
+  bankAccountName: users.bankAccountName,
 };
 
 /** Kolom `date` datang sebagai string YYYY-MM-DD dari driver. */
@@ -205,6 +214,10 @@ export async function listStaff(params?: {
       joinDate: isoDay(r.joinDate),
       employmentStatus: r.employmentStatus,
       contractEndDate: isoDay(r.contractEndDate),
+
+      bankName: r.bankName,
+      bankAccountNumber: r.bankAccountNumber,
+      bankAccountName: r.bankAccountName,
     };
   });
 }
@@ -267,6 +280,11 @@ export type StaffPatch = {
   joinDate?: string | null;
   employmentStatus?: string | null;
   contractEndDate?: string | null;
+
+  // Data rekening bank
+  bankName?: string | null;
+  bankAccountNumber?: string | null;
+  bankAccountName?: string | null;
 };
 
 /**
@@ -302,6 +320,9 @@ const PROFILE_FIELDS = [
   "joinDate",
   "employmentStatus",
   "contractEndDate",
+  "bankName",
+  "bankAccountNumber",
+  "bankAccountName",
 ] as const satisfies readonly (keyof StaffPatch)[];
 
 /**

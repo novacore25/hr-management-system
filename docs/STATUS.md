@@ -2460,3 +2460,42 @@ Ketika staf ingin melakukan update, pengisian, atau pengubahan pada KPI yang tel
    - Footer kerahasiaan (*Confidential*).
    - Pratinjau slip gaji di halaman admin HR (`/absensi/admin/payroll`) menggunakan `PayslipPrintView` langsung di dalam modal lebar sehingga 100% identik dengan hasil cetak/PDF staf.
 
+---
+
+## Pembaruan Kebijakan Lembur: Penjadwalan Pencairan Slip Gaji (>30 Hari)
+
+### Latar Belakang & Kebutuhan
+- Adanya kebijakan baru perusahaan di mana lembur yang terjadi tidak harus langsung cair pada slip gaji di bulan lembur tersebut (bisa cair >30 hari, misal lembur Oktober cair di slip gaji November atau Desember).
+- Jam lembur dan upah yang difinalisasi oleh HR harus tetap sah dan terkunci perhitungannya ("FINAL SAH"), tetapi **waktu pencairannya** ke payroll harus diatur secara fleksibel oleh HR melalui sistem jadwal.
+- Permintaan user:
+  1. Status finalized mengunci validitas upah ("SAH").
+  2. Tersedia kontrol eksplisit bagi HR untuk memilih bulan pencairan lembur tersebut ke slip gaji.
+  3. Payroll tidak otomatis memuat lembur Oktober ke atas sebelum HR mengklik jadwal pencairan.
+  4. Nominal Rupiah disembunyikan dari kartu/badge status publik ("gausah ada nominalnya cukup sah aja").
+  5. Data lembur historis (September 2026 dan sebelumnya) tetap mempertahankan kebijakan lama (sudah cair pada bulan aslinya), sedangkan lembur Oktober 2026 ke depan mengikuti kebijakan baru.
+
+### Komponen & Perubahan Arsitektur
+1. **Migrasi Database (`drizzle/0021_overtime_payout_schedule.sql`)**:
+   - Menambahkan kolom `payout_month` (integer), `payout_year` (integer), `payout_status` (varchar(32) default `'pending_payout'`), `payout_scheduled_at` (timestamptz), dan `payout_scheduled_by` (varchar(255)).
+   - Menambahkan indeks komposit `overtime_requests_payout_idx` pada `(payout_year, payout_month, payout_status)`.
+   - Backfill data historis: seluruh lembur finalized dengan `overtime_date < '2026-10-01'` diisi `payout_status = 'paid'`, `payout_month = bulan lembur`, dan `payout_year = tahun lembur`.
+   - Lembur berstatus finalized dengan `overtime_date >= '2026-10-01'` di-set ke `payout_status = 'pending_payout'`.
+2. **Schema & Types**:
+   - `src/db/schema.ts`: Menambahkan 5 kolom dan indeks pada tabel `overtimeRequests`.
+   - `src/types/absensi.ts`: Menambahkan properti payout pada interface `OvertimeRequest` dan parser `rowToOvertimeRequest`.
+3. **Server DAL (`src/server/dal/overtime.ts` & `src/server/dal/payroll.ts`)**:
+   - `finalizeOvertime`: Memisahkan kebijakan cut-off 1 Oktober 2026 (lembur baru berstatus `'pending_payout'`, lembur lama `'paid'`).
+   - `scheduleOvertimePayout` & `bulkScheduleOvertimePayout`: Fungsi mutasi server untuk menetapkan atau mereset jadwal target slip gaji lembur finalized.
+   - `listFinalizedOvertime(year, month)`: Hanya menarik lembur yang dijadwalkan pada `payout_year = year` dan `payout_month = month` (dengan fallback legacy untuk data historis < 1 Okt 2026).
+   - `publishPayrolls(year, month)`: Otomatis mengubah seluruh lembur yang terjadwal pada bulan tersebut menjadi status `'paid'`.
+4. **API Route Handlers (`src/app/api/overtime/route.ts` & `src/app/api/payroll/route.ts`)**:
+   - Menambahkan action PATCH `schedule-payout` dan `bulk-schedule-payout` dengan validasi peran HR/Executive.
+5. **Antarmuka Pengguna (UI/UX)**:
+   - Komponen modal baru `src/components/absensi/OvertimePayoutScheduleModal.tsx` untuk pemilihan tahun/bulan pencairan atau penahanan jadwal.
+   - Halaman Admin Overtime (`/absensi/admin/overtime`):
+     - Menggantikan tampilan nominal terbuka dengan kotak status penjadwalan ("FINAL SAH", "Belum Dijadwalkan Cair", atau "Dijadwalkan: Slip [Bulan] [Tahun]").
+     - Menambahkan tombol aksi `[ Cairkan di Payroll ]` / `[ Ubah Jadwal ]`.
+   - Halaman Riwayat Staf (`OvertimeStaffSection.tsx`): Menampilkan status sah dan target slip gaji pencairan tanpa mengekspos nominal mentah.
+6. **Verifikasi Teruji (`scripts/verify-overtime-payout.ts`)**:
+   - Script verifikasi komprehensif menguji 31 assertions (31 PASS, 0 FAIL) mencakup migrasi SQL, schema, types, DAL overtime, DAL payroll, API route, serta privasi UI.
+

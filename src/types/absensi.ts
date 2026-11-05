@@ -327,6 +327,13 @@ export interface OvertimeRequest {
   totalOvertimePay?: number | null;
   calculationBreakdown?: Record<string, any> | null;
 
+  // Payout Scheduling (Kebijakan baru: cair > 30 hari)
+  payoutMonth?: number | null;
+  payoutYear?: number | null;
+  payoutStatus?: "pending_payout" | "scheduled" | "paid";
+  payoutScheduledAt?: string | null;
+  payoutScheduledBy?: string | null;
+
   createdAt: string;
   updatedAt: string;
 
@@ -377,6 +384,11 @@ export function rowToOvertimeRequest(row: Record<string, unknown>): OvertimeRequ
     subsequentHourPay:        (row.subsequent_hour_pay as number) ?? null,
     totalOvertimePay:         (row.total_overtime_pay as number) ?? null,
     calculationBreakdown:     (row.calculation_breakdown as Record<string, any>) ?? null,
+    payoutMonth:              row.payout_month != null ? Number(row.payout_month) : null,
+    payoutYear:               row.payout_year != null ? Number(row.payout_year) : null,
+    payoutStatus:             (row.payout_status as "pending_payout" | "scheduled" | "paid") ?? "pending_payout",
+    payoutScheduledAt:        (row.payout_scheduled_at as string) ?? null,
+    payoutScheduledBy:        (row.payout_scheduled_by as string) ?? null,
     createdAt:                row.created_at as string,
     updatedAt:                row.updated_at as string,
     userName:                 u?.name as string | undefined,

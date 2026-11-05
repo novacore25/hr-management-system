@@ -1,27 +1,46 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useMyAssignments } from "@/hooks/useAssignments";
 import { KpiCard } from "@/components/kpi/KpiCard";
 import { DailyInputForm } from "@/components/kpi/DailyInputForm";
 import { useKpiSettings } from "@/hooks/useKpiSettings";
-import { PeriodPicker, type Period } from "@/components/kpi/PeriodPicker";
-import { monthName, todayISODate, pesanKpiReadonly } from "@/lib/utils";
+import { type Period } from "@/components/kpi/PeriodPicker";
+import { monthName, pesanKpiReadonly } from "@/lib/utils";
+import { Calendar, ChevronDown, RotateCcw } from "lucide-react";
 import type { KpiAssignmentWithDetails } from "@/types";
 
 export default function TimKpiPage() {
   const { user } = useAuth();
-  const now = new Date();
-  const today = todayISODate();
-  const currentMonthLabel = `${monthName(now.getMonth() + 1)} ${now.getFullYear()}`;
+  const now = useMemo(() => new Date(), []);
+  const currentMonthValue = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 
-  const [filterMonth, setFilterMonth] = useState(() => {
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-  });
-  const selectedYear = parseInt(filterMonth.split("-")[0]);
-  const selectedMonthNum = parseInt(filterMonth.split("-")[1]);
+  const [filterMonth, setFilterMonth] = useState(currentMonthValue);
+  const selectedYear = parseInt(filterMonth.split("-")[0], 10);
+  const selectedMonthNum = parseInt(filterMonth.split("-")[1], 10);
   const monthLabel = `${monthName(selectedMonthNum)} ${selectedYear}`;
+  const isCurrentMonth = filterMonth === currentMonthValue;
+
+  const monthOptions = useMemo(() => {
+    const options: { value: string; label: string }[] = [];
+    const baseDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    for (let i = 0; i < 26; i++) {
+      const d = new Date(baseDate.getFullYear(), baseDate.getMonth() - i, 1);
+      const val = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      const isCurrent = val === currentMonthValue;
+      const label = `${monthName(d.getMonth() + 1)} ${d.getFullYear()}${isCurrent ? " (Bulan Ini)" : ""}`;
+      options.push({ value: val, label });
+    }
+    if (!options.some((o) => o.value === filterMonth)) {
+      const [y, m] = filterMonth.split("-").map(Number);
+      options.unshift({
+        value: filterMonth,
+        label: `${monthName(m)} ${y}`,
+      });
+    }
+    return options;
+  }, [currentMonthValue, filterMonth, now]);
 
   const { assignments, isLoading: loadingAssignments } = useMyAssignments(
     user?.id,
@@ -33,7 +52,7 @@ export default function TimKpiPage() {
   const { settings, isLoading: loadingSettings } = useKpiSettings(user?.id);
   
   const [selected, setSelected] = useState<KpiAssignmentWithDetails | null>(null);
-  const [period, setPeriod] = useState<Period>({ type: "month" });
+  const period: Period = { type: "month" };
   const [tab, setTab] = useState<"active" | "completed_daily" | "all">("active");
 
   const validAssignments = assignments.filter((a) => a.status !== "cancelled" && !a.kpi?.deletedAt);
@@ -60,7 +79,7 @@ export default function TimKpiPage() {
 
   function handleFilterMonthChange(value: string) {
     setFilterMonth(value);
-    setPeriod({ type: "month" });
+    setSelected(null);
   }
 
   if (loadingAssignments || loadingSettings) {
@@ -79,13 +98,34 @@ export default function TimKpiPage() {
           <p className="text-sm text-muted-foreground">{assignments.length} KPI</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <input
-            type="month"
-            value={filterMonth}
-            onChange={(e) => handleFilterMonthChange(e.target.value)}
-            className="h-9 rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-          />
-          <PeriodPicker period={period} onChange={setPeriod} monthLabel={currentMonthLabel} maxDate={today} />
+          <div className="relative inline-flex items-center">
+            <Calendar className="absolute left-3 h-4 w-4 text-muted-foreground pointer-events-none" />
+            <select
+              value={filterMonth}
+              onChange={(e) => handleFilterMonthChange(e.target.value)}
+              className="h-9 pl-9 pr-8 rounded-lg border border-input bg-background text-sm font-medium shadow-sm transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring appearance-none cursor-pointer"
+              aria-label="Pilih Periode Bulan"
+            >
+              {monthOptions.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+            <ChevronDown className="absolute right-2.5 h-4 w-4 text-muted-foreground pointer-events-none" />
+          </div>
+
+          {!isCurrentMonth && (
+            <button
+              type="button"
+              onClick={() => handleFilterMonthChange(currentMonthValue)}
+              className="flex items-center gap-1.5 h-9 px-3 rounded-lg border border-border bg-background text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-accent/40 transition-all shadow-sm"
+              title="Kembali ke Bulan Berjalan"
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+              <span>Bulan Ini</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -128,7 +168,7 @@ export default function TimKpiPage() {
 
       {assignments.length === 0 ? (
         <div className="flex h-40 flex-col items-center justify-center rounded-xl border border-dashed border-border text-center">
-          <p className="text-sm font-medium">Belum ada KPI untuk bulan ini</p>
+          <p className="text-sm font-medium">Belum ada KPI untuk {monthLabel}</p>
         </div>
       ) : (
         <div className="space-y-4">

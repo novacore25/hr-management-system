@@ -55,6 +55,10 @@ interface StaffUser {
   joinDate: string | null;
   employmentStatus: string | null;
   contractEndDate: string | null;
+
+  bankName: string | null;
+  bankAccountNumber: string | null;
+  bankAccountName: string | null;
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -72,7 +76,7 @@ export default function AdminStaffPage() {
   const [statusFilter, setStatusFilter] = useState<AbsensiStatus>("active");
   const [editingProfile, setEditingProfile] = useState<StaffUser | null>(null);
   const [profileEdits, setProfileEdits] = useState<Partial<StaffUser>>({});
-  const [profileTab, setProfileTab] = useState<"personal" | "roles" | "quotas">("personal");
+  const [profileTab, setProfileTab] = useState<"personal" | "roles" | "bank" | "quotas">("personal");
   const [searchTerm, setSearchTerm] = useState("");
   const [confirmCfg, setConfirmCfg] = useState<ConfirmCfg>(null);
   const [selectedPeriod, setSelectedPeriod] = useState(() =>
@@ -707,6 +711,7 @@ export default function AdminStaffPage() {
               {[
                 { id: "personal", label: "Informasi Pribadi" },
                 { id: "roles", label: "Pekerjaan & Divisi" },
+                { id: "bank", label: "Data Rekening" },
                 { id: "quotas", label: "Kuota & Pengaturan" }
               ].map(tab => (
                 <button
@@ -914,6 +919,51 @@ export default function AdminStaffPage() {
                       <input type="date" value={getEdit("contractEndDate") ?? ""} onChange={e => patchEdit({ contractEndDate: e.target.value })} className="ab-input text-xs w-full text-orange-500" />
                     </div>
                   )}
+                </div>
+              )}
+
+              {profileTab === "bank" && (
+                <div className="space-y-4">
+                  <div className="p-4 rounded-2xl bg-[var(--ab-bg-main)] border border-[var(--ab-border)]">
+                    <h4 className="text-xs font-black uppercase tracking-wider text-[var(--ab-text-main)] mb-1">
+                      Rekening Transfer Gaji
+                    </h4>
+                    <p className="text-[11px] text-[var(--ab-text-dim)] leading-relaxed">
+                      Data rekening ini digunakan untuk transfer pembayaran gaji dan otomatis tercantum pada Slip Gaji karyawan.
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-[9px] font-black uppercase text-[var(--ab-text-dim)] tracking-widest ml-1">Nama Bank</label>
+                      <input
+                        type="text"
+                        value={getEdit("bankName") ?? ""}
+                        onChange={e => patchEdit({ bankName: e.target.value })}
+                        className="ab-input text-xs w-full"
+                        placeholder="Cth: BCA / Mandiri / BRI / BNI"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[9px] font-black uppercase text-[var(--ab-text-dim)] tracking-widest ml-1">Nama Pemilik Rekening</label>
+                      <input
+                        type="text"
+                        value={getEdit("bankAccountName") ?? ""}
+                        onChange={e => patchEdit({ bankAccountName: e.target.value })}
+                        className="ab-input text-xs w-full"
+                        placeholder="Sesuai buku rekening"
+                      />
+                    </div>
+                    <div className="space-y-1 md:col-span-2">
+                      <label className="text-[9px] font-black uppercase text-[var(--ab-text-dim)] tracking-widest ml-1">Nomor Rekening</label>
+                      <input
+                        type="text"
+                        value={getEdit("bankAccountNumber") ?? ""}
+                        onChange={e => patchEdit({ bankAccountNumber: e.target.value })}
+                        className="ab-input text-xs w-full font-mono"
+                        placeholder="Cth: 1234567890"
+                      />
+                    </div>
+                  </div>
                 </div>
               )}
 

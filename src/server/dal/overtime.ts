@@ -1,5 +1,5 @@
 import "server-only";
-import { and, eq, gte, lte, desc, inArray, sql } from "drizzle-orm";
+import { and, eq, ne, gte, lte, desc, inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   overtimeRequests,
@@ -144,6 +144,11 @@ const select = {
   firstHourPay: overtimeRequests.firstHourPay,
   subsequentHourRate: overtimeRequests.subsequentHourRate,
   subsequentHourPay: overtimeRequests.subsequentHourPay,
+  payoutMonth: overtimeRequests.payoutMonth,
+  payoutYear: overtimeRequests.payoutYear,
+  payoutStatus: overtimeRequests.payoutStatus,
+  payoutScheduledAt: overtimeRequests.payoutScheduledAt,
+  payoutScheduledBy: overtimeRequests.payoutScheduledBy,
   createdAt: overtimeRequests.createdAt,
   updatedAt: overtimeRequests.updatedAt,
   userName: users.name,
@@ -151,12 +156,15 @@ const select = {
   departmentName: departments.name,
 };
 
+export { select as overtimeSelect, toOvertime };
+
 export type OvertimeWithUser = Omit<
   Row,
   | "createdAt"
   | "updatedAt"
   | "approvalDate"
   | "reportSubmittedAt"
+  | "payoutScheduledAt"
   | "hourlyBaseRate"
   | "totalOvertimePay"
   | "firstHourRate"
@@ -168,6 +176,7 @@ export type OvertimeWithUser = Omit<
   updatedAt: string;
   approvalDate: string | null;
   reportSubmittedAt: string | null;
+  payoutScheduledAt: string | null;
   hourlyBaseRate: number;
   totalOvertimePay: number;
   firstHourRate: number | null;
@@ -261,6 +270,13 @@ function toOvertime(row: Row): OvertimeWithUser {
       row.subsequentHourRate != null ? Number(row.subsequentHourRate) : null,
     subsequentHourPay:
       row.subsequentHourPay != null ? Number(row.subsequentHourPay) : null,
+    payoutMonth: row.payoutMonth,
+    payoutYear: row.payoutYear,
+    payoutStatus: (row.payoutStatus as "pending_payout" | "scheduled" | "paid") ?? "pending_payout",
+    payoutScheduledAt: row.payoutScheduledAt
+      ? row.payoutScheduledAt.toISOString()
+      : null,
+    payoutScheduledBy: row.payoutScheduledBy,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     approvalDate: row.approvalDate ? row.approvalDate.toISOString() : null,
@@ -798,6 +814,8 @@ export async function finalizeOvertime(
     overrideReason?: string | null;
     finalNotes?: string | null;
     finalizedDate?: string;
+    payoutYear?: number | null;
+    payoutMonth?: number | null;
   },
   actorId: string,
 ): Promise<OvertimeWithUser> {
@@ -881,6 +899,34 @@ export async function finalizeOvertime(
     isOverride = ov !== capped;
   }
 
+  // Tentukan status pencairan saat finalisasi:
+  // - Historis (sebelum 1 Okt 2026): langsung 'paid' sesuai bulan lembur
+  // - Kebijakan baru (mulai 1 Okt 2026): 'pending_payout' kecuali sudah dijadwalkan sebelumnya
+  const isLegacy = current.overtimeDate < "2026-10-01";
+  let payoutStatus = current.payoutStatus ?? "pending_payout";
+  let payoutMonth = current.payoutMonth;
+  let payoutYear = current.payoutYear;
+
+  if (isLegacy) {
+    const otDate = new Date(current.overtimeDate);
+    payoutStatus = "paid";
+    payoutMonth = otDate.getMonth() + 1;
+    payoutYear = otDate.getFullYear();
+  } else {
+    // Kebijakan baru: jika HR menentukan jadwal pencairan saat finalisasi
+    if (input.payoutYear && input.payoutMonth) {
+      payoutStatus = "scheduled";
+      payoutYear = input.payoutYear;
+      payoutMonth = input.payoutMonth;
+    } else if (input.payoutYear === null || input.payoutMonth === null) {
+      payoutStatus = "pending_payout";
+      payoutYear = null;
+      payoutMonth = null;
+    } else if (!payoutStatus) {
+      payoutStatus = "pending_payout";
+    }
+  }
+
   await db
     .update(overtimeRequests)
     .set({
@@ -893,6 +939,23 @@ export async function finalizeOvertime(
       dayType,
       hourlyBaseRate: String(hourlyBaseRate),
       totalOvertimePay: String(finalPay),
+      payoutStatus,
+      payoutMonth,
+      payoutYear,
+      payoutScheduledAt:
+        payoutStatus === "scheduled"
+          ? new Date()
+          : payoutStatus === "pending_payout"
+          ? null
+          : current.payoutScheduledAt
+          ? new Date(current.payoutScheduledAt)
+          : null,
+      payoutScheduledBy:
+        payoutStatus === "scheduled"
+          ? actorId
+          : payoutStatus === "pending_payout"
+          ? null
+          : current.payoutScheduledBy,
       calculationBreakdown: {
         baseSalary,
         hourlyBaseRate,
@@ -912,6 +975,140 @@ export async function finalizeOvertime(
     .where(eq(overtimeRequests.id, id));
 
   return (await findOvertimeById(id))!;
+}
+
+/**
+ * Jadwalkan bulan pencairan slip gaji untuk lembur yang sudah sah.
+ *
+ * Kebijakan baru: lembur bisa dicairkan > 30 hari (misal lembur Oktober cair di slip November/Desember).
+ *
+ * Jika payoutYear & payoutMonth diberikan:
+ *   status menjadi 'scheduled'
+ * Jika payoutYear & payoutMonth null (atau batal):
+ *   status kembali ke 'pending_payout'
+ */
+export async function scheduleOvertimePayout(
+  id: string,
+  payoutYear: number | null,
+  payoutMonth: number | null,
+  actorId: string,
+): Promise<OvertimeWithUser> {
+  const current = await findOvertimeById(id);
+  if (!current) {
+    throw new ValidationError("Pengajuan lembur tidak ditemukan.");
+  }
+
+  if (current.status !== "finalized") {
+    throw new ValidationError(
+      "Hanya lembur yang sudah SAH (finalized) yang dapat dijadwalkan pencairannya.",
+    );
+  }
+
+  if (current.payoutStatus === "paid") {
+    throw new ValidationError(
+      "Lembur ini sudah resmi cair (slip gaji sudah diterbitkan) dan tidak bisa diubah jadwalnya.",
+    );
+  }
+
+  if (payoutYear !== null && payoutMonth !== null) {
+    if (
+      !Number.isInteger(payoutYear) ||
+      payoutYear < 2020 ||
+      payoutYear > 2100 ||
+      !Number.isInteger(payoutMonth) ||
+      payoutMonth < 1 ||
+      payoutMonth > 12
+    ) {
+      throw new ValidationError("Periode tahun/bulan pencairan tidak valid.");
+    }
+
+    await db
+      .update(overtimeRequests)
+      .set({
+        payoutYear,
+        payoutMonth,
+        payoutStatus: "scheduled",
+        payoutScheduledAt: new Date(),
+        payoutScheduledBy: actorId,
+        updatedAt: new Date(),
+      })
+      .where(eq(overtimeRequests.id, id));
+  } else {
+    // Reset / batalkan jadwal pencairan
+    await db
+      .update(overtimeRequests)
+      .set({
+        payoutYear: null,
+        payoutMonth: null,
+        payoutStatus: "pending_payout",
+        payoutScheduledAt: null,
+        payoutScheduledBy: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(overtimeRequests.id, id));
+  }
+
+  return (await findOvertimeById(id))!;
+}
+
+/** Jadwalkan banyak lembur sekaligus (Bulk Schedule). */
+export async function bulkScheduleOvertimePayout(
+  ids: string[],
+  payoutYear: number | null,
+  payoutMonth: number | null,
+  actorId: string,
+): Promise<{ updatedCount: number }> {
+  if (!ids || ids.length === 0) {
+    throw new ValidationError("Tidak ada lembur yang dipilih.");
+  }
+
+  // Filter hanya yang sudah finalized dan belum 'paid'
+  const valid = await db
+    .select({ id: overtimeRequests.id })
+    .from(overtimeRequests)
+    .where(
+      and(
+        inArray(overtimeRequests.id, ids),
+        eq(overtimeRequests.status, "finalized"),
+        ne(overtimeRequests.payoutStatus, "paid"),
+      ),
+    );
+
+  if (valid.length === 0) {
+    throw new ValidationError(
+      "Tidak ada lembur berstatus SAH yang dapat dijadwalkan.",
+    );
+  }
+
+  const validIds = valid.map((v) => v.id);
+
+  if (payoutYear !== null && payoutMonth !== null) {
+    await db
+      .update(overtimeRequests)
+      .set({
+        payoutYear,
+        payoutMonth,
+        payoutStatus: "scheduled",
+        payoutScheduledAt: new Date(),
+        payoutScheduledBy: actorId,
+        updatedAt: new Date(),
+      })
+      .where(inArray(overtimeRequests.id, validIds));
+  } else {
+    await db
+      .update(overtimeRequests)
+      .set({
+        payoutYear: null,
+        payoutMonth: null,
+        payoutStatus: "pending_payout",
+        payoutScheduledAt: null,
+        payoutScheduledBy: null,
+        updatedAt: new Date(),
+      })
+      .where(inArray(overtimeRequests.id, validIds));
+  }
+
+  return { updatedCount: validIds.length };
 }
 
 /**

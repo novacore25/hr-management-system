@@ -927,8 +927,14 @@ function payrollPayload(row: StaffRow, isPublished: boolean) {
                             </div>
                           </div>
                         ) : (
-                          <div className="p-3 rounded-xl bg-white/60 dark:bg-slate-900/50 border border-amber-100 text-xs text-slate-500 italic">
-                            Belum ada sesi lembur yang disahkan pada bulan ini. Anda dapat menginput nominal manual di bawah jika diperlukan.
+                          <div className="p-3 rounded-xl bg-white/60 dark:bg-slate-900/50 border border-amber-100 text-xs text-slate-500 italic flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                            <span>Belum ada sesi lembur yang dijadwalkan cair pada bulan {MONTH_NAMES[month - 1]} {year}. Anda dapat menginput manual di bawah atau jadwalkan di menu Overtime.</span>
+                            <a
+                              href="/absensi/admin/overtime"
+                              className="not-italic self-start sm:self-center px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider bg-amber-500/15 hover:bg-amber-500/25 text-amber-800 dark:text-amber-200 border border-amber-500/30 shrink-0 inline-flex items-center gap-1"
+                            >
+                              <span>Buka Menu Lembur</span>
+                            </a>
                           </div>
                         )}
 

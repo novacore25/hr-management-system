@@ -1,16 +1,17 @@
 import "server-only";
-import { eq, asc, and, desc, sql } from "drizzle-orm";
+import { eq, asc, and, desc, sql, or, gte, lte, lt, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import {
   payrollStaffSettings,
   payrolls,
   payrollDeductionTypes,
   payrollAdditionTypes,
+  overtimeRequests,
   users,
   departments,
 } from "@/db/schema";
 import { ValidationError } from "./guards";
-import { listOvertimeRequests } from "./overtime";
+import { overtimeSelect, toOvertime } from "./overtime";
 
 /**
  * Gaji adalah data paling sensitif di aplikasi ini.
@@ -554,6 +555,21 @@ export async function publishPayrolls(
     )
     .returning({ id: payrolls.id });
 
+  // Update status pencairan lembur yang dicairkan pada periode ini menjadi 'paid'
+  await db
+    .update(overtimeRequests)
+    .set({
+      payoutStatus: "paid",
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(overtimeRequests.status, "finalized"),
+        eq(overtimeRequests.payoutYear, year),
+        eq(overtimeRequests.payoutMonth, month),
+      ),
+    );
+
   return { published: updated.length };
 }
 
@@ -626,7 +642,52 @@ export async function createDeductionType(name: string) {
   return row;
 }
 
-/** Pengajuan lembur yang sudah `finalized` dalam satu periode. */
-export async function listFinalizedOvertime(from: string, to: string) {
-  return await listOvertimeRequests(from, to, ["finalized"]);
+/**
+ * Pengajuan lembur yang sudah `finalized` dan dicairkan pada satu periode slip gaji.
+ *
+ * Kebijakan baru (mulai 1 Okt 2026):
+ *   Lembur hanya ditarik jika `payout_year` & `payout_month` cocok dengan periode payroll.
+ *   Selama HR belum menjadwalkan pencairan, lembur tidak akan masuk slip gaji.
+ *
+ * Kebijakan lama (sebelum 1 Okt 2026):
+ *   Lembur historis yang belum memiliki payout_month ditarik berdasarkan tanggal kerja lembur.
+ */
+export async function listFinalizedOvertime(
+  year: number,
+  month: number,
+  legacyFrom?: string,
+  legacyTo?: string,
+) {
+  const lastDay = new Date(year, month, 0).getDate();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const from = legacyFrom ?? `${year}-${pad(month)}-01`;
+  const to = legacyTo ?? `${year}-${pad(month)}-${pad(lastDay)}`;
+
+  const rows = await db
+    .select(overtimeSelect)
+    .from(overtimeRequests)
+    .leftJoin(users, eq(overtimeRequests.userId, users.id))
+    .leftJoin(departments, eq(users.departmentId, departments.id))
+    .where(
+      and(
+        eq(overtimeRequests.status, "finalized"),
+        or(
+          // Kebijakan baru: dijadwalkan cair di bulan & tahun ini
+          and(
+            eq(overtimeRequests.payoutYear, year),
+            eq(overtimeRequests.payoutMonth, month),
+          ),
+          // Kebijakan lama: lembur sebelum 1 Okt 2026 yang tanggal kerjanya di rentang ini dan payout_month null
+          and(
+            isNull(overtimeRequests.payoutMonth),
+            gte(overtimeRequests.overtimeDate, from),
+            lte(overtimeRequests.overtimeDate, to),
+            lt(overtimeRequests.overtimeDate, "2026-10-01"),
+          ),
+        ),
+      ),
+    )
+    .orderBy(desc(overtimeRequests.overtimeDate), desc(overtimeRequests.createdAt));
+
+  return rows.map(toOvertime);
 }

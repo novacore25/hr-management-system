@@ -8,6 +8,7 @@ import ConfirmDialog from "@/components/absensi/ConfirmDialog";
 import ImageLightboxModal from "@/components/absensi/ImageLightboxModal";
 import OvertimeDetailModal from "@/components/absensi/OvertimeDetailModal";
 import { compressImage, formatBytes } from "@/lib/imageCompression";
+import { monthName } from "@/lib/utils";
 import {
   calcDurationMinutes,
   crossesMidnight,
@@ -1088,11 +1089,23 @@ const EMPTY_OVERTIME = {
                   )}
 
                   {req.status === "finalized" && (
-                    <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-700 dark:text-emerald-300 flex items-start gap-2">
-                      <Sparkles size={16} className="text-emerald-500 shrink-0 mt-0.5" />
-                      <p className="text-[11px] font-bold leading-relaxed">
-                        Lembur telah disahkan oleh HR dengan durasi final <span className="font-black text-emerald-600 dark:text-emerald-400">{formatDurationDetail(req.finalDurationMinutes)}</span> dan otomatis masuk ke perhitungan Slip Gaji.
-                      </p>
+                    <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-700 dark:text-emerald-300 space-y-1.5">
+                      <div className="flex items-start gap-2">
+                        <CheckCircle2 size={16} className="text-emerald-500 shrink-0 mt-0.5" />
+                        <p className="text-[11px] font-bold leading-relaxed">
+                          Lembur telah disahkan oleh HR dengan durasi sah <span className="font-black text-emerald-600 dark:text-emerald-400">{formatDurationDetail(req.finalDurationMinutes)}</span>.
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1.5 pt-1 text-[10.5px] border-t border-emerald-500/20">
+                        <CalendarDays size={13} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
+                        <span className="font-bold">
+                          {req.payoutStatus === "paid" && req.payoutMonth
+                            ? `Status: Upah Sah & Sudah Cair di Slip Gaji ${monthName(req.payoutMonth)} ${req.payoutYear}`
+                            : req.payoutStatus === "scheduled" && req.payoutMonth
+                            ? `Status: Upah Sah (Dijadwalkan Cair pada Slip Gaji ${monthName(req.payoutMonth)} ${req.payoutYear})`
+                            : "Status: Upah Sah (Menunggu Jadwal Pencairan HR)"}
+                        </span>
+                      </div>
                     </div>
                   )}
 
