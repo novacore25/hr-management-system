@@ -102,9 +102,11 @@ export default function ProfilePage() {
 
   // 1. Fetch Provinsi saat komponen pertama kali mount
   useEffect(() => {
-    fetch("https://emsifa.github.io/api-wilayah-indonesia/api/provinces.json")
+    fetch("/api/wilayah/provinces.json")
       .then((res) => res.json())
-      .then((data: WilayahItem[]) => setProvinces(data))
+      .then((data: WilayahItem[]) => {
+        if (Array.isArray(data)) setProvinces(data);
+      })
       .catch(() => {});
   }, []);
 
@@ -134,11 +136,13 @@ export default function ProfilePage() {
       setRegencies([]);
       return;
     }
-    fetch(
-      `https://emsifa.github.io/api-wilayah-indonesia/api/regencies/${selectedProvinceId}.json`,
-    )
+    fetch(`/api/wilayah/regencies/${selectedProvinceId}.json`)
       .then((res) => res.json())
       .then((data: WilayahItem[]) => {
+        if (!Array.isArray(data)) {
+          setRegencies([]);
+          return;
+        }
         setRegencies(data);
         if (profile.city && !selectedRegencyId) {
           const match = data.find(
@@ -156,11 +160,12 @@ export default function ProfilePage() {
       setDistricts([]);
       return;
     }
-    fetch(
-      `https://emsifa.github.io/api-wilayah-indonesia/api/districts/${selectedRegencyId}.json`,
-    )
+    fetch(`/api/wilayah/districts/${selectedRegencyId}.json`)
       .then((res) => res.json())
-      .then((data: WilayahItem[]) => setDistricts(data))
+      .then((data: WilayahItem[]) => {
+        if (Array.isArray(data)) setDistricts(data);
+        else setDistricts([]);
+      })
       .catch(() => setDistricts([]));
   }, [selectedRegencyId]);
 
@@ -170,11 +175,12 @@ export default function ProfilePage() {
       setVillages([]);
       return;
     }
-    fetch(
-      `https://emsifa.github.io/api-wilayah-indonesia/api/villages/${selectedDistrictId}.json`,
-    )
+    fetch(`/api/wilayah/villages/${selectedDistrictId}.json`)
       .then((res) => res.json())
-      .then((data: WilayahItem[]) => setVillages(data))
+      .then((data: WilayahItem[]) => {
+        if (Array.isArray(data)) setVillages(data);
+        else setVillages([]);
+      })
       .catch(() => setVillages([]));
   }, [selectedDistrictId]);
 
