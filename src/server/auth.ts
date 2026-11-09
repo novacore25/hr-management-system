@@ -107,9 +107,11 @@ function buildInstance() {
           .where(eq(users.email, email.toLowerCase()))
           .limit(1);
 
-        // Belum terdaftar di sistem sama sekali
+        // Belum terdaftar di sistem sama sekali:
+        // Izinkan pendaftaran akun baru! DrizzleAdapter akan otomatis membuat baris user
+        // di database dengan status bawaan "pending" (menunggu persetujuan admin).
         if (!existing) {
-          return "/login?error=not_registered";
+          return true;
         }
 
         // Akun dihapus atau resign atau ditolak
