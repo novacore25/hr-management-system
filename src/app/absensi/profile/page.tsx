@@ -70,11 +70,13 @@ const EMPTY: ProfileData = {
 export default function ProfilePage() {
   const [profile, setProfile] = useState<ProfileData>(EMPTY);
   const [isSaving, setIsSaving] = useState(false);
+  const [hasLoaded, setHasLoaded] = useState(false);
 
   const buildPath = useCallback(() => "/api/me/profile", []);
+  // Jangan auto-polling di halaman form input agar input user tidak tertimpa refetch
   const { data, isLoading, error, refetch } = useApiQuery<{
     profile: ProfileData;
-  }>(buildPath, [], 60_000);
+  }>(buildPath, [], 0);
 
   const saveProfile = useApiMutation<Record<string, unknown>, unknown>(
     "/api/me/profile",
@@ -82,8 +84,11 @@ export default function ProfilePage() {
   );
 
   useEffect(() => {
-    if (data?.profile) setProfile({ ...EMPTY, ...data.profile });
-  }, [data]);
+    if (data?.profile && !hasLoaded) {
+      setProfile({ ...EMPTY, ...data.profile });
+      setHasLoaded(true);
+    }
+  }, [data, hasLoaded]);
 
   function handleChange(field: EditableKey, value: string) {
     setProfile((prev) => ({ ...prev, [field]: value }));
@@ -118,7 +123,8 @@ export default function ProfilePage() {
 
     if (res.ok) {
       toast.success("Profil berhasil diperbarui!", { id: tid });
-      void refetch();
+      // Perbarui state form dengan data terbaru yang baru disimpan
+      setProfile((prev) => ({ ...prev }));
     } else {
       toast.error(res.error ?? "Gagal menyimpan profil.", { id: tid });
     }
