@@ -46,6 +46,8 @@ export type StaffRow = {
   maritalStatus: string | null;
   address: string | null;
   city: string | null;
+  district: string | null;
+  village: string | null;
   province: string | null;
   postalCode: string | null;
   phone: string | null;
@@ -91,6 +93,8 @@ const staffSelect = {
   maritalStatus: users.maritalStatus,
   address: users.address,
   city: users.city,
+  district: users.district,
+  village: users.village,
   province: users.province,
   postalCode: users.postalCode,
   phone: users.phone,
@@ -206,6 +210,8 @@ export async function listStaff(params?: {
       maritalStatus: r.maritalStatus,
       address: r.address,
       city: r.city,
+      district: r.district,
+      village: r.village,
       province: r.province,
       postalCode: r.postalCode,
       phone: r.phone,
@@ -272,6 +278,8 @@ export type StaffPatch = {
   maritalStatus?: string | null;
   address?: string | null;
   city?: string | null;
+  district?: string | null;
+  village?: string | null;
   province?: string | null;
   postalCode?: string | null;
   phone?: string | null;
@@ -315,6 +323,8 @@ const PROFILE_FIELDS = [
   "maritalStatus",
   "address",
   "city",
+  "district",
+  "village",
   "province",
   "postalCode",
   "phone",

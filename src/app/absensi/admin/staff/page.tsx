@@ -10,6 +10,7 @@ import ExcelJS from "exceljs";
 import { toast } from "sonner";
 import { parseLateMinutes } from "@/lib/utils";
 import type { KpiRole } from "@/types";
+import { WilayahCascadingSelect } from "@/components/absensi/WilayahCascadingSelect";
 
 /**
  * Bentuk baris staf yang dikirim /api/absensi/staff.
@@ -45,6 +46,8 @@ interface StaffUser {
   maritalStatus: string | null;
   address: string | null;
   city: string | null;
+  district: string | null;
+  village: string | null;
   province: string | null;
   postalCode: string | null;
   phone: string | null;
@@ -813,18 +816,14 @@ export default function AdminStaffPage() {
                       ))}
                     </select>
                   </div>
-                  <div className="space-y-1">
-                    <label className="text-[9px] font-black uppercase text-[var(--ab-text-dim)] tracking-widest ml-1">Kota</label>
-                    <input type="text" value={getEdit("city") ?? ""} onChange={e => patchEdit({ city: e.target.value })} className="ab-input text-xs w-full" placeholder="Jakarta Selatan" />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[9px] font-black uppercase text-[var(--ab-text-dim)] tracking-widest ml-1">Provinsi</label>
-                    <input type="text" value={getEdit("province") ?? ""} onChange={e => patchEdit({ province: e.target.value })} className="ab-input text-xs w-full" placeholder="DKI Jakarta" />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[9px] font-black uppercase text-[var(--ab-text-dim)] tracking-widest ml-1">Kode Pos</label>
-                    <input type="text" value={getEdit("postalCode") ?? ""} onChange={e => patchEdit({ postalCode: e.target.value })} className="ab-input text-xs w-full" placeholder="12345" />
-                  </div>
+                  <WilayahCascadingSelect
+                    province={getEdit("province") ?? null}
+                    city={getEdit("city") ?? null}
+                    district={getEdit("district") ?? null}
+                    village={getEdit("village") ?? null}
+                    postalCode={getEdit("postalCode") ?? null}
+                    onChange={(patch) => patchEdit(patch)}
+                  />
                   <div className="space-y-1 md:col-span-2">
                     <label className="text-[9px] font-black uppercase text-[var(--ab-text-dim)] tracking-widest ml-1">Alamat KTP</label>
                     <textarea value={getEdit("address") ?? ""} onChange={e => patchEdit({ address: e.target.value })} className="ab-input text-xs w-full h-20 resize-none py-3" placeholder="Alamat lengkap sesuai KTP" />
