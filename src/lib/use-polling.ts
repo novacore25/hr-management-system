@@ -22,6 +22,8 @@ export function usePolling(
   cbRef.current = callback;
 
   useEffect(() => {
+    if (intervalMs <= 0) return;
+
     let timer: ReturnType<typeof setInterval> | undefined;
     let running = false;
 
