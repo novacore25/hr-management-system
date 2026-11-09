@@ -67,10 +67,27 @@ const EMPTY: ProfileData = {
   bankAccountName: null,
 };
 
+interface WilayahItem {
+  id: string;
+  name: string;
+}
+
 export default function ProfilePage() {
   const [profile, setProfile] = useState<ProfileData>(EMPTY);
   const [isSaving, setIsSaving] = useState(false);
   const [hasLoaded, setHasLoaded] = useState(false);
+
+  // State untuk data API Wilayah
+  const [provinces, setProvinces] = useState<WilayahItem[]>([]);
+  const [regencies, setRegencies] = useState<WilayahItem[]>([]);
+  const [districts, setDistricts] = useState<WilayahItem[]>([]);
+  const [villages, setVillages] = useState<WilayahItem[]>([]);
+
+  // State ID terpilih
+  const [selectedProvinceId, setSelectedProvinceId] = useState<string>("");
+  const [selectedRegencyId, setSelectedRegencyId] = useState<string>("");
+  const [selectedDistrictId, setSelectedDistrictId] = useState<string>("");
+  const [selectedVillageName, setSelectedVillageName] = useState<string>("");
 
   const buildPath = useCallback(() => "/api/me/profile", []);
   // Jangan auto-polling di halaman form input agar input user tidak tertimpa refetch
@@ -83,6 +100,15 @@ export default function ProfilePage() {
     "PATCH",
   );
 
+  // 1. Fetch Provinsi saat komponen pertama kali mount
+  useEffect(() => {
+    fetch("https://emsifa.github.io/api-wilayah-indonesia/api/provinces.json")
+      .then((res) => res.json())
+      .then((data: WilayahItem[]) => setProvinces(data))
+      .catch(() => {});
+  }, []);
+
+  // 2. Load profil awal dan coba cocokkan provinsi & kota eksisting
   useEffect(() => {
     if (data?.profile && !hasLoaded) {
       setProfile({ ...EMPTY, ...data.profile });
@@ -90,8 +116,105 @@ export default function ProfilePage() {
     }
   }, [data, hasLoaded]);
 
+  // Efek pencocokan ID provinsi jika ada nama provinsi eksisting
+  useEffect(() => {
+    if (provinces.length > 0 && profile.province && !selectedProvinceId) {
+      const match = provinces.find(
+        (p) => p.name.toUpperCase() === profile.province?.toUpperCase(),
+      );
+      if (match) {
+        setSelectedProvinceId(match.id);
+      }
+    }
+  }, [provinces, profile.province, selectedProvinceId]);
+
+  // Efek fetch kabupaten/kota saat provinsi berubah
+  useEffect(() => {
+    if (!selectedProvinceId) {
+      setRegencies([]);
+      return;
+    }
+    fetch(
+      `https://emsifa.github.io/api-wilayah-indonesia/api/regencies/${selectedProvinceId}.json`,
+    )
+      .then((res) => res.json())
+      .then((data: WilayahItem[]) => {
+        setRegencies(data);
+        if (profile.city && !selectedRegencyId) {
+          const match = data.find(
+            (r) => r.name.toUpperCase() === profile.city?.toUpperCase(),
+          );
+          if (match) setSelectedRegencyId(match.id);
+        }
+      })
+      .catch(() => setRegencies([]));
+  }, [selectedProvinceId, profile.city, selectedRegencyId]);
+
+  // Efek fetch kecamatan saat kabupaten berubah
+  useEffect(() => {
+    if (!selectedRegencyId) {
+      setDistricts([]);
+      return;
+    }
+    fetch(
+      `https://emsifa.github.io/api-wilayah-indonesia/api/districts/${selectedRegencyId}.json`,
+    )
+      .then((res) => res.json())
+      .then((data: WilayahItem[]) => setDistricts(data))
+      .catch(() => setDistricts([]));
+  }, [selectedRegencyId]);
+
+  // Efek fetch kelurahan/desa saat kecamatan berubah
+  useEffect(() => {
+    if (!selectedDistrictId) {
+      setVillages([]);
+      return;
+    }
+    fetch(
+      `https://emsifa.github.io/api-wilayah-indonesia/api/villages/${selectedDistrictId}.json`,
+    )
+      .then((res) => res.json())
+      .then((data: WilayahItem[]) => setVillages(data))
+      .catch(() => setVillages([]));
+  }, [selectedDistrictId]);
+
   function handleChange(field: EditableKey, value: string) {
     setProfile((prev) => ({ ...prev, [field]: value }));
+  }
+
+  function handleProvinceSelect(provId: string) {
+    setSelectedProvinceId(provId);
+    setSelectedRegencyId("");
+    setSelectedDistrictId("");
+    setSelectedVillageName("");
+    setRegencies([]);
+    setDistricts([]);
+    setVillages([]);
+
+    const prov = provinces.find((p) => p.id === provId);
+    handleChange("province", prov ? prov.name : "");
+    handleChange("city", "");
+  }
+
+  function handleRegencySelect(regId: string) {
+    setSelectedRegencyId(regId);
+    setSelectedDistrictId("");
+    setSelectedVillageName("");
+    setDistricts([]);
+    setVillages([]);
+
+    const reg = regencies.find((r) => r.id === regId);
+    handleChange("city", reg ? reg.name : "");
+  }
+
+  function handleDistrictSelect(distId: string) {
+    setSelectedDistrictId(distId);
+    setSelectedVillageName("");
+    setVillages([]);
+  }
+
+  function handleVillageSelect(villageName: string) {
+    setSelectedVillageName(villageName);
   }
 
   async function handleSave() {
@@ -323,40 +446,103 @@ export default function ProfilePage() {
             />
           </div>
 
+          {/* Alamat Jalan / Detail */}
           <div className="space-y-1.5 md:col-span-2">
             <label className={labelCls}>
-              <MapPin size={12} /> Alamat KTP
+              <MapPin size={12} /> Alamat KTP (Jalan, No. Rumah, RT/RW)
             </label>
             <textarea
               value={profile.address ?? ""}
               onChange={(e) => handleChange("address", e.target.value)}
-              className={`${inputCls} h-24 resize-none`}
-              placeholder="Alamat lengkap sesuai KTP..."
+              className={`${inputCls} h-20 resize-none`}
+              placeholder="Contoh: Jl. Bendungan Jago No. 42 RT 01/RW 02"
             />
           </div>
 
-          <div className="space-y-1.5">
-            <label className={labelCls}>Kota</label>
-            <input
-              type="text"
-              value={profile.city ?? ""}
-              onChange={(e) => handleChange("city", e.target.value)}
-              className={inputCls}
-              placeholder="Jakarta Selatan"
-            />
-          </div>
-
+          {/* Dropdown Provinsi */}
           <div className="space-y-1.5">
             <label className={labelCls}>Provinsi</label>
-            <input
-              type="text"
-              value={profile.province ?? ""}
-              onChange={(e) => handleChange("province", e.target.value)}
-              className={inputCls}
-              placeholder="DKI Jakarta"
-            />
+            <select
+              value={selectedProvinceId}
+              onChange={(e) => handleProvinceSelect(e.target.value)}
+              className={selectCls}
+            >
+              <option value="">-- Pilih Provinsi --</option>
+              {provinces.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
           </div>
 
+          {/* Dropdown Kota / Kabupaten */}
+          <div className="space-y-1.5">
+            <label className={labelCls}>Kota / Kabupaten</label>
+            <select
+              value={selectedRegencyId}
+              onChange={(e) => handleRegencySelect(e.target.value)}
+              disabled={!selectedProvinceId}
+              className={`${selectCls} disabled:opacity-50`}
+            >
+              <option value="">
+                {selectedProvinceId
+                  ? "-- Pilih Kota/Kabupaten --"
+                  : "-- Pilih Provinsi Terlebih Dahulu --"}
+              </option>
+              {regencies.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Dropdown Kecamatan */}
+          <div className="space-y-1.5">
+            <label className={labelCls}>Kecamatan</label>
+            <select
+              value={selectedDistrictId}
+              onChange={(e) => handleDistrictSelect(e.target.value)}
+              disabled={!selectedRegencyId}
+              className={`${selectCls} disabled:opacity-50`}
+            >
+              <option value="">
+                {selectedRegencyId
+                  ? "-- Pilih Kecamatan --"
+                  : "-- Pilih Kota/Kabupaten Terlebih Dahulu --"}
+              </option>
+              {districts.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Dropdown Desa / Kelurahan */}
+          <div className="space-y-1.5">
+            <label className={labelCls}>Desa / Kelurahan</label>
+            <select
+              value={selectedVillageName}
+              onChange={(e) => handleVillageSelect(e.target.value)}
+              disabled={!selectedDistrictId}
+              className={`${selectCls} disabled:opacity-50`}
+            >
+              <option value="">
+                {selectedDistrictId
+                  ? "-- Pilih Desa/Kelurahan --"
+                  : "-- Pilih Kecamatan Terlebih Dahulu --"}
+              </option>
+              {villages.map((v) => (
+                <option key={v.id} value={v.name}>
+                  {v.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Kode Pos */}
           <div className="space-y-1.5">
             <label className={labelCls}>Kode Pos</label>
             <input
@@ -364,7 +550,7 @@ export default function ProfilePage() {
               value={profile.postalCode ?? ""}
               onChange={(e) => handleChange("postalCode", e.target.value)}
               className={inputCls}
-              placeholder="12345"
+              placeholder="Contoh: 10650"
             />
           </div>
 
