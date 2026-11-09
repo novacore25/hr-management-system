@@ -116,8 +116,7 @@ function buildInstance() {
         if (
           existing.absensiStatus === "resigned" ||
           existing.absensiStatus === "deleted" ||
-          existing.absensiStatus === "rejected" ||
-          existing.isHidden === true
+          existing.absensiStatus === "rejected"
         ) {
           return "/login?error=AccountDeactivated";
         }

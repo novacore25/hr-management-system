@@ -81,9 +81,12 @@ export const authConfig = {
       const isLoggedIn = !!auth?.user;
       const isOnLogin = nextUrl.pathname.startsWith("/login");
 
-      // Sudah login tidak perlu lihat halaman login lagi
+      // Sudah login tidak perlu lihat halaman login lagi (kecuali membawa pesan error)
       if (isOnLogin) {
         if (isLoggedIn) {
+          if (nextUrl.searchParams.has("error")) {
+            return true;
+          }
           return Response.redirect(new URL("/", nextUrl));
         }
         return true;

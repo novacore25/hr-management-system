@@ -139,8 +139,7 @@ export async function getProfile() {
   if (
     row.absensiStatus === "resigned" ||
     row.absensiStatus === "deleted" ||
-    row.absensiStatus === "rejected" ||
-    row.isHidden === true
+    row.absensiStatus === "rejected"
   ) {
     return null;
   }
