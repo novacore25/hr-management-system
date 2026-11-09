@@ -13,6 +13,7 @@ import {
   AlertTriangle,
   CreditCard,
   Landmark,
+  Users,
 } from "lucide-react";
 
 /** Bentuk profil yang dikirim /api/me/profile. */
@@ -36,6 +37,7 @@ interface ProfileData {
   maritalStatus: string | null;
   emergencyName: string | null;
   emergencyPhone: string | null;
+  emergencyRelation: string | null;
   npwp: string | null;
   bankName: string | null;
   bankAccountNumber: string | null;
@@ -65,6 +67,7 @@ const EMPTY: ProfileData = {
   maritalStatus: null,
   emergencyName: null,
   emergencyPhone: null,
+  emergencyRelation: null,
   npwp: null,
   bankName: null,
   bankAccountNumber: null,
@@ -289,6 +292,7 @@ export default function ProfilePage() {
       maritalStatus: profile.maritalStatus,
       emergencyName: profile.emergencyName,
       emergencyPhone: profile.emergencyPhone,
+      emergencyRelation: profile.emergencyRelation,
       npwp: profile.npwp,
       bankName: profile.bankName,
       bankAccountNumber: profile.bankAccountNumber,
@@ -488,7 +492,37 @@ export default function ProfilePage() {
 
           <div className="space-y-1.5">
             <label className={`${labelCls} text-rose-500`}>
-              <Phone size={12} /> No. Kontak Darurat
+              <Users size={12} /> Hubungan Kontak Darurat
+            </label>
+            <select
+              value={profile.emergencyRelation ?? ""}
+              onChange={(e) => handleChange("emergencyRelation", e.target.value)}
+              className={selectCls}
+            >
+              <option value="">-- Pilih Hubungan --</option>
+              {[
+                "Ayah",
+                "Ibu",
+                "Suami / Istri",
+                "Kakak",
+                "Adik",
+                "Anak",
+                "Keluarga",
+                "Saudara Kandung",
+                "Kerabat Dekat",
+                "Teman",
+                "Lainnya",
+              ].map((rel) => (
+                <option key={rel} value={rel}>
+                  {rel}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="space-y-1.5 md:col-span-2">
+            <label className={`${labelCls} text-rose-500`}>
+              <Phone size={12} /> No. Kontak Darurat (WhatsApp / Telepon)
             </label>
             <input
               type="text"

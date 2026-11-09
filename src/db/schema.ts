@@ -205,6 +205,7 @@ export const users = pgTable("users", {
   phone: varchar("phone", { length: 32 }),
   emergencyName: text("emergency_name"),
   emergencyPhone: varchar("emergency_phone", { length: 32 }),
+  emergencyRelation: varchar("emergency_relation", { length: 50 }),
   npwp: varchar("npwp", { length: 32 }),
 
   // ── Data ketenagakerjaan (dipakai halaman /absensi/admin/staff) ────

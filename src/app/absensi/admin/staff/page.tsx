@@ -50,6 +50,7 @@ interface StaffUser {
   phone: string | null;
   emergencyName: string | null;
   emergencyPhone: string | null;
+  emergencyRelation: string | null;
   npwp: string | null;
 
   joinDate: string | null;
@@ -786,6 +787,31 @@ export default function AdminStaffPage() {
                   <div className="space-y-1">
                     <label className="text-[9px] font-black uppercase text-[var(--ab-text-dim)] tracking-widest ml-1">No. Kontak Darurat</label>
                     <input type="text" value={getEdit("emergencyPhone") ?? ""} onChange={e => patchEdit({ emergencyPhone: e.target.value })} className="ab-input text-xs w-full" placeholder="08123456789" />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black uppercase text-[var(--ab-text-dim)] tracking-widest ml-1">Hubungan Kontak Darurat</label>
+                    <select
+                      value={getEdit("emergencyRelation") ?? ""}
+                      onChange={e => patchEdit({ emergencyRelation: e.target.value })}
+                      className="ab-select text-xs w-full"
+                    >
+                      <option value="">-- Pilih Hubungan --</option>
+                      {[
+                        "Ayah",
+                        "Ibu",
+                        "Suami / Istri",
+                        "Kakak",
+                        "Adik",
+                        "Anak",
+                        "Keluarga",
+                        "Saudara Kandung",
+                        "Kerabat Dekat",
+                        "Teman",
+                        "Lainnya",
+                      ].map(rel => (
+                        <option key={rel} value={rel}>{rel}</option>
+                      ))}
+                    </select>
                   </div>
                   <div className="space-y-1">
                     <label className="text-[9px] font-black uppercase text-[var(--ab-text-dim)] tracking-widest ml-1">Kota</label>

@@ -51,6 +51,7 @@ export type StaffRow = {
   phone: string | null;
   emergencyName: string | null;
   emergencyPhone: string | null;
+  emergencyRelation: string | null;
   npwp: string | null;
 
   // ── Data ketenagakerjaan ─────────────────────────────────────
@@ -95,6 +96,7 @@ const staffSelect = {
   phone: users.phone,
   emergencyName: users.emergencyName,
   emergencyPhone: users.emergencyPhone,
+  emergencyRelation: users.emergencyRelation,
   npwp: users.npwp,
 
   joinDate: users.joinDate,
@@ -209,6 +211,7 @@ export async function listStaff(params?: {
       phone: r.phone,
       emergencyName: r.emergencyName,
       emergencyPhone: r.emergencyPhone,
+      emergencyRelation: r.emergencyRelation,
       npwp: r.npwp,
 
       joinDate: isoDay(r.joinDate),
@@ -274,6 +277,7 @@ export type StaffPatch = {
   phone?: string | null;
   emergencyName?: string | null;
   emergencyPhone?: string | null;
+  emergencyRelation?: string | null;
   npwp?: string | null;
 
   // Data ketenagakerjaan
@@ -316,6 +320,7 @@ const PROFILE_FIELDS = [
   "phone",
   "emergencyName",
   "emergencyPhone",
+  "emergencyRelation",
   "npwp",
   "joinDate",
   "employmentStatus",
