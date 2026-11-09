@@ -135,6 +135,15 @@ export async function getProfile() {
     .where(eq(users.id, u.id))
     .limit(1);
   if (!row) return null;
+  // Tolak user non-aktif / resigned / deleted
+  if (
+    row.absensiStatus === "resigned" ||
+    row.absensiStatus === "deleted" ||
+    row.absensiStatus === "rejected" ||
+    row.isHidden === true
+  ) {
+    return null;
+  }
   return {
     ...row,
     managedDepartments: resolveManagedDepartments(row),

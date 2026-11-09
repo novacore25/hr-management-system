@@ -15,7 +15,11 @@ function LoginInner({
   const errorMessages: Record<string, string> = {
     OAuthAccountNotLinked:
       "Email ini sudah terdaftar dengan metode login lain. Hubungi admin.",
-    AccessDenied: "Akses ditolak. Pastikan email Anda terdaftar.",
+    AccessDenied: "Akses ditolak. Akun Anda tidak aktif atau belum terdaftar.",
+    AccountDeactivated: "Akses ditolak. Akun Anda telah dinonaktifkan / resign.",
+    AccountPending: "Akun Anda sedang menunggu persetujuan admin.",
+    not_registered: "Akses ditolak. Email Anda belum terdaftar di sistem.",
+    deactivated: "Akses ditolak. Akun Anda telah dinonaktifkan / resign.",
     Configuration: "Konfigurasi login belum lengkap. Hubungi admin.",
     OAuthCallback: "Gagal terhubung ke Google. Coba lagi.",
     default: "Terjadi kesalahan saat login. Silakan coba lagi.",

@@ -88,6 +88,48 @@ function buildInstance() {
     callbacks: {
       ...authConfig.callbacks,
       /**
+       * Gerbang Otorisasi Sign-In:
+       * Tolak login jika email belum terdaftar atau berstatus non-aktif (resigned / deleted / rejected / pending).
+       */
+      async signIn({ user, profile }) {
+        const email = user?.email ?? profile?.email;
+        if (!email) return false;
+
+        const dbInstance = getDb();
+        const { eq, or } = await import("drizzle-orm");
+        const [existing] = await dbInstance
+          .select({
+            id: users.id,
+            absensiStatus: users.absensiStatus,
+            isHidden: users.isHidden,
+          })
+          .from(users)
+          .where(eq(users.email, email.toLowerCase()))
+          .limit(1);
+
+        // Belum terdaftar di sistem sama sekali
+        if (!existing) {
+          return "/login?error=not_registered";
+        }
+
+        // Akun dihapus atau resign atau ditolak
+        if (
+          existing.absensiStatus === "resigned" ||
+          existing.absensiStatus === "deleted" ||
+          existing.absensiStatus === "rejected" ||
+          existing.isHidden === true
+        ) {
+          return "/login?error=AccountDeactivated";
+        }
+
+        // Akun masih pending approval
+        if (existing.absensiStatus === "pending") {
+          return "/login?error=AccountPending";
+        }
+
+        return true;
+      },
+      /**
        * Masukkan id user ke session.
        * Dipakai DAL untuk tahu "siapa yang sedang login".
        *

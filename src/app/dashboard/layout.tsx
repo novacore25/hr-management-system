@@ -44,6 +44,18 @@ export default function DashboardLayout({
       router.replace("/login?error=not_registered");
       return;
     }
+    if (
+      user.absensiStatus === "resigned" ||
+      user.absensiStatus === "deleted" ||
+      user.absensiStatus === "rejected"
+    ) {
+      router.replace("/login?error=AccountDeactivated");
+      return;
+    }
+    if (user.absensiStatus === "pending") {
+      router.replace("/login?error=AccountPending");
+      return;
+    }
     const segment = pathname?.split("/")[2];
     const allowed = segment ? SEGMENT_ROLES[segment] : undefined;
     if (allowed && !allowed.includes(user.kpiRole) && user.kpiRole !== "developer") {
