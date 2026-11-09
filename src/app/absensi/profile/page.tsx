@@ -26,6 +26,8 @@ interface ProfileData {
   birthDate: string | null;
   address: string | null;
   city: string | null;
+  district: string | null;
+  village: string | null;
   province: string | null;
   postalCode: string | null;
   phone: string | null;
@@ -53,6 +55,8 @@ const EMPTY: ProfileData = {
   birthDate: null,
   address: null,
   city: null,
+  district: null,
+  village: null,
   province: null,
   postalCode: null,
   phone: null,
@@ -70,6 +74,16 @@ const EMPTY: ProfileData = {
 interface WilayahItem {
   id: string;
   name: string;
+}
+
+function matchRegionName(apiName: string, targetName: string | null | undefined): boolean {
+  if (!targetName) return false;
+  const a = apiName.trim().toUpperCase();
+  const b = targetName.trim().toUpperCase();
+  if (a === b) return true;
+  const cleanA = a.replace(/^(KOTA|KABUPATEN|KAB\.|KECAMATAN|KELURAHAN|DESA)\s+/, "");
+  const cleanB = b.replace(/^(KOTA|KABUPATEN|KAB\.|KECAMATAN|KELURAHAN|DESA)\s+/, "");
+  return cleanA === cleanB;
 }
 
 export default function ProfilePage() {
@@ -110,7 +124,7 @@ export default function ProfilePage() {
       .catch(() => {});
   }, []);
 
-  // 2. Load profil awal dan coba cocokkan provinsi & kota eksisting
+  // 2. Load profil awal dari API server
   useEffect(() => {
     if (data?.profile && !hasLoaded) {
       setProfile({ ...EMPTY, ...data.profile });
@@ -118,19 +132,17 @@ export default function ProfilePage() {
     }
   }, [data, hasLoaded]);
 
-  // Efek pencocokan ID provinsi jika ada nama provinsi eksisting
+  // Efek 1: Pencocokan ID provinsi jika ada nama provinsi eksisting
   useEffect(() => {
     if (provinces.length > 0 && profile.province && !selectedProvinceId) {
-      const match = provinces.find(
-        (p) => p.name.toUpperCase() === profile.province?.toUpperCase(),
-      );
+      const match = provinces.find((p) => matchRegionName(p.name, profile.province));
       if (match) {
         setSelectedProvinceId(match.id);
       }
     }
   }, [provinces, profile.province, selectedProvinceId]);
 
-  // Efek fetch kabupaten/kota saat provinsi berubah
+  // Efek 2: Fetch kabupaten/kota saat provinsi berubah & pencocokan kota eksisting
   useEffect(() => {
     if (!selectedProvinceId) {
       setRegencies([]);
@@ -145,16 +157,14 @@ export default function ProfilePage() {
         }
         setRegencies(data);
         if (profile.city && !selectedRegencyId) {
-          const match = data.find(
-            (r) => r.name.toUpperCase() === profile.city?.toUpperCase(),
-          );
+          const match = data.find((r) => matchRegionName(r.name, profile.city));
           if (match) setSelectedRegencyId(match.id);
         }
       })
       .catch(() => setRegencies([]));
   }, [selectedProvinceId, profile.city, selectedRegencyId]);
 
-  // Efek fetch kecamatan saat kabupaten berubah
+  // Efek 3: Fetch kecamatan saat kabupaten berubah & pencocokan kecamatan eksisting
   useEffect(() => {
     if (!selectedRegencyId) {
       setDistricts([]);
@@ -163,13 +173,20 @@ export default function ProfilePage() {
     fetch(`/api/wilayah/districts/${selectedRegencyId}.json`)
       .then((res) => res.json())
       .then((data: WilayahItem[]) => {
-        if (Array.isArray(data)) setDistricts(data);
-        else setDistricts([]);
+        if (!Array.isArray(data)) {
+          setDistricts([]);
+          return;
+        }
+        setDistricts(data);
+        if (profile.district && !selectedDistrictId) {
+          const match = data.find((d) => matchRegionName(d.name, profile.district));
+          if (match) setSelectedDistrictId(match.id);
+        }
       })
       .catch(() => setDistricts([]));
-  }, [selectedRegencyId]);
+  }, [selectedRegencyId, profile.district, selectedDistrictId]);
 
-  // Efek fetch kelurahan/desa saat kecamatan berubah
+  // Efek 4: Fetch kelurahan/desa saat kecamatan berubah & pencocokan kelurahan eksisting
   useEffect(() => {
     if (!selectedDistrictId) {
       setVillages([]);
@@ -178,11 +195,18 @@ export default function ProfilePage() {
     fetch(`/api/wilayah/villages/${selectedDistrictId}.json`)
       .then((res) => res.json())
       .then((data: WilayahItem[]) => {
-        if (Array.isArray(data)) setVillages(data);
-        else setVillages([]);
+        if (!Array.isArray(data)) {
+          setVillages([]);
+          return;
+        }
+        setVillages(data);
+        if (profile.village && !selectedVillageName) {
+          const match = data.find((v) => matchRegionName(v.name, profile.village));
+          if (match) setSelectedVillageName(match.name);
+        }
       })
       .catch(() => setVillages([]));
-  }, [selectedDistrictId]);
+  }, [selectedDistrictId, profile.village, selectedVillageName]);
 
   function handleChange(field: EditableKey, value: string) {
     setProfile((prev) => ({ ...prev, [field]: value }));
@@ -198,8 +222,13 @@ export default function ProfilePage() {
     setVillages([]);
 
     const prov = provinces.find((p) => p.id === provId);
-    handleChange("province", prov ? prov.name : "");
-    handleChange("city", "");
+    setProfile((prev) => ({
+      ...prev,
+      province: prov ? prov.name : "",
+      city: "",
+      district: "",
+      village: "",
+    }));
   }
 
   function handleRegencySelect(regId: string) {
@@ -210,17 +239,33 @@ export default function ProfilePage() {
     setVillages([]);
 
     const reg = regencies.find((r) => r.id === regId);
-    handleChange("city", reg ? reg.name : "");
+    setProfile((prev) => ({
+      ...prev,
+      city: reg ? reg.name : "",
+      district: "",
+      village: "",
+    }));
   }
 
   function handleDistrictSelect(distId: string) {
     setSelectedDistrictId(distId);
     setSelectedVillageName("");
     setVillages([]);
+
+    const dist = districts.find((d) => d.id === distId);
+    setProfile((prev) => ({
+      ...prev,
+      district: dist ? dist.name : "",
+      village: "",
+    }));
   }
 
   function handleVillageSelect(villageName: string) {
     setSelectedVillageName(villageName);
+    setProfile((prev) => ({
+      ...prev,
+      village: villageName,
+    }));
   }
 
   async function handleSave() {
@@ -234,6 +279,8 @@ export default function ProfilePage() {
       birthDate: profile.birthDate,
       address: profile.address,
       city: profile.city,
+      district: profile.district,
+      village: profile.village,
       province: profile.province,
       postalCode: profile.postalCode,
       phone: profile.phone,

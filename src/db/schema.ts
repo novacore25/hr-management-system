@@ -198,6 +198,8 @@ export const users = pgTable("users", {
   maritalStatus: varchar("marital_status", { length: 32 }),
   address: text("address"),
   city: varchar("city", { length: 100 }),
+  district: varchar("district", { length: 100 }),
+  village: varchar("village", { length: 100 }),
   province: varchar("province", { length: 100 }),
   postalCode: varchar("postal_code", { length: 10 }),
   phone: varchar("phone", { length: 32 }),
