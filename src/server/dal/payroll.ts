@@ -527,6 +527,24 @@ export async function savePayroll(
       .update(payrolls)
       .set(values)
       .where(eq(payrolls.id, existing[0].id));
+
+    if (input.isPublished) {
+      await db
+        .update(overtimeRequests)
+        .set({
+          payoutStatus: "paid",
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(overtimeRequests.userId, input.userId),
+            eq(overtimeRequests.payoutYear, input.year),
+            eq(overtimeRequests.payoutMonth, input.month),
+            eq(overtimeRequests.status, "finalized"),
+          ),
+        );
+    }
+
     return { id: existing[0].id, status: values.status as string, created: false };
   }
 
@@ -534,6 +552,23 @@ export async function savePayroll(
     .insert(payrolls)
     .values(values as typeof payrolls.$inferInsert)
     .returning({ id: payrolls.id });
+
+  if (input.isPublished) {
+    await db
+      .update(overtimeRequests)
+      .set({
+        payoutStatus: "paid",
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(overtimeRequests.userId, input.userId),
+          eq(overtimeRequests.payoutYear, input.year),
+          eq(overtimeRequests.payoutMonth, input.month),
+          eq(overtimeRequests.status, "finalized"),
+        ),
+      );
+  }
 
   return { id: row.id, status: values.status as string, created: true };
 }
@@ -574,14 +609,75 @@ export async function publishPayrolls(
 }
 
 /**
+ * Tarik kembali slip gaji yang sudah dipublikasikan menjadi draf.
+ *
+ * 1. Status slip gaji diubah dari 'published' -> 'draft'
+ * 2. Lembur staf bersangkutan yang dicairkan pada periode ini dikembalikan
+ *    dari 'paid' -> 'scheduled' agar jadwalnya tidak terkunci permanen.
+ */
+export async function unpublishPayroll(
+  id: string,
+): Promise<{ unpublished: boolean; id: string }> {
+  const [row] = await db
+    .select({
+      id: payrolls.id,
+      userId: payrolls.userId,
+      year: payrolls.year,
+      month: payrolls.month,
+      status: payrolls.status,
+    })
+    .from(payrolls)
+    .where(eq(payrolls.id, id))
+    .limit(1);
+
+  if (!row) {
+    throw new ValidationError("Slip gaji tidak ditemukan.");
+  }
+
+  if (row.status !== "published") {
+    return { unpublished: true, id: row.id };
+  }
+
+  await db
+    .update(payrolls)
+    .set({ status: "draft", updatedAt: new Date() })
+    .where(eq(payrolls.id, id));
+
+  // Kembalikan lembur staf yang sudah berstatus 'paid' di periode ini menjadi 'scheduled'
+  await db
+    .update(overtimeRequests)
+    .set({
+      payoutStatus: "scheduled",
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(overtimeRequests.userId, row.userId),
+        eq(overtimeRequests.payoutYear, row.year),
+        eq(overtimeRequests.payoutMonth, row.month),
+        eq(overtimeRequests.payoutStatus, "paid"),
+      ),
+    );
+
+  return { unpublished: true, id: row.id };
+}
+
+/**
  * Hapus slip gaji draf.
  *
  * Slip yang sudah `published` ditolak: staf sudah melihatnya, dan
  * menghapusnya membuat slip yang sama muncul lagi berbeda Jumlah.
+ * Untuk menghapus, tarik terlebih dahulu ke status draf.
  */
 export async function deletePayroll(id: string): Promise<{ deleted: boolean }> {
   const [row] = await db
-    .select({ id: payrolls.id, status: payrolls.status })
+    .select({
+      id: payrolls.id,
+      userId: payrolls.userId,
+      year: payrolls.year,
+      month: payrolls.month,
+      status: payrolls.status,
+    })
     .from(payrolls)
     .where(eq(payrolls.id, id))
     .limit(1);
@@ -592,9 +688,25 @@ export async function deletePayroll(id: string): Promise<{ deleted: boolean }> {
 
   if (row.status === "published") {
     throw new ValidationError(
-      "Slip gaji yang sudah dipublikasikan tidak bisa dihapus.",
+      "Slip gaji yang sudah dipublikasikan tidak bisa langsung dihapus. Tarik ke draf terlebih dahulu.",
     );
   }
+
+  // Jika ada lembur yang tersisa dengan payoutStatus 'paid' untuk user ini, kembalikan ke 'scheduled'
+  await db
+    .update(overtimeRequests)
+    .set({
+      payoutStatus: "scheduled",
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(overtimeRequests.userId, row.userId),
+        eq(overtimeRequests.payoutYear, row.year),
+        eq(overtimeRequests.payoutMonth, row.month),
+        eq(overtimeRequests.payoutStatus, "paid"),
+      ),
+    );
 
   await db.delete(payrolls).where(eq(payrolls.id, id));
   return { deleted: true };

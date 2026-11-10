@@ -17,6 +17,7 @@ import {
   getStaffSetting,
   savePayroll,
   publishPayrolls,
+  unpublishPayroll,
   deletePayroll,
   createAdditionType,
   createDeductionType,
@@ -166,6 +167,16 @@ export async function PATCH(request: Request) {
           throw new ValidationError("Periode tidak valid.");
         }
         return publishPayrolls(year, month);
+      }
+
+      case "unpublish": {
+        if (!b.id) {
+          throw new ValidationError("Parameter 'id' wajib diisi.");
+        }
+        if (!isUuid(b.id)) {
+          throw new ValidationError("Parameter 'id' bukan id yang valid.");
+        }
+        return await unpublishPayroll(b.id);
       }
 
       case "addition-type":

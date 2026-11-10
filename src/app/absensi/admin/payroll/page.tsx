@@ -6,7 +6,7 @@ import { id as localeId } from "date-fns/locale";
 import {
   ChevronLeft, ChevronRight, Save, Send, Loader2,
   FileText, CheckCircle2, Eye, Trash2, Search, X, Filter, ChevronDown, User as UserIcon, Plus,
-  Pencil, CalendarDays, RefreshCw
+  Pencil, CalendarDays, RefreshCw, RotateCcw
 } from "lucide-react";
 import { toast } from "sonner";
 import { createPortal } from "react-dom";
@@ -50,6 +50,7 @@ export default function HrPayrollPage() {
   const [filterCompany, setFilterCompany] = useState<string>("all");
   const [previewRow, setPreviewRow] = useState<StaffRow | null>(null);
   const [confirmPublish, setConfirmPublish] = useState<StaffRow | null>(null);
+  const [confirmUnpublish, setConfirmUnpublish] = useState<StaffRow | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<StaffRow | null>(null);
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
   const [deductionTypes, setDeductionTypes] = useState<DeductionType[]>([]);
@@ -576,6 +577,37 @@ function payrollPayload(row: StaffRow, isPublished: boolean) {
       await savePayroll(payrollPayload(row, true));
 
       toast.success(`Slip gaji ${row.name} berhasil dikirim!`, { id: tid });
+      void fetchData();
+    } catch (err: unknown) {
+      toast.error("Gagal: " + (err instanceof Error ? err.message : (err as any)?.message || JSON.stringify(err)), { id: tid });
+    }
+  }
+
+  async function unpublishRow(row: StaffRow) {
+    setConfirmUnpublish(null);
+    if (!row.payroll.id) {
+      toast.info("Belum ada data slip gaji untuk ditarik.");
+      return;
+    }
+    const tid = toast.loading(`Menarik slip gaji ${row.name} ke draf...`);
+    try {
+      const res = await fetch("/api/payroll", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ action: "unpublish", id: row.payroll.id }),
+      });
+      const json = (await res.json().catch(() => null)) as {
+        ok?: boolean;
+        error?: string;
+      } | null;
+
+      if (!res.ok) {
+        toast.error(json?.error ?? "Gagal menarik slip gaji ke draf.", { id: tid });
+        return;
+      }
+
+      toast.success(`Slip gaji ${row.name} berhasil ditarik kembali ke draf!`, { id: tid });
       void fetchData();
     } catch (err: unknown) {
       toast.error("Gagal: " + (err instanceof Error ? err.message : (err as any)?.message || JSON.stringify(err)), { id: tid });
@@ -1319,21 +1351,31 @@ function payrollPayload(row: StaffRow, isPublished: boolean) {
 
                       {/* Action Buttons */}
                       <div className="flex gap-2 w-full md:w-auto">
-                        <button
-                          onClick={() => saveRow(row)}
-                          disabled={isPublished}
-                          className="flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest bg-[var(--ab-bg-surface)] text-[var(--ab-text-main)] border border-[var(--ab-border)] hover:bg-[var(--ab-border)] transition-all disabled:opacity-30 shadow-sm"
-                        >
-                          <Save size={14} /> Simpan
-                        </button>
-                        <button
-                          onClick={() => setConfirmPublish(row)}
-                          disabled={isPublished}
-                          className="flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest text-white transition-all disabled:opacity-30 shadow-sm shadow-black/10"
-                          style={{ background: companyColor }}
-                        >
-                          <Send size={14} /> Kirim
-                        </button>
+                        {isPublished ? (
+                          <button
+                            onClick={() => setConfirmUnpublish(row)}
+                            className="flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest text-amber-500 border border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20 transition-all shadow-sm"
+                            title="Tarik kembali slip gaji ke status Draf untuk diedit"
+                          >
+                            <RotateCcw size={14} /> Tarik ke Draf
+                          </button>
+                        ) : (
+                          <>
+                            <button
+                              onClick={() => saveRow(row)}
+                              className="flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest bg-[var(--ab-bg-surface)] text-[var(--ab-text-main)] border border-[var(--ab-border)] hover:bg-[var(--ab-border)] transition-all disabled:opacity-30 shadow-sm"
+                            >
+                              <Save size={14} /> Simpan
+                            </button>
+                            <button
+                              onClick={() => setConfirmPublish(row)}
+                              className="flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest text-white transition-all disabled:opacity-30 shadow-sm shadow-black/10"
+                              style={{ background: companyColor }}
+                            >
+                              <Send size={14} /> Kirim
+                            </button>
+                          </>
+                        )}
                         <button
                           onClick={() => setPreviewRow(row)}
                           className="px-3 py-2.5 rounded-xl text-[var(--ab-text-dim)] border border-[var(--ab-border)] bg-[var(--ab-bg-surface)] hover:text-[var(--ab-text-main)] transition-all"
@@ -1343,9 +1385,9 @@ function payrollPayload(row: StaffRow, isPublished: boolean) {
                         </button>
                         <button
                           onClick={() => setConfirmDelete(row)}
-                          disabled={!row.payroll.id}
+                          disabled={!row.payroll.id || isPublished}
                           className="px-3 py-2.5 rounded-xl text-rose-400 border border-rose-500/20 bg-rose-500/5 hover:bg-rose-500/10 transition-all disabled:opacity-20"
-                          title="Hapus"
+                          title={isPublished ? "Tarik ke draf terlebih dahulu untuk menghapus" : "Hapus"}
                         >
                           <Trash2 size={16} />
                         </button>
@@ -1380,6 +1422,32 @@ function payrollPayload(row: StaffRow, isPublished: boolean) {
                 </button>
                 <button onClick={() => publishRow(confirmPublish)} className="flex-1 py-3 rounded-2xl text-xs font-black uppercase tracking-widest text-white" style={{ background: COMPANY_COLORS[confirmPublish.setting?.company || "Nova"] }}>
                   Ya, Kirim!
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Confirm Unpublish Modal */}
+      {confirmUnpublish && typeof document !== "undefined" && createPortal(
+        <div className="ab-confirm-overlay" onClick={(e) => { if (e.target === e.currentTarget) setConfirmUnpublish(null); }}>
+          <div className="w-full max-w-sm rounded-[30px] shadow-2xl overflow-hidden ab-animate-scaleIn border border-[var(--ab-border)]" style={{ background: "var(--ab-bg-surface)" }}>
+            <div className="p-8 text-center">
+              <div className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-amber-500 bg-amber-500/10 border border-amber-500/20">
+                <RotateCcw size={28} />
+              </div>
+              <h3 className="text-xl font-black text-[var(--ab-text-main)] uppercase tracking-tight mb-2">Tarik Slip Gaji?</h3>
+              <p className="text-sm text-[var(--ab-text-dim)] mb-6">
+                Slip gaji milik <strong>{confirmUnpublish.name}</strong> untuk periode <strong>{periodLabel}</strong> akan dikembalikan ke status <strong>Draf</strong>. Slip ini otomatis disembunyikan dari staf sampai Anda mengirimnya kembali.
+              </p>
+              <div className="flex gap-3">
+                <button onClick={() => setConfirmUnpublish(null)} className="flex-1 py-3 rounded-2xl text-xs font-black uppercase tracking-widest bg-[var(--ab-bg-main)] text-[var(--ab-text-dim)] border border-[var(--ab-border)]">
+                  Batal
+                </button>
+                <button onClick={() => unpublishRow(confirmUnpublish)} className="flex-1 py-3 rounded-2xl text-xs font-black uppercase tracking-widest text-white bg-amber-500 hover:bg-amber-600 transition-colors">
+                  Ya, Tarik ke Draf
                 </button>
               </div>
             </div>
