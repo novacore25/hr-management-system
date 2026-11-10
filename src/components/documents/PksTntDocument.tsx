@@ -468,15 +468,15 @@ export function PksTntDocument({ data }: Props) {
       </ol>
     </div>,
 
-    /* 13. PASAL 5 (Hak & Kewajiban Pihak Kedua Ayat 1-5) */
-    <div key="b-pasal-5" className="space-y-2 text-justify">
-      <div className="text-center pt-2">
+    /* 13. PASAL 5 (Hak & Kewajiban Pihak Kedua Ayat 1-3) */
+    <div key="b-pasal-5-part1" className="space-y-1.5 text-justify">
+      <div className="text-center pt-1.5">
         <h3 className="font-bold text-[15px] tracking-wide">PASAL 5</h3>
         <h4 className="font-bold text-[14px] uppercase tracking-wide">
           HAK DAN KEWAJIBAN PIHAK KEDUA
         </h4>
       </div>
-      <ol className="list-decimal pl-6 space-y-1.5">
+      <ol className="list-decimal pl-6 space-y-1">
         <li>
           PIHAK KEDUA berhak menerima pembayaran dari PIHAK PERTAMA sesuai
           dengan yang telah disepakati, sebagaimana dijelaskan pada Pasal 3
@@ -491,6 +491,12 @@ export function PksTntDocument({ data }: Props) {
           permintaan tersebut tidak sesuai dengan ruang lingkup pekerjaan yang
           disepakati.
         </li>
+      </ol>
+    </div>,
+
+    /* 14. PASAL 5 (Hak & Kewajiban Pihak Kedua Ayat 4-5) */
+    <div key="b-pasal-5-part2" className="space-y-1 text-justify">
+      <ol start={4} className="list-decimal pl-6 space-y-1">
         <li>
           PIHAK KEDUA berkewajiban melaksanakan Campaign sesuai dengan ruang
           lingkup kerjasama sebagaimana diatur dalam Pasal 1 (satu) Perjanjian
@@ -504,15 +510,15 @@ export function PksTntDocument({ data }: Props) {
       </ol>
     </div>,
 
-    /* 14. PASAL 6 (Approval Kreator & Konten Bagian 1: Ayat 1-5) */
-    <div key="b-pasal-6-part1" className="space-y-2 text-justify">
-      <div className="text-center pt-2">
+    /* 15. PASAL 6 (Approval Kreator & Konten Bagian 1: Ayat 1-3) */
+    <div key="b-pasal-6-part1" className="space-y-1.5 text-justify">
+      <div className="text-center pt-1.5">
         <h3 className="font-bold text-[15px] tracking-wide">PASAL 6</h3>
         <h4 className="font-bold text-[14px] uppercase tracking-wide">
           APPROVAL KREATOR DAN KONTEN
         </h4>
       </div>
-      <ol className="list-decimal pl-6 space-y-1.5">
+      <ol className="list-decimal pl-6 space-y-1">
         <li>
           PIHAK PERTAMA berhak melakukan persetujuan (<em>approval</em>) atas list
           kreator yang diajukan oleh PIHAK KEDUA, dengan ketentuan revisi atas
@@ -535,6 +541,12 @@ export function PksTntDocument({ data }: Props) {
           kerja</strong> sejak drafting video tersebut diterima oleh PIHAK
           PERTAMA.
         </li>
+      </ol>
+    </div>,
+
+    /* 16. PASAL 6 (Approval Kreator & Konten Bagian 2: Ayat 4-5) */
+    <div key="b-pasal-6-part2" className="space-y-1 text-justify">
+      <ol start={4} className="list-decimal pl-6 space-y-1">
         <li>
           Apabila PIHAK PERTAMA tidak memberikan tanggapan dalam jangka waktu{" "}
           <strong>{approval.replyDays} ({terbilang(approval.replyDays)}) hari
@@ -552,9 +564,9 @@ export function PksTntDocument({ data }: Props) {
       </ol>
     </div>,
 
-    /* 15. PASAL 6 (Konsekuensi Delay, Auto-Extension, Batasan Ayat 6-9) */
-    <div key="b-pasal-6-part2" className="space-y-2 text-justify">
-      <ol className="list-decimal pl-6 space-y-1.5" start={6}>
+    /* 17. PASAL 6 (Konsekuensi Delay, Auto-Extension Ayat 6-7) */
+    <div key="b-pasal-6-part3" className="space-y-1 text-justify">
+      <ol start={6} className="list-decimal pl-6 space-y-1">
         <li>
           Dalam hal PIHAK PERTAMA tidak memberikan persetujuan, revisi, atau
           tanggapan dalam jangka waktu sebagaimana dimaksud pada Ayat 2 (dua) dan
@@ -589,6 +601,12 @@ export function PksTntDocument({ data }: Props) {
           kerja yang disepakati PARA PIHAK) disertai alasan yang jelas dan
           spesifik.
         </li>
+      </ol>
+    </div>,
+
+    /* 18. PASAL 6 (Batasan Akumulasi & Hak Kreatif Ayat 8-9) */
+    <div key="b-pasal-6-part4" className="space-y-1 text-justify">
+      <ol start={8} className="list-decimal pl-6 space-y-1">
         <li>
           Apabila akumulasi keterlambatan sebagaimana dimaksud pada ayat 6 (enam)
           Pasal ini melampaui Batas Perpanjangan, PIHAK KEDUA berhak dengan
@@ -615,15 +633,15 @@ export function PksTntDocument({ data }: Props) {
       </ol>
     </div>,
 
-    /* 16. PASAL 7 (Keadaan Kahar / Force Majeure Ayat 1-7) */
-    <div key="b-pasal-7" className="space-y-2 text-justify">
-      <div className="text-center pt-2">
+    /* 19. PASAL 7 (Keadaan Kahar Ayat 1-3) */
+    <div key="b-pasal-7-part1" className="space-y-1.5 text-justify">
+      <div className="text-center pt-1.5">
         <h3 className="font-bold text-[15px] tracking-wide">PASAL 7</h3>
         <h4 className="font-bold text-[14px] uppercase tracking-wide">
           KEADAAN KAHAR (FORCE MAJEURE)
         </h4>
       </div>
-      <ol className="list-decimal pl-6 space-y-1.5">
+      <ol className="list-decimal pl-6 space-y-1">
         <li>
           Bahwa yang dimaksud dengan Keadaan Kahar (<em>Force Majeure</em>) adalah
           peristiwa di luar kendali PARA PIHAK termasuk kebakaran, banjir, gempa
@@ -639,6 +657,12 @@ export function PksTntDocument({ data }: Props) {
           Tidak dipenuhinya ketentuan pemberitahuan menyebabkan peristiwa
           tersebut tidak diakui sebagai Keadaan Kahar.
         </li>
+      </ol>
+    </div>,
+
+    /* 20. PASAL 7 (Keadaan Kahar Ayat 4-7) */
+    <div key="b-pasal-7-part2" className="space-y-1 text-justify">
+      <ol start={4} className="list-decimal pl-6 space-y-1">
         <li>
           Pihak yang menerima pemberitahuan berhak menolak atau menyetujui dalam
           waktu 7 hari kalender.
@@ -658,15 +682,15 @@ export function PksTntDocument({ data }: Props) {
       </ol>
     </div>,
 
-    /* 17. PASAL 8 (Kerahasiaan & Non-Bypass Ayat 1-3) */
-    <div key="b-pasal-8" className="space-y-2 text-justify">
-      <div className="text-center pt-2">
+    /* 21. PASAL 8 (Kerahasiaan & Non-Bypass Ayat 1-3) */
+    <div key="b-pasal-8" className="space-y-1.5 text-justify">
+      <div className="text-center pt-1.5">
         <h3 className="font-bold text-[15px] tracking-wide">PASAL 8</h3>
         <h4 className="font-bold text-[14px] uppercase tracking-wide">
           KERAHASIAAN
         </h4>
       </div>
-      <ol className="list-decimal pl-6 space-y-1.5">
+      <ol className="list-decimal pl-6 space-y-1">
         <li>
           PARA PIHAK sepakat untuk menjaga kerahasiaan seluruh informasi, data,
           dan dokumen yang diperoleh sehubungan dengan pelaksanaan Perjanjian ini
@@ -689,15 +713,15 @@ export function PksTntDocument({ data }: Props) {
       </ol>
     </div>,
 
-    /* 18. PASAL 9 (Pembatalan & Pengakhiran Ayat 1-5) */
-    <div key="b-pasal-9" className="space-y-2 text-justify">
-      <div className="text-center pt-2">
+    /* 22. PASAL 9 (Pembatalan & Pengakhiran Ayat 1-3) */
+    <div key="b-pasal-9-part1" className="space-y-1.5 text-justify">
+      <div className="text-center pt-1.5">
         <h3 className="font-bold text-[15px] tracking-wide">PASAL 9</h3>
         <h4 className="font-bold text-[14px] uppercase tracking-wide">
           PEMBATALAN DAN PENGAKHIRAN PERJANJIAN
         </h4>
       </div>
-      <ol className="list-decimal pl-6 space-y-1.5">
+      <ol className="list-decimal pl-6 space-y-1">
         <li>
           Perjanjian ini dapat diakhiri sebelum masa berakhir atas kesepakatan
           tertulis PARA PIHAK.
@@ -712,6 +736,12 @@ export function PksTntDocument({ data }: Props) {
           PARA PIHAK sepakat mengesampingkan Pasal 1266 KUHPerdata sehingga
           pengakhiran dapat dilakukan tanpa putusan pengadilan.
         </li>
+      </ol>
+    </div>,
+
+    /* 23. PASAL 9 (Pembatalan & Pengakhiran Ayat 4-5) */
+    <div key="b-pasal-9-part2" className="space-y-1 text-justify">
+      <ol start={4} className="list-decimal pl-6 space-y-1">
         <li>
           Seluruh kewajiban pembayaran atas pekerjaan yang telah berjalan wajib
           dilunasi PIHAK PERTAMA selambat-lambatnya 14 (empat belas) hari
@@ -724,15 +754,15 @@ export function PksTntDocument({ data }: Props) {
       </ol>
     </div>,
 
-    /* 19. PASAL 10 (Penyelesaian Perselisihan Ayat 1-3) */
-    <div key="b-pasal-10" className="space-y-2 text-justify">
-      <div className="text-center pt-2">
+    /* 24. PASAL 10 (Penyelesaian Perselisihan Ayat 1-3) */
+    <div key="b-pasal-10" className="space-y-1.5 text-justify">
+      <div className="text-center pt-1.5">
         <h3 className="font-bold text-[15px] tracking-wide">PASAL 10</h3>
         <h4 className="font-bold text-[14px] uppercase tracking-wide">
           PENYELESAIAN PERSELISIHAN
         </h4>
       </div>
-      <ol className="list-decimal pl-6 space-y-1.5">
+      <ol className="list-decimal pl-6 space-y-1">
         <li>
           Segala perselisihan diselesaikan melalui musyawarah mufakat.
         </li>
@@ -747,15 +777,15 @@ export function PksTntDocument({ data }: Props) {
       </ol>
     </div>,
 
-    /* 20. PASAL 11 (Hak Kekayaan Intelektual Ayat 1-3) */
-    <div key="b-pasal-11" className="space-y-2 text-justify">
-      <div className="text-center pt-2">
+    /* 25. PASAL 11 (Hak Kekayaan Intelektual Ayat 1-3) */
+    <div key="b-pasal-11" className="space-y-1.5 text-justify">
+      <div className="text-center pt-1.5">
         <h3 className="font-bold text-[15px] tracking-wide">PASAL 11</h3>
         <h4 className="font-bold text-[14px] uppercase tracking-wide">
           HAK KEKAYAAN INTELEKTUAL
         </h4>
       </div>
-      <ol className="list-decimal pl-6 space-y-1.5">
+      <ol className="list-decimal pl-6 space-y-1">
         <li>
           Hak cipta atas konten yang diproduksi dalam Campaign tetap menjadi
           milik content creator dan PIHAK KEDUA.
@@ -772,15 +802,15 @@ export function PksTntDocument({ data }: Props) {
       </ol>
     </div>,
 
-    /* 21. PASAL 12 (Ganti Rugi Ayat 1-9) */
-    <div key="b-pasal-12" className="space-y-2 text-justify">
-      <div className="text-center pt-2">
+    /* 26. PASAL 12 (Ganti Rugi Ayat 1-3) */
+    <div key="b-pasal-12-part1" className="space-y-1.5 text-justify">
+      <div className="text-center pt-1.5">
         <h3 className="font-bold text-[15px] tracking-wide">PASAL 12</h3>
         <h4 className="font-bold text-[14px] uppercase tracking-wide">
           GANTI RUGI
         </h4>
       </div>
-      <ol className="list-decimal pl-6 space-y-1.5">
+      <ol className="list-decimal pl-6 space-y-1">
         <li>
           Pihak yang melakukan kelalaian atau pelanggaran wajib mengganti
           kerugian yang timbul.
@@ -793,6 +823,12 @@ export function PksTntDocument({ data }: Props) {
           PIHAK PERTAMA wajib membebaskan PIHAK KEDUA dari klaim pihak ketiga
           termasuk instansi pemerintah atas pelanggaran materi promosi.
         </li>
+      </ol>
+    </div>,
+
+    /* 27. PASAL 12 (Ganti Rugi Ayat 4-5) */
+    <div key="b-pasal-12-part2" className="space-y-1 text-justify">
+      <ol start={4} className="list-decimal pl-6 space-y-1">
         <li>
           Total tanggung jawab PIHAK KEDUA atas dasar tuntutan apa pun tidak
           melebihi Nilai Kontrak sebagaimana dimaksud dalam Pasal 3 ayat 1
@@ -804,15 +840,15 @@ export function PksTntDocument({ data }: Props) {
       </ol>
     </div>,
 
-    /* 22. PASAL 13 (Lain-Lain Ayat 1-6) */
-    <div key="b-pasal-13" className="space-y-2 text-justify">
-      <div className="text-center pt-2">
+    /* 28. PASAL 13 (Lain-Lain Ayat 1-3) */
+    <div key="b-pasal-13-part1" className="space-y-1.5 text-justify">
+      <div className="text-center pt-1.5">
         <h3 className="font-bold text-[15px] tracking-wide">PASAL 13</h3>
         <h4 className="font-bold text-[14px] uppercase tracking-wide">
           LAIN-LAIN
         </h4>
       </div>
-      <ol className="list-decimal pl-6 space-y-1.5">
+      <ol className="list-decimal pl-6 space-y-1">
         <li>
           Perjanjian ini tunduk pada hukum yang berlaku di wilayah Republik
           Indonesia.
@@ -824,6 +860,12 @@ export function PksTntDocument({ data }: Props) {
         <li>
           Perjanjian ini menggantikan seluruh persetujuan lisan sebelumnya.
         </li>
+      </ol>
+    </div>,
+
+    /* 29. PASAL 13 (Lain-Lain Ayat 4-6) */
+    <div key="b-pasal-13-part2" className="space-y-1 text-justify">
+      <ol start={4} className="list-decimal pl-6 space-y-1">
         <li>
           Ketentuan kerahasiaan merujuk sepenuhnya pada Pasal 8 Perjanjian ini.
         </li>
@@ -837,8 +879,8 @@ export function PksTntDocument({ data }: Props) {
       </ol>
     </div>,
 
-    /* 23. Penutup & Tanda Tangan Para Pihak (Clean - Tanpa Materai Box) */
-    <div key="b-signatures" className="space-y-4 pt-2">
+    /* 30. Penutup & Tanda Tangan Para Pihak (Clean - Tanpa Materai Box) */
+    <div key="b-signatures" className="space-y-3 pt-1">
       <p className="text-justify indent-8">
         Demikian Perjanjian ini dibuat dan ditandatangani oleh PARA PIHAK dengan
         penuh kesadaran dan tanpa paksaan dari pihak manapun, untuk dilaksanakan

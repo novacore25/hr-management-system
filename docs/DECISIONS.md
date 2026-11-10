@@ -387,3 +387,22 @@ dua tempat harus konsisten — dan tidak ada tooling untuk itu.
 **Alasan:**
 1. Surat perjanjian kerjasama Hype memiliki karakteristik legal khusus (agensi influencer TikTok GO dengan live spreadsheet dan SLA ketat) yang berbeda dari kontrak TNT dan MCN.
 2. Memastikan perlindungan hukum agensi dari fluktuasi algoritma TikTok, penundaan approval klien, dan pembatasan platform sepihak.
+
+---
+
+## 22. Eliminasi Kesenjangan Ruang Kosong (Block Quantization Gaps) Dokumen Kontrak dengan Dekomposisi Ayat Paragraf Granular dan Kalibrasi Margin Word
+
+**Pilihan:**
+1. **Dekomposisi Struktur Pasal Menjadi Sub-Blok Berukuran 1–3 Ayat**:
+   - Membongkar pengelompokan satu pasal penuh menjadi sub-blok modular mandiri (misal: Pasal 6 dipecah 4 bagian: Ayat 1–3, Ayat 4–5, Ayat 6–7, Ayat 8–9).
+   - Penomoran ayat kontinu dijaga menggunakan atribut `<ol start={X}>`.
+2. **Kalibrasi Kapasitas Paginator (`maxPageHeightPx = 890`)**:
+   - Menghitung kapasitas lembar cetak A4 (1122.5px @ 96 DPI) dikurangi margin Word 1 inci (25.4mm = 96px atas dan 96px bawah), menghasilkan ruang usable ~930px.
+   - Menetapkan `maxPageHeightPx = 890px` sebagai ambang batas aman untuk toleransi render font lintas browser dan print driver fisik.
+   - Menghapus double-counting `blockGapPx` yang memicu 100px tinggi semu (*phantom height*).
+3. **Penyelarasan Margin Fisik Cetak 1 Inci (`padding: 25.4mm !important`)**:
+   - Standar margin hukum Microsoft Word diterapkan pada CSS `.pks-page` baik di mode kanvas layar maupun dialog cetak fisik (`@media print`).
+
+**Alasan:**
+1. **Mengatasi Block Quantization Void**: Ketika blok teks berukuran besar (misal 450px) tidak muat pada sisa lembar 350px, paginator terpaksa membuang seluruh blok ke lembar berikutnya, meninggalkan ruang kosong 40%–50% yang tampak seperti kesalahan format ("bolong di tengah"). Memecah pasal menjadi unit 1–3 ayat (80px–180px) membuat aliran teks mengisi halaman hingga 90%–98% persis seperti Microsoft Word.
+2. Memenuhi instruksi langsung pengguna (*"di pasing aja sesuai margin bro beneran kayak world aja"*) pada dokumen PKS TNT dan Hype tanpa mengorbankan integritas hukum klausul perjanjian.

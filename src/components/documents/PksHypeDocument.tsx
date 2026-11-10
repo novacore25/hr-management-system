@@ -1024,5 +1024,5 @@ export function PksHypeDocument({ data }: Props) {
     </div>,
   ];
 
-  return <DynamicPksPaginator blocks={blocks} maxPageHeightPx={800} />;
+  return <DynamicPksPaginator blocks={blocks} maxPageHeightPx={890} />;
 }

@@ -176,7 +176,7 @@
   /* Lembar Dokumen A4 Fisik */
   .pks-page {
     margin: 0 auto !important;
-    padding: 20mm 22mm !important;
+    padding: 25.4mm !important;
     box-shadow: none !important;
     page-break-after: always !important;
     break-after: page !important;

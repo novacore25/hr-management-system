@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef, useId } from "react";
 
 interface Props {
   blocks: React.ReactNode[];
-  maxPageHeightPx?: number; // default 800px (~212mm safe printable height at 96 DPI)
+  maxPageHeightPx?: number; // default 890px (~235mm safe printable height at 96 DPI matching Word margins)
   fontFamily?: string;
 }
 
@@ -15,7 +15,7 @@ interface Props {
  */
 export function DynamicPksPaginator({
   blocks,
-  maxPageHeightPx = 800,
+  maxPageHeightPx = 890,
   fontFamily = '"Times New Roman", Times, Georgia, serif',
 }: Props) {
   const measureContainerRef = useRef<HTMLDivElement>(null);
@@ -35,29 +35,27 @@ export function DynamicPksPaginator({
       const newPages: number[][] = [];
       let currentPage: number[] = [];
       let currentHeight = 0;
-      const blockGapPx = 10; // matching space-y-2.5 (10px)
-
       children.forEach((child, index) => {
         const style = window.getComputedStyle(child);
         const marginTop = parseFloat(style.marginTop) || 0;
         const marginBottom = parseFloat(style.marginBottom) || 0;
-        const elementHeight = child.offsetHeight + marginTop + marginBottom;
+        // Gunakan marginTop dari computed style (misal dari space-y), fallback 10px jika index > 0
+        const effectiveMarginTop = marginTop > 0 ? marginTop : (currentPage.length > 0 ? 10 : 0);
+        const elementHeight = child.offsetHeight + effectiveMarginTop + marginBottom;
 
         // Cek apakah blok meminta pemisahan halaman paksa (misal Lampiran atau Addendum)
         const isForceBreak =
           child.getAttribute("data-page-break") === "true" ||
           child.querySelector("[data-page-break='true']") !== null;
 
-        const addedHeight = elementHeight + (currentPage.length > 0 ? blockGapPx : 0);
-
         // Jika blok ditambahkan melebihi kapasitas halaman atau dipaksa page break, buka halaman baru
-        if (currentPage.length > 0 && (isForceBreak || currentHeight + addedHeight > maxPageHeightPx)) {
+        if (currentPage.length > 0 && (isForceBreak || currentHeight + elementHeight > maxPageHeightPx)) {
           newPages.push(currentPage);
           currentPage = [index];
-          currentHeight = elementHeight;
+          currentHeight = child.offsetHeight + marginBottom;
         } else {
           currentPage.push(index);
-          currentHeight += addedHeight;
+          currentHeight += elementHeight;
         }
       });
 

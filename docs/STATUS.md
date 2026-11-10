@@ -2639,3 +2639,39 @@ Ketika staf ingin melakukan update, pengisian, atau pengubahan pada KPI yang tel
    - `npm run typecheck`: 0 error (PASS).
    - `npm run verify`: 10/10 PASS.
    - `npm run verify:build`: 63/63 halaman static build lolos sempurna (PASS).
+
+---
+
+## Kalibrasi Margin Standar Word & Eliminasi Void Ruang Kosong PKS TNT & Hype (10 November 2026)
+
+### Latar Belakang & Keluhan Pengguna
+- Pengguna melaporkan dokumen PKS Klien TNT (`016/PKS-TNT/NHN/X/2026`) pada Print Preview masih menyisakan ruang kosong besar di bagian bawah lembar:
+  - Pada Halaman 7, Pasal 6 Ayat 1–5 selesai di tengah lembar lalu terhenti, menyisakan 50% ruang kosong di bawahnya.
+  - Pada Halaman 8, Ayat 6 baru dimulai di atas halaman. Pengguna meminta: *"masih banyak ruang kosong bro di pasing aja sesuai margin bro beneran kayak world aja"*.
+- **Akar Masalah**:
+  1. **Block Quantization Problem**: Di `PksTntDocument.tsx`, Pasal 6 hanya dipecah menjadi 2 blok raksasa (Ayat 1–5 tinggi ~350px dan Ayat 6–9 tinggi ~460px). Begitu pula Pasal 5, 7, 9, 12, 13 yang ayat-ayatnya digabung dalam blok besar. Karena sisa tinggi Halaman 7 (~420px) tidak mencukupi untuk menampung blok Ayat 6–9 (460px), seluruh blok terlempar ke Halaman 8, meninggalkan 50% lembar kosong.
+  2. **Double-counting Margin Antar-Blok**: `elementHeight` menjumlahkan `child.offsetHeight + marginTop` yang sudah mencakup `space-y-2.5` (10px). Paginator sebelumnya menambahkan lagi `+ blockGapPx` (10px) sehingga setiap blok menggelembung 20px (dua kali lipat). Akumulasi 10 blok menghasilkan 100px tinggi semu (*phantom height*), memicu page break prematur.
+  3. **Batas Tinggi Terlalu Konservatif**: Nilai `maxPageHeightPx = 800` memotong area cetak usable. Untuk kertas A4 (297mm = 1122.5px pada 96 DPI) dengan margin Word 1 inci (25.4mm = 96px atas & bawah), tinggi konten bersih aktual adalah 1122.5 - 192 = 930.5px. Batas 800px membuang 130px kapasitas per lembar.
+
+### Perbaikan yang Diterapkan
+1. **Dekomposisi Granular 1–3 Ayat di `PksTntDocument.tsx`**:
+   - Pasal 5: Dipecah menjadi `b-pasal-5-part1` (Ayat 1–3) dan `b-pasal-5-part2` (Ayat 4–5).
+   - Pasal 6: Dipecah menjadi 4 sub-blok modular:
+     - `b-pasal-6-part1`: Judul Pasal 6 & Ayat 1–3.
+     - `b-pasal-6-part2`: Ayat 4–5.
+     - `b-pasal-6-part3`: Ayat 6 (a, b, c) & Ayat 7.
+     - `b-pasal-6-part4`: Ayat 8 (a, b) & Ayat 9.
+   - Pasal 7: Dipecah menjadi `b-pasal-7-part1` (Ayat 1–3) dan `b-pasal-7-part2` (Ayat 4–7).
+   - Pasal 9: Dipecah menjadi `b-pasal-9-part1` (Ayat 1–3) dan `b-pasal-9-part2` (Ayat 4–5).
+   - Pasal 12: Dipecah menjadi `b-pasal-12-part1` (Ayat 1–3) dan `b-pasal-12-part2` (Ayat 4–5).
+   - Pasal 13: Dipecah menjadi `b-pasal-13-part1` (Ayat 1–3) dan `b-pasal-13-part2` (Ayat 4–6).
+2. **Kalibrasi Engine `DynamicPksPaginator.tsx`**:
+   - Menyesuaikan `maxPageHeightPx` menjadi `890px` (~235mm safe printable height pada 96 DPI), memberi ruang rapat penuh sesuai batas margin Word.
+   - Menghilangkan akumulasi ganda `blockGapPx`; menggunakan `effectiveMarginTop = marginTop > 0 ? marginTop : (currentPage.length > 0 ? 10 : 0)`.
+   - Blok pertama pada halaman baru dihitung murni `child.offsetHeight + marginBottom` tanpa margin top tiruan.
+3. **Penyelarasan Margin Cetak Standar Word (`src/app/globals.css`)**:
+   - Mengubah padding `.pks-page` pada `@media print` menjadi `padding: 25.4mm !important;` (tepat 1 inci standar dokumen hukum Microsoft Word).
+4. **Verifikasi**:
+   - `npm run typecheck`: 0 error (PASS).
+   - `npm run verify`: 10/10 PASS.
+   - `npm run verify:build`: 63/63 halaman static build lolos sempurna (PASS).
