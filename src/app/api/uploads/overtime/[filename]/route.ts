@@ -16,6 +16,11 @@ export async function GET(
   const filePath = path.join(uploadBase, "overtime", safeName);
 
   if (!fs.existsSync(filePath)) {
+    const pub = process.env.R2_PUBLIC_URL;
+    if (pub) {
+      const base = pub.replace(/\/+$/, "");
+      return Response.redirect(`${base}/overtime/${safeName}`, 302);
+    }
     return new Response("Foto bukti tidak ditemukan.", { status: 404 });
   }
 
