@@ -1047,7 +1047,20 @@ tapi wajib disertai alasan dan tercatat di `calculation_breakdown`.
 
 Verifikasi: `verify:overtime`, 76 assert.
 
-### Fase 4d — Cloudflare R2: kode sudah siap, storage belum diaktifkan
+### Fase 4d — Cloudflare R2: AKTIF & SELESAI MIGRASI (10 Nov 2026)
+
+Status: **100% SELESAI & OPERASIONAL DI PRODUKSI**.
+- Bucket: `novacore-overtime-proofs` (Asia Pacific)
+- Custom Domain: `https://penyimpanan.novacorex.tech`
+- Public URL: `https://pub-9ec1a483a4164aadb5448f904ee8da1c.r2.dev`
+- Integrasi SDK: `@aws-sdk/client-s3` (`PutObjectCommand` di `src/server/storage/overtimeProofs.ts`).
+- Migrasi Data:
+  - 128 file foto bukti lembur berhasil diunggah dari VPS ke Cloudflare R2.
+  - 42 baris pengajuan lembur di PostgreSQL VPS diperbarui URL-nya dari `/api/uploads/overtime/...` ke `https://penyimpanan.novacorex.tech/overtime/...`.
+  - Endpoint `/api/uploads/overtime/[filename]` diberi auto-redirect 302 ke custom domain R2 agar kompatibilitas tautan lama tetap 100% terjaga.
+  - Semua upload baru dari staf kini otomatis masuk ke Cloudflare R2.
+
+### Fase 4d — Cloudflare R2: kode sudah siap, storage belum diaktifkan (Catatan Historis)
 
 Menunggu: pembuatan bucket + kredensial R2. Setelah itu cukup isi
 `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`
