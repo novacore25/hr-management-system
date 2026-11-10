@@ -2604,3 +2604,38 @@ Ketika staf ingin melakukan update, pengisian, atau pengubahan pada KPI yang tel
    - Tab 5: Pengaturan SLA Final Report (hari kalender), checkbox live spreadsheet paralel, serta kartu panduan standar hukum draft 10 Nov 2026.
 5. **Verifikasi**:
    - `npm run typecheck`: 0 error (PASS).
+
+---
+
+## Perbaikan Layout & Pagination Dokumen PKS Hype (Eliminasi Halaman Kosong & Overflow Cetak)
+
+### Latar Belakang & Masalah
+- Pada dialog cetak browser (`window.print()`) dan ekspor PDF (terutama dengan printer fisik Epson L3210 yang memiliki unprintable hardware margins), dokumen PKS Hype membengkak menjadi 17 lembar.
+- Sebagian lembar (seperti lembar ke-2, ke-6, ke-8, ke-13, ke-15) hampir seluruhnya kosong (`? kosong`), hanya berisi 1–2 baris sisa kalimat atau footer nomor halaman (`1/12`, `4/12`, `5/12`).
+- **Akar Penyebab**:
+  1. **Granularitas Blok Terlalu Kasar**: Di `PksHypeDocument.tsx`, seluruh isi sebuah pasal (misalnya Pasal 3 dengan 6 ayat panjang dan rincian bank) digabungkan menjadi 1 blok DOM tunggal (>750px). `DynamicPksPaginator` tidak dapat membagi isi suatu blok, sehingga jika blok melebihi sisa kapasitas lembar, seluruh pasal terlempar ke halaman baru.
+  2. **Ketidaksesuaian Pengukuran Styling**: Wadah ukur tersembunyi (`measureContainerRef`) disetel pada `lineHeight: 1.65` dan tidak memperhitungkan jarak antar-blok (`space-y-2.5` = 10px), sehingga tinggi yang diukur berbeda dari tinggi aktual lembar cetak.
+  3. **Pembelahan Lembar oleh Chromium Print Engine**: Di `@media print`, elemen `.pks-page` memiliki `min-height: 297mm`. Saat printer fisik seperti Epson L3210 menerapkan margin hardware default (~10mm), tinggi 297mm melebihi batas lembar fisik sehingga Chromium membelah lembar menjadi 2 fisik, menyebabkan lembar kedua 90% kosong dan memicu page break berikutnya.
+  4. **At-rule `@page` Terkurung**: Di `globals.css`, `@page { size: A4; margin: 0; }` bersarang di dalam `@media print`, menyebabkan Chromium print dialog mengabaikannya dan kembali ke `Margins: Default`.
+
+### Perbaikan yang Diterapkan
+1. **Dekomposisi Menjadi 30 Sub-Blok Modular Granular (`PksHypeDocument.tsx`)**:
+   - Setiap pasal dipecah menjadi 2–3 sub-blok mandiri berukuran 80px–220px:
+     - Header, Komparisi Pembukaan, Pihak 1, Pihak 2, dan Konsideran Premis dipisah mandiri.
+     - Pasal 1: Ayat 1–2, Ayat 3 (KOL & Outlet), Ayat 4 (Disclaimer TikTok).
+     - Pasal 2: Ayat 1–3, Ayat 4–5, Ayat 6–8, Ayat 9 (Pelepasan 1266-1267 KUHPerdata), Ayat 10–11.
+     - Pasal 3: Ayat 1–4, Ayat 5a–e, Ayat 5f (Rekening BCA) & Ayat 6 (Defisit target non-refundable).
+     - Pasal 4 s.d. Pasal 12 dan Penutup Tanda Tangan seluruhnya dipecah menjadi sub-blok proporsional.
+   - Paginator dapat memadatkan isi secara kontinu sehingga setiap lembar terisi ~80%–95% secara elegan.
+2. **Standardisasi Engine `DynamicPksPaginator.tsx`**:
+   - Mengalibrasi `maxPageHeightPx` menjadi `800px` (aman untuk margin printer fisik).
+   - Menghitung inter-block gap (`blockGapPx = 10`) secara akurat di fungsi `measure()`.
+   - Menyeragamkan `fontSize: 13.5px` dan `lineHeight: 1.45` pada wadah ukur maupun tampilan lembar `.pks-page`.
+3. **Penyempurnaan CSS `@media print` (`src/app/globals.css`)**:
+   - Menghapus paksaan `min-height: 297mm`, menyetel `min-height: 0; height: auto; padding: 20mm 22mm;`.
+   - Menambahkan `break-inside: avoid !important; page-break-inside: avoid !important;` agar Chromium tidak membelah lembar `.pks-page`.
+   - Memindahkan `@page { size: A4 portrait; margin: 0; }` ke tingkat global CSS.
+4. **Verifikasi**:
+   - `npm run typecheck`: 0 error (PASS).
+   - `npm run verify`: 10/10 PASS.
+   - `npm run verify:build`: 63/63 halaman static build lolos sempurna (PASS).

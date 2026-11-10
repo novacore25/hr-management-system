@@ -176,29 +176,40 @@
   /* Lembar Dokumen A4 Fisik */
   .pks-page {
     margin: 0 auto !important;
+    padding: 20mm 22mm !important;
     box-shadow: none !important;
     page-break-after: always !important;
     break-after: page !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
     box-sizing: border-box !important;
-    width: 210mm !important;
-    min-height: 297mm !important;
+    width: 100% !important;
+    max-width: 210mm !important;
+    min-height: 0 !important;
+    height: auto !important;
+    overflow: visible !important;
     background: white !important;
     color: black !important;
+    font-size: 13.5px !important;
+    line-height: 1.45 !important;
   }
 
   .pks-page:last-child {
     page-break-after: auto !important;
     break-after: auto !important;
   }
+}
 
-  @page {
-    size: A4 portrait;
-    margin: 0;
-  }
+/* Standar Ukuran Kertas Cetak A4 Tingkat Global */
+@page {
+  size: A4 portrait;
+  margin: 0;
 }
 
 .pks-document,
 .pks-page {
   font-family: "Times New Roman", Times, Georgia, serif !important;
+  font-size: 13.5px !important;
+  line-height: 1.45 !important;
 }
 

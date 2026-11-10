@@ -32,39 +32,42 @@ export function PksHypeDocument({ data }: Props) {
 
   const blocks: React.ReactNode[] = [
     /* 1. Header Judul */
-    <div key="b-header" className="text-center pt-2 pb-2">
-      <h1 className="text-[17px] font-bold tracking-wide uppercase">
+    <div key="b-header" className="text-center pt-1 pb-1">
+      <h1 className="text-[16px] font-bold tracking-wide uppercase leading-tight">
         PERJANJIAN KERJASAMA MARKETING
       </h1>
-      <p className="text-[15px] font-bold tracking-wide uppercase my-1">
+      <p className="text-[14px] font-bold tracking-wide uppercase my-1">
         ANTARA
       </p>
-      <h2 className="text-[17px] font-bold tracking-wide uppercase">
+      <h2 className="text-[16px] font-bold tracking-wide uppercase leading-tight">
         {client.name.toUpperCase()}{" "}
         {client.brandName ? `("${client.brandName.toUpperCase()}")` : ""}
       </h2>
-      <p className="text-[15px] font-bold tracking-wide uppercase my-1">
+      <p className="text-[14px] font-bold tracking-wide uppercase my-1">
         DENGAN
       </p>
-      <h2 className="text-[17px] font-bold tracking-wide uppercase">
+      <h2 className="text-[16px] font-bold tracking-wide uppercase leading-tight">
         {agency.companyLegalName.toUpperCase()}
       </h2>
-      <p className="text-[14px] mt-2 font-normal">
+      <p className="text-[13px] mt-1.5 font-normal">
         Nomor: {header.contractNumber}
       </p>
-      <div className="w-full h-[1.5px] bg-black my-3" />
+      <div className="w-full h-[1.5px] bg-black my-2" />
     </div>,
 
-    /* 2. Pembukaan & Komparisi Para Pihak */
-    <div key="b-komparisi" className="space-y-3">
-      <p className="text-justify indent-8">
+    /* 2. Pembukaan Tanggal Perjanjian */
+    <div key="b-komparisi-intro" className="text-justify leading-relaxed indent-8">
+      <p>
         Pada hari ini, {formatTanggalLegal(header.signDate)}, telah
         ditandatangani Perjanjian Kerjasama ini (selanjutnya disebut{" "}
         <strong>“Perjanjian”</strong>), oleh dan antara pihak-pihak yang
         bertanda tangan di bawah ini:
       </p>
+    </div>,
 
-      <ol className="list-decimal pl-6 space-y-2 text-justify">
+    /* 3. Komparisi PIHAK PERTAMA */
+    <div key="b-komparisi-pihak1" className="text-justify leading-relaxed">
+      <ol className="list-decimal pl-6 space-y-1">
         {isPerorangan ? (
           <li>
             <strong>{client.name}</strong>, suatu perorangan yang beralamat di{" "}
@@ -72,8 +75,7 @@ export function PksHypeDocument({ data }: Props) {
             <strong>{client.signeePosition}</strong> dari{" "}
             <strong>“{client.brandName || client.name}”</strong>, oleh karenanya
             sah bertindak untuk dan atas nama dirinya sendiri, untuk selanjutnya
-            disebut sebagai---------------------------------
-            <strong>PIHAK PERTAMA</strong>.
+            disebut sebagai <strong>PIHAK PERTAMA</strong>.
           </li>
         ) : (
           <li>
@@ -86,15 +88,18 @@ export function PksHypeDocument({ data }: Props) {
             mewakili {client.signeeBasis || "Direksi"} untuk bertindak dan atas nama{" "}
             {client.name}{" "}
             {client.brandName ? `("${client.brandName}")` : ""}, untuk selanjutnya
-            disebut sebagai---------------------------------
-            <strong>PIHAK PERTAMA</strong>.
+            disebut sebagai <strong>PIHAK PERTAMA</strong>.
           </li>
         )}
+      </ol>
+    </div>,
 
-        <div className="py-0.5 text-center font-bold tracking-widest text-[13px]">
-          Dan
-        </div>
-
+    /* 4. Komparisi PIHAK KEDUA & Penegasan PARA PIHAK */
+    <div key="b-komparisi-pihak2" className="text-justify leading-relaxed">
+      <div className="py-0.5 text-center font-bold tracking-widest text-[13px]">
+        Dan
+      </div>
+      <ol start={2} className="list-decimal pl-6 space-y-1">
         <li>
           <strong>{agency.companyLegalName}</strong>, suatu Persekutuan Komanditer
           yang didirikan berdasarkan hukum Negara Republik Indonesia,
@@ -103,19 +108,17 @@ export function PksHypeDocument({ data }: Props) {
           <strong>{agency.signeePosition}</strong>, oleh karenanya sah bertindak
           mewakili untuk bertindak dan atas nama{" "}
           <strong>{agency.companyLegalName}</strong>, untuk selanjutnya disebut
-          sebagai--------------------------------------------------------------------------------------------------------------------
-          <strong>PIHAK KEDUA</strong>.
+          sebagai <strong>PIHAK KEDUA</strong>.
         </li>
       </ol>
-
-      <p className="text-justify pt-1">
+      <p className="pt-2">
         <strong>PIHAK PERTAMA</strong> dan <strong>PIHAK KEDUA</strong> secara
         bersama-sama disebut sebagai <strong>“PARA PIHAK”</strong>.
       </p>
     </div>,
 
-    /* 3. Latar Belakang / Premis */
-    <div key="b-premis" className="space-y-2 text-justify">
+    /* 5. Latar Belakang / Premis */
+    <div key="b-premis" className="space-y-1.5 text-justify leading-relaxed">
       <p>PARA PIHAK terlebih dahulu menerangkan hal-hal sebagai berikut:</p>
       <ol className="list-[lower-alpha] pl-6 space-y-1">
         <li>
@@ -141,13 +144,13 @@ export function PksHypeDocument({ data }: Props) {
       </p>
     </div>,
 
-    /* 4. PASAL 1: RUANG LINGKUP KERJASAMA */
-    <div key="b-pasal-1" className="space-y-2 text-justify">
+    /* 6. PASAL 1 (Ruang Lingkup Ayat 1 & 2) */
+    <div key="b-pasal-1-part1" className="space-y-1.5 text-justify leading-relaxed">
       <div className="text-center font-bold">
-        <p className="uppercase">PASAL 1</p>
-        <p className="uppercase">RUANG LINGKUP KERJASAMA</p>
+        <p className="uppercase text-[14px]">PASAL 1</p>
+        <p className="uppercase text-[13.5px]">RUANG LINGKUP KERJASAMA</p>
       </div>
-      <ol className="list-decimal pl-6 space-y-1.5">
+      <ol className="list-decimal pl-6 space-y-1">
         <li>
           PIHAK PERTAMA dengan ini menunjuk PIHAK KEDUA dan PIHAK KEDUA dengan
           ini menerima penunjukan tersebut, untuk melaksanakan pekerjaan
@@ -165,6 +168,12 @@ export function PksHypeDocument({ data }: Props) {
           </strong>{" "}
           di platform TikTok.
         </li>
+      </ol>
+    </div>,
+
+    /* 7. PASAL 1 (KOL & Ketentuan Outlet Ayat 3) */
+    <div key="b-pasal-1-part2" className="space-y-1 text-justify leading-relaxed">
+      <ol start={3} className="list-decimal pl-6 space-y-1">
         <li>
           PIHAK KEDUA wajib menyediakan KOL/Creator yang sudah ditentukan pada
           Outlet <strong>{campaign.outletName}</strong> yang beralamat di{" "}
@@ -195,6 +204,12 @@ export function PksHypeDocument({ data }: Props) {
             </li>
           </ol>
         </li>
+      </ol>
+    </div>,
+
+    /* 8. PASAL 1 (Disclaimer Platform & Views Ayat 4) */
+    <div key="b-pasal-1-part3" className="space-y-1 text-justify leading-relaxed">
+      <ol start={4} className="list-decimal pl-6 space-y-1">
         <li>
           PIHAK KEDUA tidak menjamin jumlah tayangan (views), interaksi,
           kunjungan, maupun penjualan, serta PARA PIHAK menyadari dan sepakat
@@ -205,13 +220,13 @@ export function PksHypeDocument({ data }: Props) {
       </ol>
     </div>,
 
-    /* 5. PASAL 2: JANGKA WAKTU DAN BERAKHIRNYA PERJANJIAN (BAGIAN 1: AYAT 1-5) */
-    <div key="b-pasal-2-part1" className="space-y-2 text-justify">
+    /* 9. PASAL 2 (Jangka Waktu Persiapan & Running Ayat 1-3) */
+    <div key="b-pasal-2-part1" className="space-y-1.5 text-justify leading-relaxed">
       <div className="text-center font-bold">
-        <p className="uppercase">PASAL 2</p>
-        <p className="uppercase">JANGKA WAKTU DAN BERAKHIRNYA PERJANJIAN</p>
+        <p className="uppercase text-[14px]">PASAL 2</p>
+        <p className="uppercase text-[13.5px]">JANGKA WAKTU DAN BERAKHIRNYA PERJANJIAN</p>
       </div>
-      <ol className="list-decimal pl-6 space-y-1.5">
+      <ol className="list-decimal pl-6 space-y-1">
         <li>
           Perjanjian ini berlaku mengikat bagi PARA PIHAK terhitung sejak tanggal{" "}
           <strong>{formatTanggalId(term.startDate)}</strong> yang terdiri atas
@@ -242,6 +257,12 @@ export function PksHypeDocument({ data }: Props) {
           Campaign tersebut sampai dengan tanggal{" "}
           <strong>{formatTanggalId(term.runningEndDate)}</strong>.
         </li>
+      </ol>
+    </div>,
+
+    /* 10. PASAL 2 (Addendum & Notice Perpanjangan Ayat 4-5) */
+    <div key="b-pasal-2-part2" className="space-y-1 text-justify leading-relaxed">
+      <ol start={4} className="list-decimal pl-6 space-y-1">
         <li>
           Perjanjian ini dapat diubah dan/atau diperpanjang atas dasar kesepakatan
           PARA PIHAK yang akan dituangkan dalam suatu Addendum Perjanjian yang
@@ -258,9 +279,9 @@ export function PksHypeDocument({ data }: Props) {
       </ol>
     </div>,
 
-    /* 6. PASAL 2: JANGKA WAKTU DAN BERAKHIRNYA PERJANJIAN (BAGIAN 2: AYAT 6-11) */
-    <div key="b-pasal-2-part2" className="space-y-2 text-justify">
-      <ol start={6} className="list-decimal pl-6 space-y-1.5">
+    /* 11. PASAL 2 (Pengakhiran Sepihak & Somasi Wanprestasi Ayat 6-8) */
+    <div key="b-pasal-2-part3" className="space-y-1 text-justify leading-relaxed">
+      <ol start={6} className="list-decimal pl-6 space-y-1">
         <li>
           Perjanjian ini dapat diakhiri sebelum berakhirnya jangka waktu, apabila
           disepakati secara tertulis oleh PARA PIHAK.
@@ -285,6 +306,12 @@ export function PksHypeDocument({ data }: Props) {
           <em>non-refundable</em>) dan apabila Total Pembayaran belum dibayar
           penuh, maka PIHAK PERTAMA wajib melunasi sisanya.
         </li>
+      </ol>
+    </div>,
+
+    /* 12. PASAL 2 (Pelepasan Pasal 1266 & 1267 KUHPerdata Ayat 9) */
+    <div key="b-pasal-2-part4" className="space-y-1 text-justify leading-relaxed">
+      <ol start={9} className="list-decimal pl-6 space-y-1">
         <li>
           Dalam pelaksanaan pengakhiran Perjanjian ini, PARA PIHAK sepakat untuk:
           <ol className="list-[lower-alpha] pl-6 space-y-1 mt-1">
@@ -306,6 +333,12 @@ export function PksHypeDocument({ data }: Props) {
             </li>
           </ol>
         </li>
+      </ol>
+    </div>,
+
+    /* 13. PASAL 2 (Hak Kewajiban Pasca Pengakhiran & Pelunasan Ayat 10-11) */
+    <div key="b-pasal-2-part5" className="space-y-1 text-justify leading-relaxed">
+      <ol start={10} className="list-decimal pl-6 space-y-1">
         <li>
           Pada saat Perjanjian ini berakhir atau diakhiri, maka hak dan kewajiban
           masing-masing Pihak yang telah timbul sebelum pengakhiran Perjanjian ini
@@ -344,13 +377,13 @@ export function PksHypeDocument({ data }: Props) {
       </ol>
     </div>,
 
-    /* 7. PASAL 3: NILAI KONTRAK DAN TATA CARA PEMBAYARAN */
-    <div key="b-pasal-3" className="space-y-2 text-justify">
+    /* 14. PASAL 3 (Nilai Kontrak, Pajak & Termin Ayat 1-4) */
+    <div key="b-pasal-3-part1" className="space-y-1.5 text-justify leading-relaxed">
       <div className="text-center font-bold">
-        <p className="uppercase">PASAL 3</p>
-        <p className="uppercase">NILAI KONTRAK DAN TATA CARA PEMBAYARAN</p>
+        <p className="uppercase text-[14px]">PASAL 3</p>
+        <p className="uppercase text-[13.5px]">NILAI KONTRAK DAN TATA CARA PEMBAYARAN</p>
       </div>
-      <ol className="list-decimal pl-6 space-y-1.5">
+      <ol className="list-decimal pl-6 space-y-1">
         <li>
           PARA PIHAK sepakat bahwa harga yang disepakati dalam Perjanjian ini
           adalah sebesar <strong>Rp. {formatRupiah(financial.contractValue)},-</strong>{" "}
@@ -377,6 +410,12 @@ export function PksHypeDocument({ data }: Props) {
           <strong>{campaign.outletName}</strong> yang beralamat di{" "}
           {campaign.outletAddress}.
         </li>
+      </ol>
+    </div>,
+
+    /* 15. PASAL 3 (Rincian Penagihan Ayat 5: a-e) */
+    <div key="b-pasal-3-part2" className="space-y-1 text-justify leading-relaxed">
+      <ol start={5} className="list-decimal pl-6 space-y-1">
         <li>
           Bahwa rincian penagihan adalah sebagai berikut:
           <ol className="list-[lower-alpha] pl-6 space-y-1 mt-1">
@@ -416,6 +455,16 @@ export function PksHypeDocument({ data }: Props) {
               Seluruh pembayaran yang telah dilakukan oleh PIHAK PERTAMA kepada
               PIHAK KEDUA tidak dapat diminta kembali (<em>non-refundable</em>).
             </li>
+          </ol>
+        </li>
+      </ol>
+    </div>,
+
+    /* 16. PASAL 3 (Rekening BCA & Defisit Target Ayat 5f & 6) */
+    <div key="b-pasal-3-part3" className="space-y-1 text-justify leading-relaxed">
+      <ol start={5} className="list-decimal pl-6 space-y-1">
+        <li className="list-none -ml-6">
+          <ol start={6} className="list-[lower-alpha] pl-6 space-y-1">
             <li>
               Pembayaran yang dilakukan PIHAK PERTAMA di luar rekening tidak akan
               diterima. PIHAK KEDUA hanya menerima segala pembayaran melalui
@@ -429,7 +478,7 @@ export function PksHypeDocument({ data }: Props) {
             </li>
           </ol>
         </li>
-        <li>
+        <li value={6}>
           Apabila setelah berakhirnya Masa Perjanjian namun masih belum terpenuhi
           Pasal 1 ayat (3) Perjanjian ini, maka penyelesaian yang dapat dilakukan
           dengan melengkapi kekurangan target jumlah Creator dan VT sebagaimana
@@ -439,13 +488,13 @@ export function PksHypeDocument({ data }: Props) {
       </ol>
     </div>,
 
-    /* 8. PASAL 4: HAK DAN KEWAJIBAN PIHAK PERTAMA */
-    <div key="b-pasal-4" className="space-y-2 text-justify">
+    /* 17. PASAL 4 (Hak PIHAK PERTAMA Ayat 1-6) */
+    <div key="b-pasal-4-part1" className="space-y-1.5 text-justify leading-relaxed">
       <div className="text-center font-bold">
-        <p className="uppercase">PASAL 4</p>
-        <p className="uppercase">HAK DAN KEWAJIBAN PIHAK PERTAMA</p>
+        <p className="uppercase text-[14px]">PASAL 4</p>
+        <p className="uppercase text-[13.5px]">HAK DAN KEWAJIBAN PIHAK PERTAMA</p>
       </div>
-      <ol className="list-decimal pl-6 space-y-1.5">
+      <ol className="list-decimal pl-6 space-y-1">
         <li>
           PIHAK PERTAMA berhak mendapatkan jumlah kreator dan kewajiban lain yang
           sudah dijanjikan oleh kedua belah pihak sebagaimana tercantum pada
@@ -479,6 +528,12 @@ export function PksHypeDocument({ data }: Props) {
           diberikan oleh PIHAK KEDUA merupakan data-data yang valid, benar, dan
           dapat dipertanggungjawabkan.
         </li>
+      </ol>
+    </div>,
+
+    /* 18. PASAL 4 (Kewajiban PIHAK PERTAMA Ayat 7-11) */
+    <div key="b-pasal-4-part2" className="space-y-1 text-justify leading-relaxed">
+      <ol start={7} className="list-decimal pl-6 space-y-1">
         <li>
           PIHAK PERTAMA berkewajiban melakukan pembayaran Total Pembayaran
           kepada PIHAK KEDUA sebagaimana dijelaskan pada Pasal 3 (tiga)
@@ -507,13 +562,13 @@ export function PksHypeDocument({ data }: Props) {
       </ol>
     </div>,
 
-    /* 9. PASAL 5: APPROVAL KREATOR DAN KONTEN */
-    <div key="b-pasal-5" className="space-y-2 text-justify">
+    /* 19. PASAL 5 (Approval Review & Deemed Approved Ayat 1-5) */
+    <div key="b-pasal-5-part1" className="space-y-1.5 text-justify leading-relaxed">
       <div className="text-center font-bold">
-        <p className="uppercase">PASAL 5</p>
-        <p className="uppercase">APPROVAL KREATOR DAN KONTEN</p>
+        <p className="uppercase text-[14px]">PASAL 5</p>
+        <p className="uppercase text-[13.5px]">APPROVAL KREATOR DAN KONTEN</p>
       </div>
-      <ol className="list-decimal pl-6 space-y-1.5">
+      <ol className="list-decimal pl-6 space-y-1">
         <li>
           PIHAK PERTAMA berhak melakukan persetujuan (approval) atas list kreator
           yang diajukan oleh PIHAK KEDUA, dengan ketentuan revisi atas list
@@ -546,6 +601,12 @@ export function PksHypeDocument({ data }: Props) {
           sama telah diajukan oleh PIHAK PERTAMA lebih dari {approval.maxRevisions}{" "}
           (tiga) kali.
         </li>
+      </ol>
+    </div>,
+
+    /* 20. PASAL 5 (Kompensasi Perpanjangan Otomatis Ayat 6-7) */
+    <div key="b-pasal-5-part2" className="space-y-1 text-justify leading-relaxed">
+      <ol start={6} className="list-decimal pl-6 space-y-1">
         <li>
           Dalam hal PIHAK PERTAMA tidak memberikan persetujuan, revisi, atau
           tanggapan dalam jangka waktu sebagaimana dimaksud pada Ayat 2 (dua)
@@ -580,13 +641,13 @@ export function PksHypeDocument({ data }: Props) {
       </ol>
     </div>,
 
-    /* 10. PASAL 6: HAK DAN KEWAJIBAN PIHAK KEDUA */
-    <div key="b-pasal-6" className="space-y-2 text-justify">
+    /* 21. PASAL 6 (Hak PIHAK KEDUA Ayat 1-8) */
+    <div key="b-pasal-6-part1" className="space-y-1.5 text-justify leading-relaxed">
       <div className="text-center font-bold">
-        <p className="uppercase">PASAL 6</p>
-        <p className="uppercase">HAK DAN KEWAJIBAN PIHAK KEDUA</p>
+        <p className="uppercase text-[14px]">PASAL 6</p>
+        <p className="uppercase text-[13.5px]">HAK DAN KEWAJIBAN PIHAK KEDUA</p>
       </div>
-      <ol className="list-decimal pl-6 space-y-1.5">
+      <ol className="list-decimal pl-6 space-y-1">
         <li>
           PIHAK KEDUA berhak menerima pembayaran dari PIHAK PERTAMA sesuai
           dengan yang telah disepakati, sebagaimana dijelaskan pada Pasal 3
@@ -632,6 +693,12 @@ export function PksHypeDocument({ data }: Props) {
           permintaan tersebut tidak sesuai dengan ruang lingkup pekerjaan yang
           disepakati.
         </li>
+      </ol>
+    </div>,
+
+    /* 22. PASAL 6 (Kewajiban Pelaporan Spreadsheet & Final Report Ayat 9-11) */
+    <div key="b-pasal-6-part2" className="space-y-1 text-justify leading-relaxed">
+      <ol start={9} className="list-decimal pl-6 space-y-1">
         <li>
           PIHAK KEDUA berkewajiban melaksanakan pekerjaan sesuai ruang lingkup
           Pasal 1 (satu) Perjanjian ini.
@@ -652,13 +719,13 @@ export function PksHypeDocument({ data }: Props) {
       </ol>
     </div>,
 
-    /* 11. PASAL 7: KEADAAN KAHAR (FORCE MAJEURE) */
-    <div key="b-pasal-7" className="space-y-2 text-justify">
+    /* 23. PASAL 7 (Force Majeure Definisi & Pemberitahuan Ayat 1-2) */
+    <div key="b-pasal-7-part1" className="space-y-1.5 text-justify leading-relaxed">
       <div className="text-center font-bold">
-        <p className="uppercase">PASAL 7</p>
-        <p className="uppercase">KEADAAN KAHAR (FORCE MAJEURE)</p>
+        <p className="uppercase text-[14px]">PASAL 7</p>
+        <p className="uppercase text-[13.5px]">KEADAAN KAHAR (FORCE MAJEURE)</p>
       </div>
-      <ol className="list-decimal pl-6 space-y-1.5">
+      <ol className="list-decimal pl-6 space-y-1">
         <li>
           Bahwa yang dimaksud dengan Keadaan Kahar (<em>Force Majeure</em>) dalam
           Perjanjian ini adalah peristiwa-peristiwa atau keadaan yang terjadi di
@@ -686,6 +753,12 @@ export function PksHypeDocument({ data }: Props) {
           upaya-upaya yang akan atau telah dilakukan dalam rangka mengatasi
           Keadaan Kahar (<em>Force Majeure</em>) tersebut.
         </li>
+      </ol>
+    </div>,
+
+    /* 24. PASAL 7 (Force Majeure Konsekuensi & Musyawarah Ayat 3-7) */
+    <div key="b-pasal-7-part2" className="space-y-1 text-justify leading-relaxed">
+      <ol start={3} className="list-decimal pl-6 space-y-1">
         <li>
           Bahwa Pihak yang mengalami Keadaan Kahar (<em>Force Majeure</em>) dan
           tidak melaksanakan ketentuan sebagaimana dimaksud pada Ayat 2 (dua)
@@ -720,13 +793,13 @@ export function PksHypeDocument({ data }: Props) {
       </ol>
     </div>,
 
-    /* 12. PASAL 8: KERAHASIAAN */
-    <div key="b-pasal-8" className="space-y-2 text-justify">
+    /* 25. PASAL 8: KERAHASIAAN */
+    <div key="b-pasal-8" className="space-y-1.5 text-justify leading-relaxed">
       <div className="text-center font-bold">
-        <p className="uppercase">PASAL 8</p>
-        <p className="uppercase">KERAHASIAAN</p>
+        <p className="uppercase text-[14px]">PASAL 8</p>
+        <p className="uppercase text-[13.5px]">KERAHASIAAN</p>
       </div>
-      <ol className="list-decimal pl-6 space-y-1.5">
+      <ol className="list-decimal pl-6 space-y-1">
         <li>
           PARA PIHAK sepakat untuk menjaga kerahasiaan seluruh informasi, data,
           dan dokumen yang diperoleh sehubungan dengan pelaksanaan Perjanjian
@@ -749,13 +822,13 @@ export function PksHypeDocument({ data }: Props) {
       </ol>
     </div>,
 
-    /* 13. PASAL 9: PENYELESAIAN PERSELISIHAN */
-    <div key="b-pasal-9" className="space-y-2 text-justify">
+    /* 26. PASAL 9: PENYELESAIAN PERSELISIHAN */
+    <div key="b-pasal-9" className="space-y-1.5 text-justify leading-relaxed">
       <div className="text-center font-bold">
-        <p className="uppercase">PASAL 9</p>
-        <p className="uppercase">PENYELESAIAN PERSELISIHAN</p>
+        <p className="uppercase text-[14px]">PASAL 9</p>
+        <p className="uppercase text-[13.5px]">PENYELESAIAN PERSELISIHAN</p>
       </div>
-      <ol className="list-decimal pl-6 space-y-1.5">
+      <ol className="list-decimal pl-6 space-y-1">
         <li>
           PARA PIHAK sepakat untuk menyelesaikan segala perselisihan yang mungkin
           timbul akibat dari pelaksanaan Perjanjian ini melalui musyawarah agar
@@ -775,13 +848,13 @@ export function PksHypeDocument({ data }: Props) {
       </ol>
     </div>,
 
-    /* 14. PASAL 10: HAK KEKAYAAN INTELEKTUAL */
-    <div key="b-pasal-10" className="space-y-2 text-justify">
+    /* 27. PASAL 10: HAK KEKAYAAN INTELEKTUAL */
+    <div key="b-pasal-10" className="space-y-1.5 text-justify leading-relaxed">
       <div className="text-center font-bold">
-        <p className="uppercase">PASAL 10</p>
-        <p className="uppercase">HAK KEKAYAAN INTELEKTUAL</p>
+        <p className="uppercase text-[14px]">PASAL 10</p>
+        <p className="uppercase text-[13.5px]">HAK KEKAYAAN INTELEKTUAL</p>
       </div>
-      <ol className="list-decimal pl-6 space-y-1.5">
+      <ol className="list-decimal pl-6 space-y-1">
         <li>
           Bahwa Hak cipta atas konten yang diproduksi dalam kampanye ini tetap
           menjadi milik content creator dan PIHAK KEDUA.
@@ -811,13 +884,13 @@ export function PksHypeDocument({ data }: Props) {
       </ol>
     </div>,
 
-    /* 15. PASAL 11: GANTI RUGI */
-    <div key="b-pasal-11" className="space-y-2 text-justify">
+    /* 28. PASAL 11: GANTI RUGI */
+    <div key="b-pasal-11" className="space-y-1.5 text-justify leading-relaxed">
       <div className="text-center font-bold">
-        <p className="uppercase">PASAL 11</p>
-        <p className="uppercase">GANTI RUGI</p>
+        <p className="uppercase text-[14px]">PASAL 11</p>
+        <p className="uppercase text-[13.5px]">GANTI RUGI</p>
       </div>
-      <ol className="list-decimal pl-6 space-y-1.5">
+      <ol className="list-decimal pl-6 space-y-1">
         <li>
           Apabila salah satu Pihak melakukan kesalahan, kelalaian, dan/atau
           pelanggaran terhadap ketentuan Perjanjian ini maupun peraturan
@@ -857,13 +930,13 @@ export function PksHypeDocument({ data }: Props) {
       </ol>
     </div>,
 
-    /* 16. PASAL 12: LAIN-LAIN */
-    <div key="b-pasal-12" className="space-y-2 text-justify">
+    /* 29. PASAL 12: LAIN-LAIN */
+    <div key="b-pasal-12" className="space-y-1.5 text-justify leading-relaxed">
       <div className="text-center font-bold">
-        <p className="uppercase">PASAL 12</p>
-        <p className="uppercase">LAIN-LAIN</p>
+        <p className="uppercase text-[14px]">PASAL 12</p>
+        <p className="uppercase text-[13.5px]">LAIN-LAIN</p>
       </div>
-      <ol className="list-decimal pl-6 space-y-1.5">
+      <ol className="list-decimal pl-6 space-y-1">
         <li>
           Segala penafsiran yang timbul terhadap ketentuan dalam perjanjian ini
           seluruhnya tunduk pada ketentuan hukum yang berlaku di wilayah Republik
@@ -900,31 +973,31 @@ export function PksHypeDocument({ data }: Props) {
       </ol>
     </div>,
 
-    /* 17. Penutup & Tanda Tangan */
-    <div key="b-penutup" className="space-y-4 pt-2">
-      <p className="text-justify indent-8">
+    /* 30. Penutup & Tanda Tangan */
+    <div key="b-penutup" className="space-y-3 pt-1">
+      <p className="text-justify indent-8 leading-relaxed">
         Demikian Perjanjian ini dibuat dan ditandatangani oleh PARA PIHAK dengan
         penuh kesadaran dan tanpa paksaan dari pihak manapun, untuk dilaksanakan
         dan dipatuhi sebagaimana mestinya.
       </p>
 
       {/* Signature Grid */}
-      <div className="pt-4 grid grid-cols-2 gap-8 text-center text-[13.5px]">
+      <div className="pt-3 grid grid-cols-2 gap-8 text-center text-[13px]">
         {/* Kolom Pihak Pertama */}
         <div className="flex flex-col items-center">
           <p className="font-bold uppercase tracking-wide">PIHAK PERTAMA</p>
           <p className="font-bold uppercase mt-0.5">
             {client.name}
           </p>
-          <div className="h-28 flex items-center justify-center">
-            <span className="text-[11px] text-slate-400 border border-dashed border-slate-300 rounded px-3 py-1.5">
+          <div className="h-24 flex items-center justify-center">
+            <span className="text-[10.5px] text-slate-400 border border-dashed border-slate-300 rounded px-2.5 py-1">
               Materai Rp 10.000 & Tanda Tangan
             </span>
           </div>
           <p className="font-bold uppercase underline underline-offset-2">
             {client.signeeName}
           </p>
-          <p className="text-[12.5px] uppercase mt-0.5 text-slate-700">
+          <p className="text-[12px] uppercase mt-0.5 text-slate-700">
             {client.signeePosition}
           </p>
         </div>
@@ -935,15 +1008,15 @@ export function PksHypeDocument({ data }: Props) {
           <p className="font-bold uppercase mt-0.5">
             {agency.companyLegalName}
           </p>
-          <div className="h-28 flex items-center justify-center">
-            <span className="text-[11px] text-slate-400 border border-dashed border-slate-300 rounded px-3 py-1.5">
+          <div className="h-24 flex items-center justify-center">
+            <span className="text-[10.5px] text-slate-400 border border-dashed border-slate-300 rounded px-2.5 py-1">
               Tanda Tangan & Cap
             </span>
           </div>
           <p className="font-bold uppercase underline underline-offset-2">
             {agency.signeeName}
           </p>
-          <p className="text-[12.5px] uppercase mt-0.5 text-slate-700">
+          <p className="text-[12px] uppercase mt-0.5 text-slate-700">
             General Manager
           </p>
         </div>
@@ -951,5 +1024,5 @@ export function PksHypeDocument({ data }: Props) {
     </div>,
   ];
 
-  return <DynamicPksPaginator blocks={blocks} maxPageHeightPx={870} />;
+  return <DynamicPksPaginator blocks={blocks} maxPageHeightPx={800} />;
 }

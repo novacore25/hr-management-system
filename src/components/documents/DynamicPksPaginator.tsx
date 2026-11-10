@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef, useId } from "react";
 
 interface Props {
   blocks: React.ReactNode[];
-  maxPageHeightPx?: number; // default 870px (~230mm at 96 DPI)
+  maxPageHeightPx?: number; // default 800px (~212mm safe printable height at 96 DPI)
   fontFamily?: string;
 }
 
@@ -15,7 +15,7 @@ interface Props {
  */
 export function DynamicPksPaginator({
   blocks,
-  maxPageHeightPx = 870,
+  maxPageHeightPx = 800,
   fontFamily = '"Times New Roman", Times, Georgia, serif',
 }: Props) {
   const measureContainerRef = useRef<HTMLDivElement>(null);
@@ -35,6 +35,7 @@ export function DynamicPksPaginator({
       const newPages: number[][] = [];
       let currentPage: number[] = [];
       let currentHeight = 0;
+      const blockGapPx = 10; // matching space-y-2.5 (10px)
 
       children.forEach((child, index) => {
         const style = window.getComputedStyle(child);
@@ -47,14 +48,16 @@ export function DynamicPksPaginator({
           child.getAttribute("data-page-break") === "true" ||
           child.querySelector("[data-page-break='true']") !== null;
 
+        const addedHeight = elementHeight + (currentPage.length > 0 ? blockGapPx : 0);
+
         // Jika blok ditambahkan melebihi kapasitas halaman atau dipaksa page break, buka halaman baru
-        if (currentPage.length > 0 && (isForceBreak || currentHeight + elementHeight > maxPageHeightPx)) {
+        if (currentPage.length > 0 && (isForceBreak || currentHeight + addedHeight > maxPageHeightPx)) {
           newPages.push(currentPage);
           currentPage = [index];
           currentHeight = elementHeight;
         } else {
           currentPage.push(index);
-          currentHeight += elementHeight;
+          currentHeight += addedHeight;
         }
       });
 
@@ -80,7 +83,7 @@ export function DynamicPksPaginator({
       <div
         ref={measureContainerRef}
         aria-hidden="true"
-        className="no-print pointer-events-none select-none print:hidden"
+        className="no-print pointer-events-none select-none print:hidden space-y-2.5"
         style={{
           position: "absolute",
           left: "-99999px",
@@ -88,8 +91,9 @@ export function DynamicPksPaginator({
           width: "159.2mm", // 210mm - 2 * 25.4mm margin
           visibility: "hidden",
           fontSize: "13.5px",
-          lineHeight: "1.65",
+          lineHeight: "1.45",
           fontFamily,
+          boxSizing: "border-box",
         }}
       >
         {blocks.map((block, idx) => (
@@ -104,11 +108,11 @@ export function DynamicPksPaginator({
         pages.map((pageIndices, pageIdx) => (
           <section
             key={`page-${pageIdx}`}
-            className="pks-page relative flex flex-col justify-between bg-white text-black p-[25.4mm] w-[210mm] min-h-[297mm] shadow-md mx-auto mb-8 print:shadow-none print:m-0 print:mb-0 print:break-after-page box-border"
+            className="pks-page relative flex flex-col justify-between bg-white text-black p-[25.4mm] w-[210mm] min-h-[297mm] shadow-md mx-auto mb-8 print:shadow-none print:m-0 print:mb-0 print:break-after-page box-border text-[13.5px] leading-[1.45]"
             style={{ fontFamily }}
           >
             {/* Page Body Content */}
-            <div className="flex-1 space-y-3">
+            <div className="flex-1 space-y-2.5">
               {pageIndices.map((blockIndex) => (
                 <div key={`content-${pageIdx}-${blockIndex}`}>
                   {blocks[blockIndex]}
@@ -117,7 +121,7 @@ export function DynamicPksPaginator({
             </div>
 
             {/* Dynamic Page Footer */}
-            <div className="pt-4 flex justify-between items-center text-[12px] text-slate-700 border-t border-transparent">
+            <div className="pt-3 flex justify-between items-center text-[12px] text-slate-700 border-t border-transparent">
               <span className="text-[11px] text-slate-400 print:text-black">
                 {pageIdx === 0 ? "" : "Perjanjian Kerjasama (PKS)"}
               </span>
@@ -130,10 +134,10 @@ export function DynamicPksPaginator({
       ) : (
         /* Fallback saat pengukuran sedang berlangsung (hanya 1 frame) */
         <section
-          className="pks-page relative flex flex-col justify-between bg-white text-black p-[25.4mm] w-[210mm] min-h-[297mm] shadow-md mx-auto mb-8 box-border"
+          className="pks-page relative flex flex-col justify-between bg-white text-black p-[25.4mm] w-[210mm] min-h-[297mm] shadow-md mx-auto mb-8 box-border text-[13.5px] leading-[1.45]"
           style={{ fontFamily }}
         >
-          <div className="space-y-3">
+          <div className="space-y-2.5">
             {blocks.map((block, idx) => (
               <div key={`fallback-${idx}`}>{block}</div>
             ))}
