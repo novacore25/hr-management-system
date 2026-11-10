@@ -400,7 +400,7 @@ export interface PksHypeData {
     address: string;
     signeeName: string;
     signeePosition: string;
-    signeeBasis: string; // "Direksi", "Kuasa Direksi", dll.
+    signeeBasis: string; // "Direksi", "Kuasa Direksi", "Dirinya Sendiri", dll.
     businessDescription: string;
     phone?: string;
     email?: string;
@@ -413,7 +413,8 @@ export interface PksHypeData {
     signeePosition: string;
   };
   campaign: {
-    programName: string; // "Package Activation Tiktok GO"
+    programName: string; // "Package Activation Tiktok GO" atau custom
+    packageName?: string; // "Activation", "Booster", "Sustaining", dll.
     outletName: string;
     outletAddress: string;
     creatorsCount: number;
@@ -429,7 +430,10 @@ export interface PksHypeData {
     firstVtDate: string; // Tanggal Mulai Campaign First VT
     runningDurationDays: number; // 30 hari
     runningEndDate: string;
-    noticeDays: number; // 14 hari kerja
+    extensionNoticeDays?: number; // 30 hari kalender
+    terminationNoticeDays?: number; // 30 hari kalender
+    curePeriodDays?: number; // 14 hari kalender
+    noticeDays?: number; // legacy fallback
   };
   financial: {
     contractValue: number;
@@ -447,6 +451,10 @@ export interface PksHypeData {
     maxRevisions: number; // 3 kali
     replyDays: number; // 3 hari kerja
   };
+  reporting?: {
+    finalReportDays: number; // 7 hari kalender
+    spreadsheetParallel: boolean;
+  };
   legal: {
     nonCircumventionMonths: number; // 3 bulan
     disputeDays: number; // 30 hari kalender
@@ -456,8 +464,8 @@ export interface PksHypeData {
 
 export const DEFAULT_PKS_HYPE_DATA: PksHypeData = {
   header: {
-    contractNumber: "001/PKS-HMI/NHN/X/2026",
-    signDate: "2026-10-20",
+    contractNumber: "001/PKS-HMI/NHN/XI/2026",
+    signDate: "2026-11-10",
     signCity: "Tangerang",
   },
   client: {
@@ -475,7 +483,7 @@ export const DEFAULT_PKS_HYPE_DATA: PksHypeData = {
   },
   agency: {
     company: "HYPE",
-    companyLegalName: "CV HYPE MEDIA INDONESIA",
+    companyLegalName: "CV. HYPE MEDIA INDONESIA",
     address:
       "Jalan Kavling Perkebunan Raya, RT 006 / RW 013, Panunggangan Barat, Kecamatan Cibodas, Kota Tangerang, Banten 15139",
     signeeName: "RUBEN ARIANTO",
@@ -483,22 +491,26 @@ export const DEFAULT_PKS_HYPE_DATA: PksHypeData = {
   },
   campaign: {
     programName: "Package Activation Tiktok GO",
+    packageName: "Activation",
     outletName: "Urban Wellness BSD",
     outletAddress:
       "Jl. Boulevard BSD Timur, Ruko Golden Vienna Blok CA No. 12, Serpong, Tangerang Selatan",
     creatorsCount: 10,
     minVtPerCreator: 1,
     totalVt: 10,
-    targetStartDate: "2026-10-20",
+    targetStartDate: "2026-11-10",
   },
   term: {
-    startDate: "2026-10-20",
+    startDate: "2026-11-10",
     prepDurationDays: 30,
-    prepStartDate: "2026-10-20",
-    prepEndDate: "2026-11-19",
-    firstVtDate: "2026-11-20",
+    prepStartDate: "2026-11-10",
+    prepEndDate: "2026-12-09",
+    firstVtDate: "2026-12-10",
     runningDurationDays: 30,
-    runningEndDate: "2026-12-20",
+    runningEndDate: "2027-01-08",
+    extensionNoticeDays: 30,
+    terminationNoticeDays: 30,
+    curePeriodDays: 14,
     noticeDays: 14,
   },
   financial: {
@@ -509,13 +521,17 @@ export const DEFAULT_PKS_HYPE_DATA: PksHypeData = {
     totalAmount: 16650000,
     bank: {
       bankName: "Bank Central Asia (BCA)",
-      accountName: "SYNERA KREATIF GRUP PT",
-      accountNumber: "8832372730",
+      accountName: "HYPE MEDIA INDONESIA CV",
+      accountNumber: "8833278078",
     },
   },
   approval: {
     maxRevisions: 3,
     replyDays: 3,
+  },
+  reporting: {
+    finalReportDays: 7,
+    spreadsheetParallel: true,
   },
   legal: {
     nonCircumventionMonths: 3,

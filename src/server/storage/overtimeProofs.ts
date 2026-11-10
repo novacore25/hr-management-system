@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import crypto from "crypto";
+import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 
 /**
  * Konfigurasi penyimpanan foto bukti lembur.
@@ -22,6 +23,22 @@ function R2() {
     /** URL publik untuk dibaca, kalau R2 punya domain sendiri. */
     publicUrl: process.env.R2_PUBLIC_URL,
   };
+}
+
+let _s3: S3Client | null = null;
+function getS3Client(): S3Client {
+  if (!_s3) {
+    const r = R2();
+    _s3 = new S3Client({
+      region: "auto",
+      endpoint: r.endpoint,
+      credentials: {
+        accessKeyId: r.accessKeyId || "",
+        secretAccessKey: r.secretAccessKey || "",
+      },
+    });
+  }
+  return _s3;
 }
 
 export type StorageProvider = "supabase" | "r2" | "local";
@@ -125,18 +142,46 @@ export async function uploadBukti(params: {
   }
 
   try {
+    const randomSuffix = crypto.randomBytes(8).toString("hex");
+    const safeFilename = `${Date.now()}-${randomSuffix}.${ext}`;
+    const arrayBuffer = await params.file.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+
+    if (status.provider === "r2") {
+      const r = R2();
+      const s3 = getS3Client();
+      const key = `overtime/${safeFilename}`;
+
+      await s3.send(
+        new PutObjectCommand({
+          Bucket: r.bucket,
+          Key: key,
+          Body: buffer,
+          ContentType: params.file.type || `image/${ext}`,
+          CacheControl: "public, max-age=31536000, immutable",
+        }),
+      );
+
+      const basePub = (r.publicUrl || "").replace(/\/+$/, "");
+      const finalUrl = basePub
+        ? `${basePub}/${key}`
+        : `https://${r.bucket}.r2.dev/${key}`;
+
+      return {
+        ok: true,
+        url: finalUrl,
+        key: safeFilename,
+      };
+    }
+
+    // Fallback: penyimpanan lokal disk VPS
     const uploadBase = getUploadDir();
     const targetDir = path.join(uploadBase, "overtime");
     if (!fs.existsSync(targetDir)) {
       fs.mkdirSync(targetDir, { recursive: true });
     }
 
-    const randomSuffix = crypto.randomBytes(8).toString("hex");
-    const safeFilename = `${Date.now()}-${randomSuffix}.${ext}`;
     const filePath = path.join(targetDir, safeFilename);
-
-    const arrayBuffer = await params.file.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
     await fs.promises.writeFile(filePath, buffer);
 
     return {
@@ -145,11 +190,11 @@ export async function uploadBukti(params: {
       key: safeFilename,
     };
   } catch (err: any) {
-    console.error("Gagal menyimpan foto bukti di VPS:", err);
+    console.error("Gagal menyimpan foto bukti:", err);
     return {
       ok: false,
       error:
-        "Gagal menyimpan foto ke server VPS: " +
+        "Gagal menyimpan foto bukti: " +
         (err?.message || "Internal error"),
     };
   }

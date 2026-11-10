@@ -363,3 +363,27 @@ dua tempat harus konsisten — dan tidak ada tooling untuk itu.
 1. Sesuai arahan eksplisit pengguna (*"ganti aja gausah rentang deh gausah ada fitur itu langsung aja dropdown bulan"*), peninjauan KPI staf dan evaluasi performa perusahaan berbasis pada siklus bulanan resmi, bukan irisan tanggal arbitrary.
 2. Memudahkan eksekutif dan HR untuk langsung melompat ke bulan tertentu (misalnya Oktober 2026 yang memiliki 958 penugasan dan 514 evaluasi kualitatif) hanya dengan satu klik dropdown tanpa perlu mengisi dua input tanggal manual.
 3. Seluruh kalkulasi performa, bobot, dan data riil langsung ditarik dari database server secara instan dan akurat.
+
+---
+
+## 21. Standardisasi dan Pembaruan Sistem Kontrak PKS Hype Draft 10 November 2026
+
+**Pilihan:**
+1. **Pendaftaran Kode Surat Resmi `PKS-HMI`**:
+   - Menambahkan migrasi SQL `0024_pks_hype_letter_type.sql` untuk meregistrasikan tipe surat `PKS-HMI` ('PKS Klien Hype') ke tabel `letter_types` di database PostgreSQL.
+   - Mengalihkan penomoran otomatis PKS Hype pada DAL `src/server/dal/clients.ts` ke format `.../PKS-HMI/NHN/[BulanRomawi]/[Tahun]`, membedakannya dari PKS TNT (`PKS-TNT`) dan MCN (`PKS-MCN`).
+2. **Kepatuhan Terhadap 12 Pasal Resmi Draft 10 November 2026**:
+   - **Komparisi Pihak**: Menambahkan dukungan tipe badan usaha Perseroan Terbatas (PT), CV (Perseroan Komanditer), dan Perorangan beserta dasar kewenangan tanda tangan (`signeeBasis`: Direksi / Kuasa Direksi / Dirinya Sendiri).
+   - **Pasal 1 (Ruang Lingkup)**: Klausul eksplisit penegasan bahwa PIHAK KEDUA tidak menjamin target penayangan (views), keterjangkauan (reach), atau kenaikan penjualan, serta penegasan bahwa perubahan fitur/kebijakan teknis platform TikTok berada di luar kendali PARA PIHAK.
+   - **Pasal 2 (Jangka Waktu & Pengakhiran)**: Penyusunan 11 ayat komprehensif mencakup masa persiapan (default 30 hari), masa running (default 30 hari), batas somasi/pemulihan wanprestasi (14 hari kalender), pemberitahuan tertulis perpanjangan dan pengakhiran (30 hari kalender), serta pengesampingan resmi Pasal 1266 dan Pasal 1267 KUHPerdata untuk pengakhiran sepihak tanpa putusan pengadilan.
+   - **Pasal 3 (Total Pembayaran & Pajak)**: Rekening resmi BCA CV Hype Media Indonesia (`8833278078`), serta klausul pemenuhan kekurangan target (deficit fulfillment) tanpa kompensasi finansial atau pengembalian dana (non-refundable).
+   - **Pasal 5 (Approval)**: Batas review list kreator & drafting video (3 hari kerja), maksimal 3 kali revisi, deemed approved klausul, dan perpanjangan waktu otomatis tanpa addendum jika terjadi keterlambatan approval oleh klien.
+   - **Pasal 6 (Pelaporan & SLA)**: Penegasan pelaporan pengerjaan berjalan secara paralel via Spreadsheet live link (Ayat 10) dan SLA presentasi Final Report maksimal 7 hari kalender setelah campaign berakhir (Ayat 11).
+   - **Pasal 7 (Force Majeure)**: Menambahkan penutupan/pembatasan akun/API resmi TikTok serta perubahan kebijakan platform sepihak ke dalam cakupan Keadaan Kahar.
+   - **Pasal 8-12**: Kerahasiaan, Non-Circumvention (3 bulan), Penyelesaian Sengketa (30 hari musyawarah, PN Tangerang), dan Penutup formal.
+3. **Penyelarasan Komponen Generator & Export**:
+   - Menambahkan input field untuk entitas klien, nama paket, batas waktu notice, SLA Final Report, spreadsheet paralel toggle, serta penomoran otomatis dan export cetak/PDF A4 yang rapi dan terstandarisasi.
+
+**Alasan:**
+1. Surat perjanjian kerjasama Hype memiliki karakteristik legal khusus (agensi influencer TikTok GO dengan live spreadsheet dan SLA ketat) yang berbeda dari kontrak TNT dan MCN.
+2. Memastikan perlindungan hukum agensi dari fluktuasi algoritma TikTok, penundaan approval klien, dan pembatasan platform sepihak.

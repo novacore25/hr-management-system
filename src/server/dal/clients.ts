@@ -407,7 +407,12 @@ export async function saveClientContract(
   // 2. Hubungkan nomor surat resmi ke company_letters jika diminta
   let letterId: string | null = null;
   const contractType = input.contractType || "PKS_KLIEN_MCN";
-  const letterCode = contractType === "PKS_KLIEN_TNT" ? "PKS-TNT" : "PKS-MCN";
+  const letterCode =
+    contractType === "PKS_KLIEN_TNT"
+      ? "PKS-TNT"
+      : contractType === "PKS_HYPE"
+        ? "PKS-HMI"
+        : "PKS-MCN";
 
   if (input.registerLetterNumber) {
     try {
@@ -480,7 +485,13 @@ export async function saveClientContract(
       taxType: input.taxType || "pph_0_5",
       taxAmount: String(safeTaxAmount),
       totalAmount: String(safeTotalAmount),
-      programName: input.programName || (contractType === "PKS_KLIEN_TNT" ? "Affiliate Booster" : "Live Exclusive Creator MCN"),
+      programName:
+        input.programName ||
+        (contractType === "PKS_KLIEN_TNT"
+          ? "Affiliate Booster"
+          : contractType === "PKS_HYPE"
+            ? "Package Activation Tiktok GO"
+            : "Live Exclusive Creator MCN"),
       platform: input.platform || "TikTok",
       creators: input.creators as never,
       totalSessions: input.totalSessions ?? 20,
@@ -502,7 +513,12 @@ export async function saveClientContract(
     .returning();
 
   if (actorId) {
-    const label = contractType === "PKS_KLIEN_TNT" ? "PKS TNT" : "PKS MCN";
+    const label =
+      contractType === "PKS_KLIEN_TNT"
+        ? "PKS TNT"
+        : contractType === "PKS_HYPE"
+          ? "PKS HYPE"
+          : "PKS MCN";
     await writeLog({
       actorId,
       action: "create_client_contract",

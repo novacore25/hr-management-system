@@ -2554,3 +2554,40 @@ Ketika staf ingin melakukan update, pengisian, atau pengubahan pada KPI yang tel
 4. **Verifikasi**:
    - `npm run typecheck`: 0 error.
    - `npm run verify`: 10/10 PASS.
+
+---
+
+## Pembaruan Sistem Kontrak PKS Hype (Draft Resmi 10 November 2026)
+
+### Latar Belakang & Kebutuhan
+- Modul pembuatan dokumen PKS (Perjanjian Kerja Sama) Hype (`PKS_HYPE`) memerlukan perombakan dan standardisasi hukum berdasarkan draf kontrak resmi per tanggal 10 November 2026.
+- Agensi Hype (`CV HYPE MEDIA INDONESIA`) bergerak dalam aktivasi kreator TikTok GO dengan skema pelaporan live spreadsheet paralel dan batas waktu (SLA) presentasi final report.
+- Pengguna menginstruksikan: *"jika ada input data baru silahkan tambahkan kolomnya di database dan tambahkan UI nya juga dan pastikan semua data nya bisa di input dan bisa di terima oleh database dan bisa di input oleh usernya dan file exportnya bisa di download dan tampilannya rapih sesuai aturan dan standar"*.
+
+### Perubahan yang Diterapkan
+1. **Database & Registrasi Tipe Surat**:
+   - Menambahkan migrasi `drizzle/0024_pks_hype_letter_type.sql` yang mendaftarkan tipe surat `PKS-HMI` ('PKS Klien Hype') ke tabel `letter_types`.
+   - Mengalihkan penomoran surat PKS Hype di `src/server/dal/clients.ts` menjadi kode `PKS-HMI` (misal: `.../PKS-HMI/NHN/[Bulan]/[Tahun]`).
+   - Eksekusi migrasi di PostgreSQL VPS container terverifikasi sukses (`INSERT 0 1`).
+2. **Skema & Tipe Data (`src/types/pks.ts`)**:
+   - Memperbarui interface `PksHypeData` dengan properti baru: `campaign.packageName`, `campaign.targetStartDate`, `term.extensionNoticeDays`, `term.terminationNoticeDays`, `term.curePeriodDays`, `client.signeeBasis`, serta `reporting: { finalReportDays, spreadsheetParallel }`.
+   - Mengisi nilai default `DEFAULT_PKS_HYPE_DATA` dengan rekening resmi BCA `HYPE MEDIA INDONESIA CV` (`8833278078`), nomor awal `001/PKS-HMI/NHN/XI/2026`, tanggal 10 November 2026, dan SLA 7 hari kalender.
+3. **Dokumen Hukum Resmi (`src/components/documents/PksHypeDocument.tsx`)**:
+   - Merefleksikan 12 pasal resmi draft 10 November 2026:
+     - Komparisi dinamis untuk entitas PT, CV, maupun Perorangan.
+     - Pasal 1 Ayat 4: Disclaimer views/sales & perubahan platform pihak ketiga.
+     - Pasal 2 Ayat 1-11: Rincian masa persiapan & running, somasi 14 hari, notice 30 hari, serta pengesampingan Pasal 1266 & 1267 KUHPerdata untuk pengakhiran sepihak tanpa putusan pengadilan.
+     - Pasal 3 Ayat 6: Pemenuhan defisit target video tanpa ganti rugi finansial / pengembalian dana (*non-refundable*).
+     - Pasal 5: Mekanisme deemed approved dan kompensasi perpanjangan jadwal otomatis tanpa addendum jika approval tertunda oleh klien.
+     - Pasal 6 Ayat 10 & 11: Pelaporan live paralel via Spreadsheet dan SLA presentasi Final Report 7 hari kalender.
+     - Pasal 7 Ayat 1: Force Majeure mencakup pemblokiran/pembatasan akun/API resmi TikTok.
+     - Pasal 8 s.d. 12: Non-circumvention 3 bulan, yurisdiksi PN Tangerang, dan penutup formal bertanda tangan Ruben Arianto (General Manager).
+   - Memecah Pasal 2 menjadi 2 sub-blok untuk pagination otomatis A4 (`DynamicPksPaginator`) yang rapi tanpa kekosongan halaman.
+4. **Form Antarmuka Universal Contract Generator (`UniversalContractGenerator.tsx`)**:
+   - Tab 1: Pilihan bentuk badan usaha (PT, CV, Perorangan) dan dasar kewenangan tanda tangan.
+   - Tab 2: Pilihan preset paket aktivasi (Activation, Booster, Sustaining, Custom) dan disclaimer badge.
+   - Tab 3: Display rekening resmi BCA CV Hype Media Indonesia (`8833278078`).
+   - Tab 4: Pengaturan notice perpanjangan (30 hari), notice pengakhiran (30 hari), dan somasi/cure period (14 hari).
+   - Tab 5: Pengaturan SLA Final Report (hari kalender), checkbox live spreadsheet paralel, serta kartu panduan standar hukum draft 10 Nov 2026.
+5. **Verifikasi**:
+   - `npm run typecheck`: 0 error (PASS).

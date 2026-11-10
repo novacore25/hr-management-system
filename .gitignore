@@ -56,3 +56,4 @@ firestore-debug.log
 
 # Token sesi lokal - JANGAN pernah di-commit (lihat scripts/local-dev-session.mjs)
 scripts/local-dev-session.mjs
+scripts/test-r2-connect.mjs

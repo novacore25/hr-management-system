@@ -16,7 +16,7 @@ interface Props {
 }
 
 export function PksHypeDocument({ data }: Props) {
-  const { header, client, agency, campaign, term, financial, approval, legal } =
+  const { header, client, agency, campaign, term, financial, approval, legal, reporting } =
     data;
 
   const taxPercentText =
@@ -27,6 +27,8 @@ export function PksHypeDocument({ data }: Props) {
         : financial.taxType === "pph_23"
           ? "2% (dua persen)"
           : "0%";
+
+  const isPerorangan = client.entityType?.toLowerCase() === "perorangan";
 
   const blocks: React.ReactNode[] = [
     /* 1. Header Judul */
@@ -63,26 +65,38 @@ export function PksHypeDocument({ data }: Props) {
       </p>
 
       <ol className="list-decimal pl-6 space-y-2 text-justify">
-        <li>
-          <strong>{client.name}</strong>{" "}
-          {client.brandName ? `("${client.brandName}")` : ""}, suatu{" "}
-          {client.entityType} yang didirikan berdasarkan hukum Negara Republik
-          Indonesia, beralamat di {client.address}, yang dalam hal ini diwakili
-          oleh <strong>{client.signeeName}</strong> selaku{" "}
-          <strong>{client.signeePosition}</strong>, oleh karenanya sah bertindak
-          mewakili {client.signeeBasis} untuk bertindak dan atas nama{" "}
-          {client.name}{" "}
-          {client.brandName ? `("${client.brandName}")` : ""}, untuk selanjutnya
-          disebut sebagai---------------------------------
-          <strong>PIHAK PERTAMA</strong>.
-        </li>
+        {isPerorangan ? (
+          <li>
+            <strong>{client.name}</strong>, suatu perorangan yang beralamat di{" "}
+            {client.address}, dalam hal ini bertindak selaku{" "}
+            <strong>{client.signeePosition}</strong> dari{" "}
+            <strong>“{client.brandName || client.name}”</strong>, oleh karenanya
+            sah bertindak untuk dan atas nama dirinya sendiri, untuk selanjutnya
+            disebut sebagai---------------------------------
+            <strong>PIHAK PERTAMA</strong>.
+          </li>
+        ) : (
+          <li>
+            <strong>{client.name}</strong>{" "}
+            {client.brandName ? `("${client.brandName}")` : ""}, suatu{" "}
+            {client.entityType} yang didirikan berdasarkan hukum Negara Republik
+            Indonesia, beralamat di {client.address}, yang dalam hal ini diwakili
+            oleh <strong>{client.signeeName}</strong> selaku{" "}
+            <strong>{client.signeePosition}</strong>, oleh karenanya sah bertindak
+            mewakili {client.signeeBasis || "Direksi"} untuk bertindak dan atas nama{" "}
+            {client.name}{" "}
+            {client.brandName ? `("${client.brandName}")` : ""}, untuk selanjutnya
+            disebut sebagai---------------------------------
+            <strong>PIHAK PERTAMA</strong>.
+          </li>
+        )}
 
         <div className="py-0.5 text-center font-bold tracking-widest text-[13px]">
           Dan
         </div>
 
         <li>
-          <strong>{agency.companyLegalName}</strong>, suatu perseroan komanditer
+          <strong>{agency.companyLegalName}</strong>, suatu Persekutuan Komanditer
           yang didirikan berdasarkan hukum Negara Republik Indonesia,
           berdomisili di {agency.address}, yang dalam hal ini diwakili oleh{" "}
           <strong>{agency.signeeName}</strong> selaku{" "}
@@ -136,16 +150,20 @@ export function PksHypeDocument({ data }: Props) {
       <ol className="list-decimal pl-6 space-y-1.5">
         <li>
           PIHAK PERTAMA dengan ini menunjuk PIHAK KEDUA dan PIHAK KEDUA dengan
-          ini menerima penunjukan dari PIHAK PERTAMA untuk melaksanakan Jasa dan
-          setiap bagian daripadanya sebagaimana dimaksud dalam Perjanjian ini,
-          sesuai dengan perintah dan petunjuk PIHAK PERTAMA yang berkaitan
-          langsung dengan ruang lingkup pekerjaan sebagaimana tercantum dalam
-          Perjanjian ini dan lampiran-lampirannya.
+          ini menerima penunjukan tersebut, untuk melaksanakan pekerjaan
+          sebagaimana diuraikan dalam Pasal ini dan Lampiran Perjanjian (apabila
+          ada) (<strong>“Jasa”</strong>), sesuai petunjuk tertulis PIHAK PERTAMA
+          yang wajar dan berada dalam ruang lingkup Jasa.
         </li>
         <li>
           Pekerjaan yang dimaksud yaitu berupa membantu PIHAK PERTAMA untuk
-          mendapatkan <strong>{campaign.programName}</strong> di platform
-          TikTok.
+          mendapatkan{" "}
+          <strong>
+            {campaign.programName.toLowerCase().startsWith("package")
+              ? campaign.programName
+              : `Package ${campaign.programName}`}
+          </strong>{" "}
+          di platform TikTok.
         </li>
         <li>
           PIHAK KEDUA wajib menyediakan KOL/Creator yang sudah ditentukan pada
@@ -166,10 +184,10 @@ export function PksHypeDocument({ data }: Props) {
               ) VT;
             </li>
             <li>
-              PIHAK KEDUA juga bertanggung jawab atas penyusunan{" "}
-              <strong>TikTok GO Campaign Strategy</strong> secara menyeluruh,
-              mulai dari perencanaan awal hingga pelaksanaan akhir, termasuk
-              penentuan Creator, penyusunan brief, dan hal-hal terkait lainnya;
+              Menyusun <strong>TikTok GO Campaign Strategy</strong> yang terdiri
+              atas perencanaan campaign, pengajuan list creator, dan penyusunan
+              brief konten berdasarkan informasi, materi, dan SOP yang diberikan
+              PIHAK PERTAMA;
             </li>
             <li>
               Serta melaksanakan Back-end Management berupa aktivasi{" "}
@@ -177,11 +195,18 @@ export function PksHypeDocument({ data }: Props) {
             </li>
           </ol>
         </li>
+        <li>
+          PIHAK KEDUA tidak menjamin jumlah tayangan (views), interaksi,
+          kunjungan, maupun penjualan, serta PARA PIHAK menyadari dan sepakat
+          bahwasannya keputusan, kebijakan, dan perubahan pada platform TikTok
+          berada di luar kendali PIHAK KEDUA dan tidak dapat dikategorikan sebagai
+          Wanprestasi PIHAK KEDUA.
+        </li>
       </ol>
     </div>,
 
-    /* 5. PASAL 2: JANGKA WAKTU DAN BERAKHIRNYA PERJANJIAN */
-    <div key="b-pasal-2" className="space-y-2 text-justify">
+    /* 5. PASAL 2: JANGKA WAKTU DAN BERAKHIRNYA PERJANJIAN (BAGIAN 1: AYAT 1-5) */
+    <div key="b-pasal-2-part1" className="space-y-2 text-justify">
       <div className="text-center font-bold">
         <p className="uppercase">PASAL 2</p>
         <p className="uppercase">JANGKA WAKTU DAN BERAKHIRNYA PERJANJIAN</p>
@@ -191,18 +216,20 @@ export function PksHypeDocument({ data }: Props) {
           Perjanjian ini berlaku mengikat bagi PARA PIHAK terhitung sejak tanggal{" "}
           <strong>{formatTanggalId(term.startDate)}</strong> yang terdiri atas
           masa persiapan pelaksanaan Campaign dan masa pelaksanaan (running)
-          Campaign sebagaimana diatur dalam ayat 2 (dua) Pasal ini.
+          Campaign sebagaimana diatur dalam ayat 2 (dua) dan ayat 3 (tiga) Pasal
+          ini.
         </li>
         <li>
           PIHAK KEDUA wajib memulai persiapan pelaksanaan Campaign
-          selambat-lambatnya {term.prepDurationDays} (tiga puluh) hari kalender
-          sebelum Campaign berjalan (running) yaitu terhitung sejak tanggal{" "}
+          selambat-lambatnya {term.prepDurationDays} (
+          {terbilang(term.prepDurationDays)}) hari kalender sebelum Campaign
+          berjalan (running) yaitu terhitung sejak tanggal{" "}
           <strong>{formatTanggalId(term.prepStartDate)}</strong> sampai dengan
           tanggal <strong>{formatTanggalId(term.prepEndDate)}</strong>, masa
           persiapan sebagaimana dimaksud pada ayat ini dihitung di luar dan tidak
           mengurangi jangka waktu pelaksanaan (running) Campaign selama{" "}
-          {term.runningDurationDays} (tiga puluh) hari kalender sebagaimana
-          dimaksud pada ayat 3 (tiga) Pasal ini.
+          {term.runningDurationDays} ({terbilang(term.runningDurationDays)}) hari
+          kalender sebagaimana dimaksud pada ayat 3 (tiga) Pasal ini.
         </li>
         <li>
           Campaign dinyatakan mulai berjalan (running) sejak tanggal publikasi
@@ -210,8 +237,9 @@ export function PksHypeDocument({ data }: Props) {
           creator yang dikelola PIHAK KEDUA di platform TikTok (
           <strong>“Tanggal Mulai Campaign”</strong>), yang ditargetkan jatuh
           pada tanggal <strong>{formatTanggalId(term.firstVtDate)}</strong> dan
-          berlangsung selama {term.runningDurationDays} (tiga puluh) hari
-          kalender sejak Tanggal Mulai Campaign tersebut sampai dengan tanggal{" "}
+          berlangsung selama {term.runningDurationDays} (
+          {terbilang(term.runningDurationDays)}) hari kalender sejak Tanggal Mulai
+          Campaign tersebut sampai dengan tanggal{" "}
           <strong>{formatTanggalId(term.runningEndDate)}</strong>.
         </li>
         <li>
@@ -220,15 +248,103 @@ export function PksHypeDocument({ data }: Props) {
           dibuat secara tertulis dan ditandatangani oleh PARA PIHAK.
         </li>
         <li>
-          Pihak yang bermaksud untuk tidak memperpanjang Perjanjian ini wajib
-          memberitahukan secara tertulis kepada Pihak lainnya
-          selambat-lambatnya {term.noticeDays} (empat belas) hari kerja sebelum
-          berakhirnya Perjanjian.
+          Pihak yang bermaksud untuk mengajukan perpanjangan Perjanjian, harus
+          mengajukan permohonan dan/atau kesepakatan perpanjangan secara tertulis
+          kepada Pihak lainnya, dalam jangka waktu paling lambat{" "}
+          {term.extensionNoticeDays ?? 30} (
+          {terbilang(term.extensionNoticeDays ?? 30)}) hari kalender sebelum
+          habisnya masa berlaku Perjanjian ini.
         </li>
       </ol>
     </div>,
 
-    /* 6. PASAL 3: NILAI KONTRAK DAN TATA CARA PEMBAYARAN */
+    /* 6. PASAL 2: JANGKA WAKTU DAN BERAKHIRNYA PERJANJIAN (BAGIAN 2: AYAT 6-11) */
+    <div key="b-pasal-2-part2" className="space-y-2 text-justify">
+      <ol start={6} className="list-decimal pl-6 space-y-1.5">
+        <li>
+          Perjanjian ini dapat diakhiri sebelum berakhirnya jangka waktu, apabila
+          disepakati secara tertulis oleh PARA PIHAK.
+        </li>
+        <li>
+          PIHAK PERTAMA dapat mengakhiri Perjanjian sebelum berakhirnya jangka waktu
+          dengan pemberitahuan tertulis paling lambat{" "}
+          {term.terminationNoticeDays ?? 30} (
+          {terbilang(term.terminationNoticeDays ?? 30)}) hari kalender sebelum
+          tanggal efektif. Dalam hal demikian, pembayaran yang telah diterima
+          PIHAK KEDUA tidak dapat dikembalikan (<em>non-refundable</em>) dan apabila
+          Total Pembayaran belum dibayar penuh, maka PIHAK PERTAMA wajib melunasi
+          sisanya.
+        </li>
+        <li>
+          Apabila PIHAK PERTAMA melakukan Wanprestasi dan tidak memperbaiki
+          pelanggaran tersebut dalam waktu {term.curePeriodDays ?? 14} (
+          {terbilang(term.curePeriodDays ?? 14)}) hari kalender sejak diterimanya
+          surat peringatan/surat somasi tertulis dari Pihak lainnya, maka PIHAK
+          KEDUA berhak mengakhiri Perjanjian ini secara sepihak, dengan catatan
+          pembayaran yang telah diterima PIHAK KEDUA tidak dapat dikembalikan (
+          <em>non-refundable</em>) dan apabila Total Pembayaran belum dibayar
+          penuh, maka PIHAK PERTAMA wajib melunasi sisanya.
+        </li>
+        <li>
+          Dalam pelaksanaan pengakhiran Perjanjian ini, PARA PIHAK sepakat untuk:
+          <ol className="list-[lower-alpha] pl-6 space-y-1 mt-1">
+            <li>
+              PARA PIHAK sepakat untuk melepaskan ketentuan Pasal 1266 Kitab
+              Undang-Undang Hukum Perdata (KUHPerdata) sepanjang mengatur
+              keharusan pengakhiran Perjanjian melalui putusan Pengadilan, serta
+              ketentuan Pasal 1267 KUHPerdata sepanjang mengatur pemberian ganti
+              kerugian dalam bentuk apapun akibat pengakhiran Perjanjian dengan
+              ketentuan pelepasan ini hanya berlaku apabila pengakhiran dilakukan
+              berdasarkan kesepakatan tertulis PARA PIHAK.
+            </li>
+            <li>
+              Bahwa dalam hal pengakhiran dilakukan secara sepihak oleh PIHAK
+              PERTAMA tanpa alasan yang sah, ketentuan pelepasan pada ayat 9
+              (Sembilan) huruf a Pasal ini tidak berlaku, dan PIHAK KEDUA tetap
+              berhak menuntut ganti rugi atas pekerjaan yang telah diselesaikan
+              serta kerugian langsung yang timbul akibat pengakhiran sepihak tersebut.
+            </li>
+          </ol>
+        </li>
+        <li>
+          Pada saat Perjanjian ini berakhir atau diakhiri, maka hak dan kewajiban
+          masing-masing Pihak yang telah timbul sebelum pengakhiran Perjanjian ini
+          efektif berakhir atau diakhiri wajib tetap diselesaikan dan dipenuhi oleh
+          masing-masing Pihak dalam Perjanjian ini, dengan diberlakukan ketentuan
+          sebagai berikut:
+          <ol className="list-[lower-alpha] pl-6 space-y-1 mt-1">
+            <li>
+              Dalam hal terdapat tagihan tambahan yang timbul dari perpanjangan
+              atau Addendum Perjanjian ini yang belum dibayar pada saat
+              pengakhiran, PIHAK PERTAMA wajib melunasi tagihan tersebut kepada
+              PIHAK KEDUA, apabila:
+              <ol className="list-[lower-roman] pl-6 space-y-0.5 mt-0.5">
+                <li>
+                  PIHAK KEDUA telah melakukan seluruh kewajiban-kewajiban pekerjaan
+                  yang disebutkan dalam Perjanjian ini;
+                </li>
+                <li>
+                  PIHAK KEDUA telah menyerahkan semua invoice dan lampiran
+                  (apabila ada) persyaratan yang diperlukan.
+                </li>
+              </ol>
+            </li>
+            <li>
+              PARA PIHAK tidak mempunyai hak menuntut ganti rugi atau pembayaran
+              apapun dari Pihak lainnya setelah ketentuan dalam Ayat 10 (sepuluh)
+              huruf a Pasal ini telah terlaksana.
+            </li>
+          </ol>
+        </li>
+        <li>
+          Berakhirnya atau batalnya Perjanjian ini tidak membebaskan PIHAK PERTAMA
+          dari kewajiban pembayaran yang telah timbul sebelum atau akibat
+          berakhirnya Perjanjian, sampai kewajiban tersebut dilunasi seluruhnya.
+        </li>
+      </ol>
+    </div>,
+
+    /* 7. PASAL 3: NILAI KONTRAK DAN TATA CARA PEMBAYARAN */
     <div key="b-pasal-3" className="space-y-2 text-justify">
       <div className="text-center font-bold">
         <p className="uppercase">PASAL 3</p>
@@ -273,12 +389,12 @@ export function PksHypeDocument({ data }: Props) {
             </li>
             <li>
               PIHAK PERTAMA berhak untuk menolak invoice PIHAK KEDUA apabila
-              terbukti lampiran sebagaimana dimaksud dalam pasal ini tidak
-              lengkap dan/atau tidak sesuai dengan yang sebenarnya paling lambat
-              1 (satu) hari kerja setelah Invoice diterima oleh PIHAK PERTAMA,
-              apabila tidak ada pemberitahuan penolakan invoice dalam kurun waktu
-              1 (satu) hari kerja setelah invoice diterima oleh PIHAK PERTAMA,
-              maka invoice beserta lampiran yang PIHAK KEDUA kirimkan dianggap
+              terbukti sebagaimana dimaksud dalam pasal ini tidak lengkap dan/atau
+              tidak sesuai dengan yang sebenarnya paling lambat 1 (satu) hari kerja
+              setelah Invoice diterima oleh PIHAK PERTAMA, apabila tidak ada
+              pemberitahuan penolakan invoice dalam kurun waktu 1 (satu) hari
+              kerja setelah invoice diterima oleh PIHAK PERTAMA, maka invoice
+              beserta lampiran (apabila ada) yang PIHAK KEDUA kirimkan dianggap
               sudah sesuai dengan yang sebenarnya.
             </li>
             <li>
@@ -286,21 +402,19 @@ export function PksHypeDocument({ data }: Props) {
               lambat 7 (tujuh) hari kerja setelah invoice diterima.
             </li>
             <li>
-              Apabila PIHAK PERTAMA tidak melakukan pembayaran dalam jangka
-              waktu yang telah ditentukan, maka PIHAK KEDUA berhak menunda
-              pelaksanaan pekerjaan hingga pembayaran diterima sepenuhnya, tanpa
-              dianggap sebagai Wanprestasi.
+              Apabila PIHAK PERTAMA terlambat melakukan pembayaran sesuai dengan
+              jangka waktu yang telah ditentukan dalam Perjanjian ini, PIHAK KEDUA
+              berhak menunda dan/atau menghentikan sementara pelaksanaan pekerjaan
+              hingga pembayaran diterima sepenuhnya, serta menyesuaikan jadwal
+              persiapan, kunjungan, publikasi, dan pelaksanaan Campaign sesuai
+              dengan jumlah hari keterlambatan pembayaran. Penundaan tersebut
+              tidak dianggap sebagai Wanprestasi PIHAK KEDUA dan tidak mengurangi
+              hak PIHAK KEDUA atas pembayaran yang telah maupun seharusnya
+              diterima berdasarkan Perjanjian ini.
             </li>
             <li>
               Seluruh pembayaran yang telah dilakukan oleh PIHAK PERTAMA kepada
               PIHAK KEDUA tidak dapat diminta kembali (<em>non-refundable</em>).
-            </li>
-            <li>
-              Apabila PIHAK PERTAMA tidak melakukan pembayaran sesuai dengan
-              ketentuan Perjanjian ini, maka PIHAK KEDUA berhak untuk menunda
-              pelaksanaan dan/atau menghentikan sementara atau seluruh aktivitas,
-              tanpa mengurangi hak PIHAK KEDUA atas pembayaran yang telah atau
-              seharusnya diterima.
             </li>
             <li>
               Pembayaran yang dilakukan PIHAK PERTAMA di luar rekening tidak akan
@@ -315,10 +429,17 @@ export function PksHypeDocument({ data }: Props) {
             </li>
           </ol>
         </li>
+        <li>
+          Apabila setelah berakhirnya Masa Perjanjian namun masih belum terpenuhi
+          Pasal 1 ayat (3) Perjanjian ini, maka penyelesaian yang dapat dilakukan
+          dengan melengkapi kekurangan target jumlah Creator dan VT sebagaimana
+          dimaksud dalam Pasal 1 ayat 3 huruf a dan huruf b sesuai kesepakatan
+          PARA PIHAK dan tidak menimbulkan kewajiban pengembalian dana.
+        </li>
       </ol>
     </div>,
 
-    /* 7. PASAL 4: HAK DAN KEWAJIBAN PIHAK PERTAMA */
+    /* 8. PASAL 4: HAK DAN KEWAJIBAN PIHAK PERTAMA */
     <div key="b-pasal-4" className="space-y-2 text-justify">
       <div className="text-center font-bold">
         <p className="uppercase">PASAL 4</p>
@@ -344,13 +465,8 @@ export function PksHypeDocument({ data }: Props) {
           PERTAMA tidak dapat dikategorikan sebagai wanprestasi PIHAK KEDUA.
         </li>
         <li>
-          Perhitungan dari Target di atas dihitung mulai dari tanggal{" "}
-          <strong>{formatTanggalId(term.firstVtDate)}</strong> hingga
-          berakhirnya perjanjian ini.
-        </li>
-        <li>
           PIHAK PERTAMA berhak untuk menerima laporan performa secara berkala
-          terkait Pekerjaan yang diperjanjikan dalam Perjanjian ini.
+          terkait Pekerjaan yang diperjanjikan dalam Perjanjian ini secara berkala.
         </li>
         <li>
           PIHAK PERTAMA berhak untuk meminta dokumen-dokumen lain yang diperlukan
@@ -391,7 +507,7 @@ export function PksHypeDocument({ data }: Props) {
       </ol>
     </div>,
 
-    /* 8. PASAL 5: APPROVAL KREATOR DAN KONTEN */
+    /* 9. PASAL 5: APPROVAL KREATOR DAN KONTEN */
     <div key="b-pasal-5" className="space-y-2 text-justify">
       <div className="text-center font-bold">
         <p className="uppercase">PASAL 5</p>
@@ -450,8 +566,8 @@ export function PksHypeDocument({ data }: Props) {
             </li>
             <li>
               Total Pembayaran sebagaimana dimaksud dalam Pasal 3 (tiga) tidak
-              berkurang dan/atau dapat diminta kembali oleh PIHAK PERTAMA akibat
-              keterlambatan dimaksud.
+              berkurang dan/atau tidak dapat diminta kembali oleh PIHAK PERTAMA
+              akibat keterlambatan dimaksud.
             </li>
           </ol>
         </li>
@@ -464,7 +580,7 @@ export function PksHypeDocument({ data }: Props) {
       </ol>
     </div>,
 
-    /* 9. PASAL 6: HAK DAN KEWAJIBAN PIHAK KEDUA */
+    /* 10. PASAL 6: HAK DAN KEWAJIBAN PIHAK KEDUA */
     <div key="b-pasal-6" className="space-y-2 text-justify">
       <div className="text-center font-bold">
         <p className="uppercase">PASAL 6</p>
@@ -520,10 +636,23 @@ export function PksHypeDocument({ data }: Props) {
           PIHAK KEDUA berkewajiban melaksanakan pekerjaan sesuai ruang lingkup
           Pasal 1 (satu) Perjanjian ini.
         </li>
+        <li>
+          PIHAK KEDUA berkewajiban menyampaikan pelaporan pelaksanaan pekerjaan
+          kepada PIHAK PERTAMA melalui spreadsheet pengerjaan yang diisi secara
+          paralel selama pelaksanaan pekerjaan dan dapat diakses oleh PIHAK
+          PERTAMA.
+        </li>
+        <li>
+          Laporan akhir (<em>final report</em>) Campaign dipresentasikan oleh
+          PIHAK KEDUA kepada PIHAK PERTAMA paling lambat{" "}
+          {reporting?.finalReportDays ?? 7} (
+          {terbilang(reporting?.finalReportDays ?? 7)}) hari kalender setelah
+          Tanggal Berakhir Campaign.
+        </li>
       </ol>
     </div>,
 
-    /* 10. PASAL 7: KEADAAN KAHAR (FORCE MAJEURE) */
+    /* 11. PASAL 7: KEADAAN KAHAR (FORCE MAJEURE) */
     <div key="b-pasal-7" className="space-y-2 text-justify">
       <div className="text-center font-bold">
         <p className="uppercase">PASAL 7</p>
@@ -539,8 +668,11 @@ export function PksHypeDocument({ data }: Props) {
           kebakaran, banjir, gempa bumi, pandemi, gangguan sistem
           elektronik/internet, perang, revolusi, terorisme, wabah penyakit,
           perubahan Peraturan Perundang-undangan yang berkaitan langsung dengan
-          pelaksanaan Perjanjian ini, dan/atau kekacauan sosial yang merintangi
-          dan menghalangi salah satu dari PARA PIHAK untuk menjalankan kewajiban
+          pelaksanaan Perjanjian ini dan/atau kekacauan sosial serta perubahan
+          kebijakan, persyaratan, atau program TikTok/TikTok GO, pembatasan,
+          penangguhan atau penutupan akun/fitur oleh platform dan gangguan layanan
+          platform yang berada di luar kendali PIHAK KEDUA yang merintangi dan
+          menghalangi salah satu dari PARA PIHAK untuk menjalankan kewajiban
           dalam Perjanjian ini.
         </li>
         <li>
@@ -588,7 +720,7 @@ export function PksHypeDocument({ data }: Props) {
       </ol>
     </div>,
 
-    /* 11. PASAL 8: KERAHASIAAN */
+    /* 12. PASAL 8: KERAHASIAAN */
     <div key="b-pasal-8" className="space-y-2 text-justify">
       <div className="text-center font-bold">
         <p className="uppercase">PASAL 8</p>
@@ -606,17 +738,18 @@ export function PksHypeDocument({ data }: Props) {
           PIHAK PERTAMA dilarang menghubungi atau bekerja sama secara langsung
           dengan content creator yang digunakan dalam Campaign ini tanpa
           sepengetahuan dan persetujuan PIHAK KEDUA, baik selama masa berlaku
-          Perjanjian maupun dalam jangka waktu {legal.nonCircumventionMonths} (tiga)
-          bulan setelah Perjanjian berakhir.
+          Perjanjian maupun dalam jangka waktu {legal.nonCircumventionMonths} (
+          {terbilang(legal.nonCircumventionMonths)}) bulan setelah Perjanjian
+          berakhir.
         </li>
         <li>
-          Kewajiban kerahasiaan sebagaimana dimaksud pada Pasal ini tetap berlaku
-          meskipun Perjanjian ini telah berakhir.
+          Kewajiban kerahasiaan sebagaimana dimaksud pada ayat (1) Pasal ini tetap
+          berlaku meskipun Perjanjian ini telah berakhir.
         </li>
       </ol>
     </div>,
 
-    /* 12. PASAL 9: PENYELESAIAN PERSELISIHAN */
+    /* 13. PASAL 9: PENYELESAIAN PERSELISIHAN */
     <div key="b-pasal-9" className="space-y-2 text-justify">
       <div className="text-center font-bold">
         <p className="uppercase">PASAL 9</p>
@@ -629,10 +762,10 @@ export function PksHypeDocument({ data }: Props) {
           mencapai mufakat.
         </li>
         <li>
-          Jika dalam waktu {legal.disputeDays} (tiga puluh) Hari Kalender sejak
-          dimulainya penyelesaian sengketa sebagaimana dimaksud ayat 1 (satu)
-          Pasal ini tidak tercapai mufakat, maka PARA PIHAK sepakat untuk
-          menyelesaikan perselisihan tersebut melalui{" "}
+          Jika dalam waktu {legal.disputeDays} ({terbilang(legal.disputeDays)})
+          Hari Kalender sejak dimulainya penyelesaian sengketa sebagaimana
+          dimaksud ayat 1 (satu) Pasal ini tidak tercapai mufakat, maka PARA
+          PIHAK sepakat untuk menyelesaikan perselisihan tersebut melalui{" "}
           <strong>{legal.courtJurisdiction}</strong>.
         </li>
         <li>
@@ -642,7 +775,7 @@ export function PksHypeDocument({ data }: Props) {
       </ol>
     </div>,
 
-    /* 13. PASAL 10: HAK KEKAYAAN INTELEKTUAL */
+    /* 14. PASAL 10: HAK KEKAYAAN INTELEKTUAL */
     <div key="b-pasal-10" className="space-y-2 text-justify">
       <div className="text-center font-bold">
         <p className="uppercase">PASAL 10</p>
@@ -678,7 +811,7 @@ export function PksHypeDocument({ data }: Props) {
       </ol>
     </div>,
 
-    /* 14. PASAL 11: GANTI RUGI */
+    /* 15. PASAL 11: GANTI RUGI */
     <div key="b-pasal-11" className="space-y-2 text-justify">
       <div className="text-center font-bold">
         <p className="uppercase">PASAL 11</p>
@@ -724,7 +857,7 @@ export function PksHypeDocument({ data }: Props) {
       </ol>
     </div>,
 
-    /* 15. PASAL 12: LAIN-LAIN */
+    /* 16. PASAL 12: LAIN-LAIN */
     <div key="b-pasal-12" className="space-y-2 text-justify">
       <div className="text-center font-bold">
         <p className="uppercase">PASAL 12</p>
@@ -737,16 +870,12 @@ export function PksHypeDocument({ data }: Props) {
           Indonesia.
         </li>
         <li>
-          Segala perubahan dan/atau penambahan atas Perjanjian ini hanya sah
-          apabila dibuat secara tertulis dan ditandatangani oleh PARA PIHAK dalam
-          bentuk addendum yang merupakan satu kesatuan dan bagian yang tidak
-          terpisahkan dari Perjanjian ini.
-        </li>
-        <li>
-          Setiap perubahan atau pengaturan lebih lanjut terhadap hal-hal yang
-          tidak atau belum diatur dalam perjanjian ini harus disetujui secara
-          tertulis oleh PARA PIHAK serta dituangkan dalam bentuk Addendum yang
-          merupakan bagian yang tidak terpisahkan dari perjanjian ini.
+          Segala perubahan, penambahan, dan/atau pengaturan lebih lanjut atas
+          hal-hal yang belum diatur dalam Perjanjian ini hanya sah dan berlaku
+          apabila telah disepakati secara tertulis oleh PARA PIHAK dan dituangkan
+          dalam bentuk Addendum yang ditandatangani oleh PARA PIHAK, serta
+          merupakan satu kesatuan dan bagian yang tidak terpisahkan dari
+          Perjanjian ini.
         </li>
         <li>
           Perjanjian ini secara sah telah menggantikan segala
@@ -771,7 +900,7 @@ export function PksHypeDocument({ data }: Props) {
       </ol>
     </div>,
 
-    /* 16. Penutup & Tanda Tangan */
+    /* 17. Penutup & Tanda Tangan */
     <div key="b-penutup" className="space-y-4 pt-2">
       <p className="text-justify indent-8">
         Demikian Perjanjian ini dibuat dan ditandatangani oleh PARA PIHAK dengan
@@ -815,7 +944,7 @@ export function PksHypeDocument({ data }: Props) {
             {agency.signeeName}
           </p>
           <p className="text-[12.5px] uppercase mt-0.5 text-slate-700">
-            {agency.signeePosition}
+            General Manager
           </p>
         </div>
       </div>

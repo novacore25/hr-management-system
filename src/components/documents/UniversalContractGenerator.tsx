@@ -934,6 +934,58 @@ function UniversalContractGeneratorInner({ backHref = "/absensi/letters" }: Prop
                     </div>
                   </div>
 
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block mb-1">
+                        Bentuk Badan Usaha:
+                      </label>
+                      <select
+                        value={
+                          templateType === "PKS_KLIEN_TNT"
+                            ? formDataTnt.client.entityType
+                            : templateType === "PKS_HYPE"
+                              ? formDataHype.client.entityType
+                              : formDataMcn.client.entityType
+                        }
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          const basis = v === "perorangan" ? "Dirinya Sendiri" : "Direksi";
+                          setFormDataTnt((p) => ({ ...p, client: { ...p.client, entityType: v, signeeBasis: p.client.signeeBasis || basis } }));
+                          setFormDataHype((p) => ({ ...p, client: { ...p.client, entityType: v, signeeBasis: v === "perorangan" ? "Dirinya Sendiri" : (p.client.signeeBasis === "Dirinya Sendiri" ? "Direksi" : p.client.signeeBasis) } }));
+                          setFormDataMcn((p) => ({ ...p, client: { ...p.client, entityType: v, signeeBasis: p.client.signeeBasis || basis } }));
+                        }}
+                        className="w-full px-3 py-1.5 text-xs font-semibold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:border-primary"
+                      >
+                        <option value="perseroan terbatas">Perseroan Terbatas (PT)</option>
+                        <option value="perseroan komanditer">Perseroan Komanditer (CV)</option>
+                        <option value="perorangan">Perorangan / Usaha Pribadi</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block mb-1">
+                        Dasar Kewenangan TTD:
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Direksi / Kuasa Direksi / Dirinya Sendiri"
+                        value={
+                          templateType === "PKS_KLIEN_TNT"
+                            ? formDataTnt.client.signeeBasis
+                            : templateType === "PKS_HYPE"
+                              ? formDataHype.client.signeeBasis
+                              : formDataMcn.client.signeeBasis
+                        }
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setFormDataTnt((p) => ({ ...p, client: { ...p.client, signeeBasis: v } }));
+                          setFormDataHype((p) => ({ ...p, client: { ...p.client, signeeBasis: v } }));
+                          setFormDataMcn((p) => ({ ...p, client: { ...p.client, signeeBasis: v } }));
+                        }}
+                        className="w-full px-3 py-1.5 text-xs font-semibold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:border-primary"
+                      />
+                    </div>
+                  </div>
+
                   {templateType === "PKS_HYPE" && (
                     <div>
                       <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block mb-1">
@@ -1248,9 +1300,12 @@ function UniversalContractGeneratorInner({ backHref = "/absensi/letters" }: Prop
                     </div>
 
                     <div>
-                      <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block mb-1">
-                        Nama Program / Jasa:
-                      </label>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400">
+                          Nama Program / Jasa (Pasal 1):
+                        </label>
+                        <span className="text-[10px] text-slate-400">Pilihan cepat:</span>
+                      </div>
                       <input
                         type="text"
                         value={formDataHype.campaign.programName}
@@ -1260,8 +1315,34 @@ function UniversalContractGeneratorInner({ backHref = "/absensi/letters" }: Prop
                             campaign: { ...p.campaign, programName: e.target.value },
                           }))
                         }
-                        className="w-full px-3 py-1.5 text-xs font-semibold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg"
+                        className="w-full px-3 py-1.5 text-xs font-semibold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg mb-1.5"
                       />
+                      <div className="flex flex-wrap gap-1.5">
+                        {[
+                          "Package Activation Tiktok GO",
+                          "Package Booster Tiktok GO",
+                          "Package Sustaining Tiktok GO",
+                          "Activation",
+                        ].map((pkg) => (
+                          <button
+                            key={pkg}
+                            type="button"
+                            onClick={() =>
+                              setFormDataHype((p) => ({
+                                ...p,
+                                campaign: { ...p.campaign, programName: pkg },
+                              }))
+                            }
+                            className={`px-2 py-0.5 rounded text-[10px] font-medium border transition-colors ${
+                              formDataHype.campaign.programName === pkg
+                                ? "bg-primary text-white border-primary"
+                                : "bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:border-primary/50"
+                            }`}
+                          >
+                            {pkg}
+                          </button>
+                        ))}
+                      </div>
                     </div>
 
                     <div className="grid grid-cols-1 gap-3">
@@ -1367,10 +1448,11 @@ function UniversalContractGeneratorInner({ backHref = "/absensi/letters" }: Prop
                     </div>
 
                     <div className="p-2.5 bg-blue-50/50 dark:bg-blue-950/20 rounded-lg border border-blue-200/50 space-y-1 text-[11px] text-blue-900 dark:text-blue-300">
-                      <p className="font-bold">Klausul Spesifik Pasal 1:</p>
+                      <p className="font-bold">Klausul Spesifik Pasal 1 (Draft 10 Nov 2026):</p>
                       <ul className="list-disc pl-4 space-y-0.5 text-[10.5px]">
-                        <li>TikTok GO Campaign Strategy menyeluruh (brief &amp; penentuan kreator).</li>
+                        <li>TikTok GO Campaign Strategy disusun berdasarkan informasi, materi, dan SOP Pihak Pertama.</li>
                         <li>Back-end Management aktivasi TikTok-Go Dashboard.</li>
+                        <li><strong>Pasal 1 Ayat 4 (Disclaimer)</strong>: Tidak menjamin views, interaksi, kunjungan, atau penjualan; perubahan kebijakan platform TikTok bukan wanprestasi agensi.</li>
                       </ul>
                     </div>
                   </div>
@@ -1558,12 +1640,15 @@ function UniversalContractGeneratorInner({ backHref = "/absensi/letters" }: Prop
                       Rekening Penerima Pembayaran:
                     </p>
                     {templateType === "PKS_HYPE" ? (
-                      <div className="p-2.5 bg-slate-100 dark:bg-slate-800/80 rounded-lg text-xs font-mono space-y-0.5">
+                      <div className="p-2.5 bg-slate-100 dark:bg-slate-800/80 rounded-lg text-xs font-mono space-y-1">
                         <p className="font-bold">Bank Central Asia (BCA)</p>
-                        <p>Nama: SYNERA KREATIF GRUP PT</p>
-                        <p>Nomor: 8832372730</p>
+                        <p>Nama: {formDataHype.financial.bank.accountName || "HYPE MEDIA INDONESIA CV"}</p>
+                        <p>Nomor: {formDataHype.financial.bank.accountNumber || "8833278078"}</p>
                         <p className="text-[11px] font-sans text-amber-600 dark:text-amber-400 font-bold pt-1">
                           * Pembayaran 100% di awal setelah tanda tangan sebelum pekerjaan dimulai.
+                        </p>
+                        <p className="text-[10.5px] font-sans text-slate-500 dark:text-slate-400">
+                          * Pasal 3 Ayat 6: Kekurangan target Creator/VT diselesaikan dengan melengkapi sisa target, non-refundable.
                         </p>
                       </div>
                     ) : (
@@ -1781,21 +1866,67 @@ function UniversalContractGeneratorInner({ backHref = "/absensi/letters" }: Prop
                       </div>
                     </div>
 
-                    <div>
-                      <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block mb-1">
-                        Batas Pemberitahuan Surat Tidak Memperpanjang (Hari Kerja):
-                      </label>
-                      <input
-                        type="number"
-                        value={formDataHype.term.noticeDays}
-                        onChange={(e) =>
-                          setFormDataHype((p) => ({
-                            ...p,
-                            term: { ...p.term, noticeDays: Number(e.target.value) || 0 },
-                          }))
-                        }
-                        className="w-full px-3 py-1.5 text-xs font-semibold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg"
-                      />
+                    <div className="grid grid-cols-3 gap-2">
+                      <div>
+                        <label className="text-[10px] font-bold text-slate-600 dark:text-slate-400 block mb-1">
+                          Notice Perpanjang:
+                        </label>
+                        <input
+                          type="number"
+                          value={formDataHype.term.extensionNoticeDays ?? 30}
+                          onChange={(e) =>
+                            setFormDataHype((p) => ({
+                              ...p,
+                              term: { ...p.term, extensionNoticeDays: Number(e.target.value) || 0 },
+                            }))
+                          }
+                          className="w-full px-2 py-1.5 text-xs font-bold text-center bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-bold text-slate-600 dark:text-slate-400 block mb-1">
+                          Notice Pengakhiran:
+                        </label>
+                        <input
+                          type="number"
+                          value={formDataHype.term.terminationNoticeDays ?? 30}
+                          onChange={(e) =>
+                            setFormDataHype((p) => ({
+                              ...p,
+                              term: { ...p.term, terminationNoticeDays: Number(e.target.value) || 0 },
+                            }))
+                          }
+                          className="w-full px-2 py-1.5 text-xs font-bold text-center bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-bold text-slate-600 dark:text-slate-400 block mb-1">
+                          Somasi Wanprestasi:
+                        </label>
+                        <input
+                          type="number"
+                          value={formDataHype.term.curePeriodDays ?? 14}
+                          onChange={(e) =>
+                            setFormDataHype((p) => ({
+                              ...p,
+                              term: { ...p.term, curePeriodDays: Number(e.target.value) || 0 },
+                            }))
+                          }
+                          className="w-full px-2 py-1.5 text-xs font-bold text-center bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="p-2.5 bg-slate-100 dark:bg-slate-800/60 rounded-lg border border-slate-200 dark:border-slate-700 text-[10.5px] text-slate-600 dark:text-slate-400 space-y-1">
+                      <p className="font-bold text-slate-800 dark:text-slate-200">
+                        Klausul Pengakhiran &amp; Kuasa Hukum (Draft 10 Nov 2026):
+                      </p>
+                      <p>
+                        • <strong>Pasal 2 Ayat 9</strong>: Pelepasan Pasal 1266 &amp; 1267 KUHPerdata aktif (terminasi tidak memerlukan putusan pengadilan).
+                      </p>
+                      <p>
+                        • <strong>Pasal 2 Ayat 7 &amp; 8</strong>: Pengakhiran dini non-refundable dan sisa Total Pembayaran tetap wajib dilunasi.
+                      </p>
                     </div>
                   </div>
                 ) : (
@@ -1914,111 +2045,179 @@ function UniversalContractGeneratorInner({ backHref = "/absensi/letters" }: Prop
                     </div>
                   </div>
                 ) : templateType === "PKS_HYPE" ? (
-                  <div className="p-3 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-800 space-y-3">
-                    <p className="text-xs font-black uppercase text-slate-500 tracking-wider">
-                      Aturan Approval & Klausul Legal (Pasal 5, 8 &amp; 9)
-                    </p>
-
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block mb-1">
-                          Maksimal Revisi:
-                        </label>
-                        <input
-                          type="number"
-                          value={formDataHype.approval.maxRevisions}
-                          onChange={(e) =>
-                            setFormDataHype((p) => ({
-                              ...p,
-                              approval: {
-                                ...p.approval,
-                                maxRevisions: Number(e.target.value) || 0,
-                              },
-                            }))
-                          }
-                          className="w-full px-3 py-1.5 text-xs font-bold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block mb-1">
-                          Batas Respon (Hari Kerja):
-                        </label>
-                        <input
-                          type="number"
-                          value={formDataHype.approval.replyDays}
-                          onChange={(e) =>
-                            setFormDataHype((p) => ({
-                              ...p,
-                              approval: {
-                                ...p.approval,
-                                replyDays: Number(e.target.value) || 0,
-                              },
-                            }))
-                          }
-                          className="w-full px-3 py-1.5 text-xs font-bold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block mb-1">
-                          Non-Circumvention (Bulan):
-                        </label>
-                        <input
-                          type="number"
-                          value={formDataHype.legal.nonCircumventionMonths}
-                          onChange={(e) =>
-                            setFormDataHype((p) => ({
-                              ...p,
-                              legal: {
-                                ...p.legal,
-                                nonCircumventionMonths: Number(e.target.value) || 0,
-                              },
-                            }))
-                          }
-                          className="w-full px-3 py-1.5 text-xs font-bold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block mb-1">
-                          Musyawarah Sengketa (Hari):
-                        </label>
-                        <input
-                          type="number"
-                          value={formDataHype.legal.disputeDays}
-                          onChange={(e) =>
-                            setFormDataHype((p) => ({
-                              ...p,
-                              legal: {
-                                ...p.legal,
-                                disputeDays: Number(e.target.value) || 0,
-                              },
-                            }))
-                          }
-                          className="w-full px-3 py-1.5 text-xs font-bold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg"
-                        />
-                      </div>
-                    </div>
-
+                  <div className="p-3 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-800 space-y-4">
                     <div>
-                      <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block mb-1">
-                        Yurisdiksi Pengadilan:
-                      </label>
-                      <input
-                        type="text"
-                        value={formDataHype.legal.courtJurisdiction}
-                        onChange={(e) =>
-                          setFormDataHype((p) => ({
-                            ...p,
-                            legal: {
-                              ...p.legal,
-                              courtJurisdiction: e.target.value,
-                            },
-                          }))
-                        }
-                        className="w-full px-3 py-1.5 text-xs font-semibold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg"
-                      />
+                      <p className="text-xs font-black uppercase text-slate-500 tracking-wider mb-2">
+                        Aturan Approval &amp; Hak Kewajiban (Pasal 5)
+                      </p>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block mb-1">
+                            Maksimal Revisi:
+                          </label>
+                          <input
+                            type="number"
+                            value={formDataHype.approval.maxRevisions}
+                            onChange={(e) =>
+                              setFormDataHype((p) => ({
+                                ...p,
+                                approval: {
+                                  ...p.approval,
+                                  maxRevisions: Number(e.target.value) || 0,
+                                },
+                              }))
+                            }
+                            className="w-full px-3 py-1.5 text-xs font-bold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block mb-1">
+                            Batas Respon (Hari Kerja):
+                          </label>
+                          <input
+                            type="number"
+                            value={formDataHype.approval.replyDays}
+                            onChange={(e) =>
+                              setFormDataHype((p) => ({
+                                ...p,
+                                approval: {
+                                  ...p.approval,
+                                  replyDays: Number(e.target.value) || 0,
+                                },
+                              }))
+                            }
+                            className="w-full px-3 py-1.5 text-xs font-bold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="pt-2 border-t border-slate-200 dark:border-slate-700/60">
+                      <p className="text-xs font-black uppercase text-amber-600 dark:text-amber-400 tracking-wider mb-2">
+                        Pelaporan &amp; SLA Campaign (Pasal 6 Ayat 10 &amp; 11)
+                      </p>
+                      <div className="grid grid-cols-2 gap-3 mb-2">
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block mb-1">
+                            SLA Final Report (Hari Kalender):
+                          </label>
+                          <input
+                            type="number"
+                            value={formDataHype.reporting?.finalReportDays ?? 7}
+                            onChange={(e) =>
+                              setFormDataHype((p) => ({
+                                ...p,
+                                reporting: {
+                                  finalReportDays: Number(e.target.value) || 7,
+                                  spreadsheetParallel:
+                                    p.reporting?.spreadsheetParallel ?? true,
+                                },
+                              }))
+                            }
+                            className="w-full px-3 py-1.5 text-xs font-bold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg"
+                          />
+                        </div>
+                        <div className="flex flex-col justify-end">
+                          <label className="flex items-center gap-2 p-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={
+                                formDataHype.reporting?.spreadsheetParallel ?? true
+                              }
+                              onChange={(e) =>
+                                setFormDataHype((p) => ({
+                                  ...p,
+                                  reporting: {
+                                    finalReportDays:
+                                      p.reporting?.finalReportDays ?? 7,
+                                    spreadsheetParallel: e.target.checked,
+                                  },
+                                }))
+                              }
+                              className="rounded border-slate-300 text-amber-600 focus:ring-amber-500"
+                            />
+                            <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">
+                              Spreadsheet Paralel
+                            </span>
+                          </label>
+                        </div>
+                      </div>
+                      <div className="p-2.5 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-900/40 text-[10px] text-amber-800 dark:text-amber-300 leading-relaxed">
+                        Draft 10 Nov 2026: Pelaporan pengerjaan diisi paralel via
+                        spreadsheet link. Presentasi Final Report dipaparkan maksimal{" "}
+                        <strong>
+                          {formDataHype.reporting?.finalReportDays ?? 7} hari
+                          kalender
+                        </strong>{" "}
+                        setelah Campaign berakhir.
+                      </div>
+                    </div>
+
+                    <div className="pt-2 border-t border-slate-200 dark:border-slate-700/60">
+                      <p className="text-xs font-black uppercase text-slate-500 tracking-wider mb-2">
+                        Klausul Legal &amp; Yurisdiksi (Pasal 8, 9 &amp; 10)
+                      </p>
+                      <div className="grid grid-cols-2 gap-3 mb-2">
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block mb-1">
+                            Non-Circumvention (Bulan):
+                          </label>
+                          <input
+                            type="number"
+                            value={formDataHype.legal.nonCircumventionMonths}
+                            onChange={(e) =>
+                              setFormDataHype((p) => ({
+                                ...p,
+                                legal: {
+                                  ...p.legal,
+                                  nonCircumventionMonths:
+                                    Number(e.target.value) || 0,
+                                },
+                              }))
+                            }
+                            className="w-full px-3 py-1.5 text-xs font-bold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block mb-1">
+                            Musyawarah Sengketa (Hari):
+                          </label>
+                          <input
+                            type="number"
+                            value={formDataHype.legal.disputeDays}
+                            onChange={(e) =>
+                              setFormDataHype((p) => ({
+                                ...p,
+                                legal: {
+                                  ...p.legal,
+                                  disputeDays: Number(e.target.value) || 0,
+                                },
+                              }))
+                            }
+                            className="w-full px-3 py-1.5 text-xs font-bold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block mb-1">
+                          Yurisdiksi Pengadilan:
+                        </label>
+                        <input
+                          type="text"
+                          value={formDataHype.legal.courtJurisdiction}
+                          onChange={(e) =>
+                            setFormDataHype((p) => ({
+                              ...p,
+                              legal: {
+                                ...p.legal,
+                                courtJurisdiction: e.target.value,
+                              },
+                            }))
+                          }
+                          className="w-full px-3 py-1.5 text-xs font-semibold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg"
+                        />
+                      </div>
                     </div>
                   </div>
                 ) : (
