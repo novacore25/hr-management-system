@@ -86,7 +86,8 @@ export default function OvertimeFinalizeModal({
     setDayType(initialDayType as any);
 
     // 3. Calculate benchmark rate
-    const calculated = calculateOvertimeRates(baseSalary);
+    const safeSalary = Number.isFinite(Number(baseSalary)) ? Math.max(0, Number(baseSalary)) : 0;
+    const calculated = calculateOvertimeRates(safeSalary);
 
     // Check if this overtime request was previously finalized
     const savedPayNum = Number(overtime.totalOvertimePay);
@@ -178,7 +179,8 @@ export default function OvertimeFinalizeModal({
 
   const finalTotalPay = totalPayOverride !== null ? totalPayOverride : cappedCalculatedPay;
 
-  const standardCalculated = calculateOvertimeRates(baseSalary);
+  const safeSalary = Number.isFinite(Number(baseSalary)) ? Math.max(0, Number(baseSalary)) : 0;
+  const standardCalculated = calculateOvertimeRates(safeSalary);
 
   const resetToFormula = () => {
     setHourlyBaseRate(standardCalculated.hourlyBaseRate);
@@ -218,10 +220,10 @@ export default function OvertimeFinalizeModal({
       let payoutYear: number | null | undefined = undefined;
       let payoutMonth: number | null | undefined = undefined;
 
-      if (payoutPeriodChoice) {
+      if (payoutPeriodChoice && payoutPeriodChoice.includes("-")) {
         const [y, m] = payoutPeriodChoice.split("-").map(Number);
-        payoutYear = y;
-        payoutMonth = m;
+        payoutYear = y || null;
+        payoutMonth = m || null;
       } else {
         payoutYear = null;
         payoutMonth = null;

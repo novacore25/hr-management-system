@@ -69,13 +69,19 @@ export default function OvertimePayoutScheduleModal({
       });
     }
     // Jika selectedPeriod di luar rentang, masukkan ke opsi
-    if (!list.some((it) => it.value === selectedPeriod)) {
+    if (
+      selectedPeriod &&
+      selectedPeriod.includes("-") &&
+      !list.some((it) => it.value === selectedPeriod)
+    ) {
       const [y, m] = selectedPeriod.split("-").map(Number);
-      list.unshift({
-        value: selectedPeriod,
-        label: `${monthName(m)} ${y}`,
-        isCurrent: false,
-      });
+      if (y && m) {
+        list.unshift({
+          value: selectedPeriod,
+          label: `${monthName(m)} ${y}`,
+          isCurrent: false,
+        });
+      }
     }
     return list;
   }, [now, currentMonthValue, selectedPeriod]);
@@ -87,9 +93,18 @@ export default function OvertimePayoutScheduleModal({
 
   async function handleSaveSchedule() {
     if (!overtime) return;
+    if (!selectedPeriod || !selectedPeriod.includes("-")) {
+      toast.error("Pilih periode pencairan yang valid.");
+      return;
+    }
     const [yearStr, monthStr] = selectedPeriod.split("-");
     const payoutYear = parseInt(yearStr, 10);
     const payoutMonth = parseInt(monthStr, 10);
+
+    if (!payoutYear || !payoutMonth) {
+      toast.error("Periode pencairan tidak valid.");
+      return;
+    }
 
     setSaving(true);
     try {

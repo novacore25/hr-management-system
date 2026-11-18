@@ -130,18 +130,41 @@ export function todayISODate(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-export function formatDateDisplay(isoDate: string): string {
-  return new Intl.DateTimeFormat("id-ID", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  }).format(new Date(isoDate));
+export function formatDateDisplay(isoDate: string | null | undefined): string {
+  if (!isoDate) return "-";
+  try {
+    const d = new Date(isoDate);
+    if (isNaN(d.getTime())) return String(isoDate);
+    return new Intl.DateTimeFormat("id-ID", {
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    }).format(d);
+  } catch {
+    return String(isoDate);
+  }
 }
 
-export function monthName(month: number): string {
-  return new Intl.DateTimeFormat("id-ID", { month: "long" }).format(
-    new Date(2024, month - 1, 1)
-  );
+const INDONESIAN_MONTHS = [
+  "Januari",
+  "Februari",
+  "Maret",
+  "April",
+  "Mei",
+  "Juni",
+  "Juli",
+  "Agustus",
+  "September",
+  "Oktober",
+  "November",
+  "Desember",
+] as const;
+
+export function monthName(month: number | string | null | undefined): string {
+  if (month == null) return "";
+  const m = typeof month === "number" ? month : parseInt(String(month), 10);
+  if (!Number.isFinite(m) || m < 1 || m > 12) return "";
+  return INDONESIAN_MONTHS[m - 1];
 }
 
 export function calcWeightedScore(

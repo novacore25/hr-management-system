@@ -2642,6 +2642,41 @@ Ketika staf ingin melakukan update, pengisian, atau pengubahan pada KPI yang tel
 
 ---
 
+## Perbaikan Crash Klien (Application Error) Halaman Lembur & Hardening Formatting (18 November 2026)
+
+### Latar Belakang & Keluhan Pengguna
+- Pengguna melaporkan bahwa saat hendak melakukan finalisasi lembur (Oktober) dari browser tablet Android pada URL `app.tntkreatif.com/absensi/admin/overtime`, halaman mengalami crash putih total dengan pesan:
+  *"Application error: a client-side exception has occurred while loading app.tntkreatif.com (see the browser console for more information)."*
+- **Akar Masalah**:
+  1. **Uncaught RangeError pada `monthName` (`src/lib/utils.ts`)**:
+     Fungsi `monthName(month: number)` sebelumnya memanggil:
+     `new Intl.DateTimeFormat("id-ID", { month: "long" }).format(new Date(2024, month - 1, 1))`
+     Ketika parameter `month` bernilai `undefined`, `null`, `NaN`, `0`, atau string kosong (seperti pada saat inisialisasi dropdown/modal jadwal pencairan dengan periode kosong atau unparsed string `selectedPeriod.split("-")`), pembuatan tanggal menghasilkan `Invalid Date`. Pemanggilan `.format()` pada objek invalid ini secara serempak melempar `RangeError: Invalid time value` yang fatal.
+  2. **Ketiadaan Error Boundary di Next.js App Router**:
+     Di seluruh folder `src/app` belum ada berkas penangkap error `error.tsx`. Dalam Next.js App Router, setiap uncaught runtime error pada komponen klien yang tidak tertangkap oleh error boundary terdekat akan langsung dilempar ke root fallback Next.js, menyebabkan unmounting seluruh aplikasi menjadi layar putih.
+  3. **Unsafe Date & Task Query Formatting**:
+     Pemanggilan `new Date(session.overtimeDate).toLocaleDateString(...)` pada string tanggal UTC ISO rentan terhadap pergeseran zona waktu atau format invalid. Pencarian tugas lembur `t.task.toLowerCase()` berisiko throw TypeError jika objek task memiliki field undefined.
+
+### Perbaikan yang Diterapkan
+1. **Hardening `monthName` dan `formatDateDisplay` (`src/lib/utils.ts`)**:
+   - Mengubah `monthName` menjadi fungsi murni berbasis array nama bulan statis `INDONESIAN_MONTHS` tanpa alokasi objek Date atau Intl. DateTimeFormat per panggilan.
+   - Menangani `number | string | null | undefined` secara defensif; mengembalikan string kosong `""` secara aman jika input tidak valid.
+   - Menyelimuti `formatDateDisplay` dengan try-catch dan fallback string jika parsing tanggal gagal.
+2. **Defensive Guarding pada Modal Lembur**:
+   - `OvertimePayoutScheduleModal.tsx`: Menambahkan guard `selectedPeriod && selectedPeriod.includes("-")` sebelum pemisahan `split("-")`. Menambahkan validasi `payoutYear` & `payoutMonth`.
+   - `OvertimeFinalizeModal.tsx`: Menambahkan `safeSalary = Math.max(0, Number(baseSalary) || 0)` dan guarding periode `payoutPeriodChoice`.
+   - `page.tsx`: Menggunakan pengurai tanggal `[y, m, d]` aman lokal dan proteksi null-safe pada pencarian task.
+3. **Penyediaan Error Boundary Komprehensif**:
+   - Membuat `src/app/absensi/error.tsx`: Menjaga antarmuka `/absensi` agar tetap menampilkan header, sidebar, tombol "Muat Ulang", dan kartu error yang elegan tanpa layar putih.
+   - Membuat `src/app/error.tsx`: Root Error Boundary pelindung aplikasi secara keseluruhan.
+4. **Verifikasi**:
+   - `npm run verify`: PASS (10/10).
+   - `verify:otnumbers`: PASS (15/15).
+   - `verify:otpayout`: PASS (31/31).
+   - `npm run verify:build`: 63/63 halaman static build lolos sempurna (PASS).
+
+---
+
 ## Kalibrasi Margin Standar Word & Eliminasi Void Ruang Kosong PKS TNT & Hype (10 November 2026)
 
 ### Latar Belakang & Keluhan Pengguna
@@ -2674,4 +2709,39 @@ Ketika staf ingin melakukan update, pengisian, atau pengubahan pada KPI yang tel
 4. **Verifikasi**:
    - `npm run typecheck`: 0 error (PASS).
    - `npm run verify`: 10/10 PASS.
+   - `npm run verify:build`: 63/63 halaman static build lolos sempurna (PASS).
+
+---
+
+## Perbaikan Crash Klien (Application Error) Halaman Lembur & Hardening Formatting (18 November 2026)
+
+### Latar Belakang & Keluhan Pengguna
+- Pengguna melaporkan bahwa saat hendak melakukan finalisasi lembur (Oktober) dari browser tablet Android pada URL `app.tntkreatif.com/absensi/admin/overtime`, halaman mengalami crash putih total dengan pesan:
+  *"Application error: a client-side exception has occurred while loading app.tntkreatif.com (see the browser console for more information)."*
+- **Akar Masalah**:
+  1. **Uncaught RangeError pada `monthName` (`src/lib/utils.ts`)**:
+     Fungsi `monthName(month: number)` sebelumnya memanggil:
+     `new Intl.DateTimeFormat("id-ID", { month: "long" }).format(new Date(2024, month - 1, 1))`
+     Ketika parameter `month` bernilai `undefined`, `null`, `NaN`, `0`, atau string kosong (seperti pada saat inisialisasi dropdown/modal jadwal pencairan dengan periode kosong atau unparsed string `selectedPeriod.split("-")`), pembuatan tanggal menghasilkan `Invalid Date`. Pemanggilan `.format()` pada objek invalid ini secara serempak melempar `RangeError: Invalid time value` yang fatal.
+  2. **Ketiadaan Error Boundary di Next.js App Router**:
+     Di seluruh folder `src/app` belum ada berkas penangkap error `error.tsx`. Dalam Next.js App Router, setiap uncaught runtime error pada komponen klien yang tidak tertangkap oleh error boundary terdekat akan langsung dilempar ke root fallback Next.js, menyebabkan unmounting seluruh aplikasi menjadi layar putih.
+  3. **Unsafe Date & Task Query Formatting**:
+     Pemanggilan `new Date(session.overtimeDate).toLocaleDateString(...)` pada string tanggal UTC ISO rentan terhadap pergeseran zona waktu atau format invalid. Pencarian tugas lembur `t.task.toLowerCase()` berisiko throw TypeError jika objek task memiliki field undefined.
+
+### Perbaikan yang Diterapkan
+1. **Hardening `monthName` dan `formatDateDisplay` (`src/lib/utils.ts`)**:
+   - Mengubah `monthName` menjadi fungsi murni berbasis array nama bulan statis `INDONESIAN_MONTHS` tanpa alokasi objek Date atau Intl. DateTimeFormat per panggilan.
+   - Menangani `number | string | null | undefined` secara defensif; mengembalikan string kosong `""` secara aman jika input tidak valid.
+   - Menyelimuti `formatDateDisplay` dengan try-catch dan fallback string jika parsing tanggal gagal.
+2. **Defensive Guarding pada Modal Lembur**:
+   - `OvertimePayoutScheduleModal.tsx`: Menambahkan guard `selectedPeriod && selectedPeriod.includes("-")` sebelum pemisahan `split("-")`. Menambahkan validasi `payoutYear` & `payoutMonth`.
+   - `OvertimeFinalizeModal.tsx`: Menambahkan `safeSalary = Math.max(0, Number(baseSalary) || 0)` dan guarding periode `payoutPeriodChoice`.
+   - `page.tsx`: Menggunakan pengurai tanggal `[y, m, d]` aman lokal dan proteksi null-safe pada pencarian task.
+3. **Penyediaan Error Boundary Komprehensif**:
+   - Membuat `src/app/absensi/error.tsx`: Menjaga antarmuka `/absensi` agar tetap menampilkan header, sidebar, tombol "Muat Ulang", dan kartu error yang elegan tanpa layar putih.
+   - Membuat `src/app/error.tsx`: Root Error Boundary pelindung aplikasi secara keseluruhan.
+4. **Verifikasi**:
+   - `npm run verify`: PASS (10/10).
+   - `verify:otnumbers`: PASS (15/15).
+   - `verify:otpayout`: PASS (31/31).
    - `npm run verify:build`: 63/63 halaman static build lolos sempurna (PASS).

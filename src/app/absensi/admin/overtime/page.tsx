@@ -232,7 +232,11 @@ export default function AdminOvertimePage() {
         const matchDept = (staffGroup.user.department || "").toLowerCase().includes(q);
         const matchPos = (staffGroup.user.position || "").toLowerCase().includes(q);
         const matchTask = staffGroup.items.some((it) =>
-          it.tasks.some((t) => t.task.toLowerCase().includes(q))
+          (it.tasks || []).some((t) =>
+            ((t?.task || (t as any)?.name || "") as string)
+              .toLowerCase()
+              .includes(q)
+          )
         );
         if (!matchName && !matchDept && !matchPos && !matchTask) return false;
       }
@@ -746,12 +750,23 @@ export default function AdminOvertimePage() {
 
                                   <h4 className="font-black text-xs sm:text-sm text-[var(--ab-text-main)] flex items-center gap-1.5">
                                     <CalendarDays size={14} className="text-amber-500 shrink-0" />
-                                    {new Date(session.overtimeDate).toLocaleDateString("id-ID", {
-                                      weekday: "long",
-                                      day: "numeric",
-                                      month: "short",
-                                      year: "numeric",
-                                    })}
+                                    {(() => {
+                                      if (!session.overtimeDate) return "-";
+                                      try {
+                                        const [y, m, d] = session.overtimeDate.split("-").map(Number);
+                                        if (y && m && d) {
+                                          return new Date(y, m - 1, d).toLocaleDateString("id-ID", {
+                                            weekday: "long",
+                                            day: "numeric",
+                                            month: "short",
+                                            year: "numeric",
+                                          });
+                                        }
+                                        return session.overtimeDate;
+                                      } catch {
+                                        return session.overtimeDate;
+                                      }
+                                    })()}
                                   </h4>
                                 </div>
 
@@ -871,11 +886,11 @@ export default function AdminOvertimePage() {
                                     </span>
                                     {session.payoutStatus === "paid" ? (
                                       <span className="px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider bg-emerald-500/15 text-emerald-600 border border-emerald-500/30 flex items-center gap-1">
-                                        <CheckCircle2 size={10} /> Sudah Cair: Slip {monthName(session.payoutMonth ?? 1)} {session.payoutYear}
+                                        <CheckCircle2 size={10} /> Sudah Cair: Slip {monthName(session.payoutMonth) || "-"} {session.payoutYear || ""}
                                       </span>
                                     ) : session.payoutStatus === "scheduled" && session.payoutMonth ? (
                                       <span className="px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider bg-blue-500/15 text-blue-600 border border-blue-500/30 flex items-center gap-1">
-                                        <CalendarDays size={10} /> Dijadwalkan: Slip {monthName(session.payoutMonth)} {session.payoutYear}
+                                        <CalendarDays size={10} /> Dijadwalkan: Slip {monthName(session.payoutMonth)} {session.payoutYear || ""}
                                       </span>
                                     ) : (
                                       <span className="px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider bg-amber-500/15 text-amber-600 border border-amber-500/30 flex items-center gap-1">
@@ -886,9 +901,9 @@ export default function AdminOvertimePage() {
                                   <div className="pt-1 flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-t border-[var(--ab-border)]/50 mt-1">
                                     <p className="text-[10px] text-[var(--ab-text-dim)] flex-1">
                                       {session.payoutStatus === "paid"
-                                        ? `Upah lembur telah resmi dibayarkan pada slip gaji ${monthName(session.payoutMonth ?? 1)} ${session.payoutYear}.`
+                                        ? `Upah lembur telah resmi dibayarkan pada slip gaji ${monthName(session.payoutMonth) || ""} ${session.payoutYear || ""}.`
                                         : session.payoutStatus === "scheduled" && session.payoutMonth
-                                        ? `Akan otomatis masuk ke slip gaji ${monthName(session.payoutMonth)} ${session.payoutYear}.`
+                                        ? `Akan otomatis masuk ke slip gaji ${monthName(session.payoutMonth)} ${session.payoutYear || ""}.`
                                         : "Upah sah. Belum masuk ke payroll mana pun sebelum Anda menentukan jadwal pencairannya."}
                                     </p>
                                     {session.payoutStatus !== "paid" && (

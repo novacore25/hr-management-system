@@ -406,3 +406,23 @@ dua tempat harus konsisten — dan tidak ada tooling untuk itu.
 **Alasan:**
 1. **Mengatasi Block Quantization Void**: Ketika blok teks berukuran besar (misal 450px) tidak muat pada sisa lembar 350px, paginator terpaksa membuang seluruh blok ke lembar berikutnya, meninggalkan ruang kosong 40%–50% yang tampak seperti kesalahan format ("bolong di tengah"). Memecah pasal menjadi unit 1–3 ayat (80px–180px) membuat aliran teks mengisi halaman hingga 90%–98% persis seperti Microsoft Word.
 2. Memenuhi instruksi langsung pengguna (*"di pasing aja sesuai margin bro beneran kayak world aja"*) pada dokumen PKS TNT dan Hype tanpa mengorbankan integritas hukum klausul perjanjian.
+
+---
+
+## 23. Hardening Penanganan Nilai Tanggal/Bulan dan Isolasi Error Boundary Klien (18 November 2026)
+
+**Pilihan:**
+1. **Hardening Fungsi Utilitas `monthName` dan `formatDateDisplay` di `src/lib/utils.ts`**:
+   - Menghapus ketergantungan instansiasi `new Date(2024, month - 1, 1)` dengan `Intl.DateTimeFormat` di dalam `monthName` yang melempar `RangeError: Invalid time value` fatal ketika menerima parameter `undefined`, `null`, `NaN`, `0`, atau string kosong.
+   - Menggantikannya dengan lookup array statis cepat `INDONESIAN_MONTHS` yang aman dan mengembalikan string kosong `""` secara anggun untuk nilai yang tidak valid.
+   - Menyelimuti `formatDateDisplay` dengan try-catch dan validasi `isNaN(d.getTime())` dengan fallback aman string asli/`"-"`.
+2. **Defensive Guards di Modal dan Tampilan Sesi Lembur**:
+   - Di `OvertimePayoutScheduleModal`: Menambahkan pengecekan `selectedPeriod && selectedPeriod.includes("-")` sebelum pemisahan `split("-")` agar tidak menghasilkan `[0, undefined]`.
+   - Di `OvertimeFinalizeModal`: Menyelaraskan fallback `baseSalary` aman (`safeSalary = Math.max(0, Number(baseSalary) || 0)`) dan guarding pemisahan string periode payroll.
+   - Di `AdminOvertimePage`: Mengganti formatting tanggal langsung dengan parser defensif `[y, m, d]` untuk menghindari hydration mismatch dan bug pergeseran zona waktu; menjaga filter pencarian task `(t?.task || t?.name || "")`.
+3. **Penyediaan Lapisan Error Boundary Resmi (`src/app/absensi/error.tsx` & `src/app/error.tsx`)**:
+   - Menyediakan komponen penangkap error klien resmi Next.js App Router dengan opsi coba lagi (`reset()`) dan tautan pemulihan ke Dashboard/Lembur, sehingga jika terjadi runtime exception pada komponen anak, antarmuka tidak ambruk ke layar putih default Next.js (*"Application error: a client-side exception has occurred"*).
+
+**Alasan:**
+1. Pengguna tablet Android melaporkan layar putih penuh saat mengakses `/absensi/admin/overtime` untuk melakukan finalisasi lembur Oktober.
+2. Kerentanan fatal `RangeError: Invalid time value` dari fungsi formatting tanggal yang tidak didefensifkan menyebabkan seluruh pohon komponen React unmount tanpa menyisakan informasi diagnostik maupun tombol pemulihan bagi pengguna.
