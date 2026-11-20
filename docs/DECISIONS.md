@@ -426,3 +426,18 @@ dua tempat harus konsisten — dan tidak ada tooling untuk itu.
 **Alasan:**
 1. Pengguna tablet Android melaporkan layar putih penuh saat mengakses `/absensi/admin/overtime` untuk melakukan finalisasi lembur Oktober.
 2. Kerentanan fatal `RangeError: Invalid time value` dari fungsi formatting tanggal yang tidak didefensifkan menyebabkan seluruh pohon komponen React unmount tanpa menyisakan informasi diagnostik maupun tombol pemulihan bagi pengguna.
+
+---
+
+### [2026-11-20] Penataan Ulang React Hooks di OvertimeFinalizeModal & Penyediaan Root Global Error Handler
+
+**Konteks:**
+Pengguna tetap mengalami crash layar putih (*Application error: a client-side exception has occurred*) saat hendak memfinalisasi lembur di `/absensi/admin/overtime`. Investigasi mendalam menemukan pelanggaran React Rules of Hooks di `OvertimeFinalizeModal.tsx` di mana hook `useMemo` diletakkan setelah conditional return `if (!mounted) return null`.
+
+**Keputusan:**
+1. **Unconditional Top-Level React Hooks**:
+   Semua hook (`useState`, `useEffect`, `useMemo`, `useApiMutation`) di seluruh komponen modal WAJIB dieksekusi di bagian teratas komponen secara konsisten tanpa ada conditional return di antaranya. Deklarasi `payoutOptions` dipindahkan ke atas sebelum guard mount.
+2. **Penyediaan `src/app/global-error.tsx`**:
+   Menyediakan error boundary paling luar di tingkat root Next.js App Router dengan tag `<html>` dan `<body>` tersendiri agar setiap error unhandled tidak pernah menampilkan layar putih default Next.js lagi.
+3. **Hardening Snippet Card Overtime**:
+   Menyelimuti akses array `tasks` dan `proofImages` dengan pengecekan aman agar tidak ada throw TypeError pada sesi lembur tanpa task valid.

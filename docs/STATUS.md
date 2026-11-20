@@ -2677,6 +2677,46 @@ Ketika staf ingin melakukan update, pengisian, atau pengubahan pada KPI yang tel
 
 ---
 
+## Perbaikan Root Cause Crash Finalisasi Lembur: Pelanggaran React Rules of Hooks & Global Error Handler (20 November 2026)
+
+### Latar Belakang & Gejala
+- Pengguna melaporkan bahwa saat hendak memfinalisasi lembur pada URL `app.tntkreatif.com/absensi/admin/overtime`, halaman langsung crash menjadi layar putih total Next.js bertuliskan:
+  *"Application error: a client-side exception has occurred while loading app.tntkreatif.com (see the browser console for more information)."*
+- Error boundary `error.tsx` tidak muncul dan pengguna tidak dapat berinteraksi kembali dengan aplikasi.
+
+### Temuan Investigasi Mendalam (Root Cause)
+1. **Pelanggaran Kritis Aturan React Hooks (Rules of Hooks Violation) di `OvertimeFinalizeModal.tsx`**:
+   - Di dalam komponen `OvertimeFinalizeModal.tsx`, terdapat early return pada baris 146:
+     `if (!mounted || !isOpen || !overtime || typeof document === "undefined") return null;`
+   - Namun di bawah baris 146 tersebut, tepatnya baris 158, terdapat deklarasi hook:
+     `const payoutOptions = useMemo(() => { ... }, []);`
+   - Siklus render:
+     - **Render 1 (Inisialisasi)**: State `mounted` default adalah `false`. Kondisi `!mounted` bernilai `true` sehingga komponen langsung keluar dan me-return `null`. Hook `useMemo` tidak pernah dipanggil.
+     - **Render 2 (Setelah Mount)**: Effect `useEffect(() => setMounted(true), [])` berjalan, mengubah state `mounted` menjadi `true`. Komponen me-render ulang dan kali ini melewati baris 146, lalu memanggil `const payoutOptions = useMemo(...)`.
+     - **Fatal Crash**: React mendeteksi bahwa urutan dan jumlah hook berubah antar render (`Error: Rendered more hooks than during the previous render`). Pelanggaran ini merusak internal fiber reconciliation tree React secara fatal, sehingga seluruh pohon aplikasi unmount seketika.
+2. **Ketiadaan `src/app/global-error.tsx`**:
+   - Next.js App Router secara spesifik membutuhkan berkas `app/global-error.tsx` untuk menangkap crash di tingkat root layout dan fatal reconciliation crash yang meloloskan error boundary segment biasa. Ketiadaan file ini membuat Next.js menampilkan fallback default HTML putih yang membingungkan.
+3. **Defensive Guarding Snippet Tugas & Foto**:
+   - Pada `page.tsx`, akses `session.tasks.length` dan pemetaan tugas belum di-wrap dengan fallback array `(session.tasks || []).length`, berisiko throw TypeError jika terdapat record tanpa tugas valid.
+
+### Solusi & Implementasi
+1. **Relokasi Seluruh Hooks ke Top-Level Unconditional (`OvertimeFinalizeModal.tsx`)**:
+   - Memindahkan `const payoutOptions = useMemo(...)` ke bagian atas bersama seluruh hook state lainnya sebelum ada deklarasi `if (...) return null;`.
+   - Menjamin bahwa setiap kali komponen di-render (baik saat `mounted` bernilai false maupun true), seluruh hook React terpanggil dalam urutan dan jumlah yang selalu identik 100%.
+2. **Implementasi `src/app/global-error.tsx`**:
+   - Menyediakan komponen error global di tingkat root yang merender tag `<html>` dan `<body>` lengkap dengan tombol *Coba Lagi*, *Muat Ulang*, dan kembali ke *Home*.
+3. **Hardening Card Overtime di `AdminOvertimePage` (`page.tsx`)**:
+   - Menggunakan `(session.tasks || []).length`, `t?.task || (t as any)?.name || "-"`, dan `Array.isArray(session.proofImages)`.
+
+### Verifikasi
+- `npm run typecheck`: 0 error (PASS).
+- `npm run verify`: 10/10 PASS (no stub imports).
+- `verify:otnumbers`: 15/15 PASS.
+- `verify:otpayout`: 31/31 PASS.
+- `npm run verify:build`: 63/63 halaman static build lolos sempurna (PASS).
+
+---
+
 ## Kalibrasi Margin Standar Word & Eliminasi Void Ruang Kosong PKS TNT & Hype (10 November 2026)
 
 ### Latar Belakang & Keluhan Pengguna
@@ -2745,3 +2785,43 @@ Ketika staf ingin melakukan update, pengisian, atau pengubahan pada KPI yang tel
    - `verify:otnumbers`: PASS (15/15).
    - `verify:otpayout`: PASS (31/31).
    - `npm run verify:build`: 63/63 halaman static build lolos sempurna (PASS).
+
+---
+
+## Perbaikan Root Cause Crash Finalisasi Lembur: Pelanggaran React Rules of Hooks & Global Error Handler (20 November 2026)
+
+### Latar Belakang & Gejala
+- Pengguna melaporkan bahwa saat hendak memfinalisasi lembur pada URL `app.tntkreatif.com/absensi/admin/overtime`, halaman langsung crash menjadi layar putih total Next.js bertuliskan:
+  *"Application error: a client-side exception has occurred while loading app.tntkreatif.com (see the browser console for more information)."*
+- Error boundary `error.tsx` tidak muncul dan pengguna tidak dapat berinteraksi kembali dengan aplikasi.
+
+### Temuan Investigasi Mendalam (Root Cause)
+1. **Pelanggaran Kritis Aturan React Hooks (Rules of Hooks Violation) di `OvertimeFinalizeModal.tsx`**:
+   - Di dalam komponen `OvertimeFinalizeModal.tsx`, terdapat early return pada baris 146:
+     `if (!mounted || !isOpen || !overtime || typeof document === "undefined") return null;`
+   - Namun di bawah baris 146 tersebut, tepatnya baris 158, terdapat deklarasi hook:
+     `const payoutOptions = useMemo(() => { ... }, []);`
+   - Siklus render:
+     - **Render 1 (Inisialisasi)**: State `mounted` default adalah `false`. Kondisi `!mounted` bernilai `true` sehingga komponen langsung keluar dan me-return `null`. Hook `useMemo` tidak pernah dipanggil.
+     - **Render 2 (Setelah Mount)**: Effect `useEffect(() => setMounted(true), [])` berjalan, mengubah state `mounted` menjadi `true`. Komponen me-render ulang dan kali ini melewati baris 146, lalu memanggil `const payoutOptions = useMemo(...)`.
+     - **Fatal Crash**: React mendeteksi bahwa urutan dan jumlah hook berubah antar render (`Error: Rendered more hooks than during the previous render`). Pelanggaran ini merusak internal fiber reconciliation tree React secara fatal, sehingga seluruh pohon aplikasi unmount seketika.
+2. **Ketiadaan `src/app/global-error.tsx`**:
+   - Next.js App Router secara spesifik membutuhkan berkas `app/global-error.tsx` untuk menangkap crash di tingkat root layout dan fatal reconciliation crash yang meloloskan error boundary segment biasa. Ketiadaan file ini membuat Next.js menampilkan fallback default HTML putih yang membingungkan.
+3. **Defensive Guarding Snippet Tugas & Foto**:
+   - Pada `page.tsx`, akses `session.tasks.length` dan pemetaan tugas belum di-wrap dengan fallback array `(session.tasks || []).length`, berisiko throw TypeError jika terdapat record tanpa tugas valid.
+
+### Solusi & Implementasi
+1. **Relokasi Seluruh Hooks ke Top-Level Unconditional (`OvertimeFinalizeModal.tsx`)**:
+   - Memindahkan `const payoutOptions = useMemo(...)` ke bagian atas bersama seluruh hook state lainnya sebelum ada deklarasi `if (...) return null;`.
+   - Menjamin bahwa setiap kali komponen di-render (baik saat `mounted` bernilai false maupun true), seluruh hook React terpanggil dalam urutan dan jumlah yang selalu identik 100%.
+2. **Implementasi `src/app/global-error.tsx`**:
+   - Menyediakan komponen error global di tingkat root yang merender tag `<html>` dan `<body>` lengkap dengan tombol *Coba Lagi*, *Muat Ulang*, dan kembali ke *Home*.
+3. **Hardening Card Overtime di `AdminOvertimePage` (`page.tsx`)**:
+   - Menggunakan `(session.tasks || []).length`, `t?.task || (t as any)?.name || "-"`, dan `Array.isArray(session.proofImages)`.
+
+### Verifikasi
+- `npm run typecheck`: 0 error (PASS).
+- `npm run verify`: 10/10 PASS (no stub imports).
+- `verify:otnumbers`: 15/15 PASS.
+- `verify:otpayout`: 31/31 PASS.
+- `npm run verify:build`: 63/63 halaman static build lolos sempurna (PASS).

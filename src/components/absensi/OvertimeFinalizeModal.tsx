@@ -58,6 +58,24 @@ export default function OvertimeFinalizeModal({
     "PATCH",
   );
 
+  // Opsi periode slip gaji untuk pencairan (>30 hari)
+  const payoutOptions = useMemo(() => {
+    const now = new Date();
+    const list: { value: string; label: string }[] = [];
+    for (let i = -2; i <= 12; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+      const y = d.getFullYear();
+      const m = d.getMonth() + 1;
+      const val = `${y}-${String(m).padStart(2, "0")}`;
+      const name = monthName(m);
+      list.push({
+        value: val,
+        label: `Slip Gaji ${name} ${y}${i === 0 ? " (Bulan Berjalan)" : i === 1 ? " (Bulan Depan)" : ""}`,
+      });
+    }
+    return list;
+  }, []);
+
   useEffect(() => {
     setMounted(true);
   }, []);
@@ -153,24 +171,6 @@ export default function OvertimeFinalizeModal({
     hourlyBaseRate,
     dayType
   );
-
-  // Opsi periode slip gaji untuk pencairan (>30 hari)
-  const payoutOptions = useMemo(() => {
-    const now = new Date();
-    const list: { value: string; label: string }[] = [];
-    for (let i = -2; i <= 12; i++) {
-      const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
-      const y = d.getFullYear();
-      const m = d.getMonth() + 1;
-      const val = `${y}-${String(m).padStart(2, "0")}`;
-      const name = monthName(m);
-      list.push({
-        value: val,
-        label: `Slip Gaji ${name} ${y}${i === 0 ? " (Bulan Berjalan)" : i === 1 ? " (Bulan Depan)" : ""}`,
-      });
-    }
-    return list;
-  }, []);
 
   // Plafon / Budget Cap logic
   const isCapActive = maxPayCap !== null && maxPayCap > 0;

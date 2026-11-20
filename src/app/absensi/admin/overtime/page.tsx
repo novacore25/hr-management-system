@@ -836,27 +836,27 @@ export default function AdminOvertimePage() {
                               {/* Task items snippet */}
                               <div className="space-y-1">
                                 <span className="text-[9px] font-black uppercase tracking-widest text-[var(--ab-text-dim)] block">
-                                  Tugas & Laporan ({session.tasks.length} Tugas):
+                                  Tugas & Laporan ({(session.tasks || []).length} Tugas):
                                 </span>
                                 <div className="space-y-1">
-                                  {session.tasks.slice(0, 2).map((t, tIdx) => (
+                                  {(session.tasks || []).slice(0, 2).map((t, tIdx) => (
                                     <p key={tIdx} className="text-xs font-medium text-[var(--ab-text-main)] truncate">
-                                      • {t.task}{" "}
+                                      • {t?.task || (t as any)?.name || "-"}{" "}
                                       <span className="text-[10px] text-[var(--ab-text-dim)] font-bold">
-                                        (Target: {t.target})
+                                        (Target: {t?.target || (t as any)?.detail || "-"})
                                       </span>
                                     </p>
                                   ))}
-                                  {session.tasks.length > 2 && (
+                                  {(session.tasks || []).length > 2 && (
                                     <span className="text-[9.5px] font-bold text-amber-600 hover:underline cursor-pointer block">
-                                      +{session.tasks.length - 2} tugas lainnya...
+                                      +{(session.tasks || []).length - 2} tugas lainnya...
                                     </span>
                                   )}
                                 </div>
                               </div>
 
                               {/* Photo thumbnail if any */}
-                              {session.proofImages && session.proofImages.length > 0 && (
+                              {Array.isArray(session.proofImages) && session.proofImages.length > 0 && (
                                 <div className="flex items-center gap-2 pt-1">
                                   <span className="text-[9px] font-bold text-[var(--ab-text-dim)] flex items-center gap-1">
                                     <ImageIcon size={12} className="text-purple-500" />
