@@ -89,6 +89,8 @@ export default function AdminStaffPage() {
 
   const [kpiUser, setKpiUser] = useState<StaffUser | null>(null);
   const [kpiWeights, setKpiWeights] = useState({
+    performance: 70,
+    personality: 30,
     result: 50,
     activity: 30,
     quality: 20,
@@ -141,10 +143,26 @@ export default function AdminStaffPage() {
     const tid = toast.loading("Memuat pengaturan KPI...");
     try {
       const res = await apiFetch<{
-        weights: { result: number; activity: number; quality: number; leadTim: number; hr: number };
+        weights: {
+          performance?: number;
+          personality?: number;
+          result: number;
+          activity: number;
+          quality: number;
+          leadTim: number;
+          hr: number;
+        };
       }>(withQuery("/api/kpi-settings", { userId: u.id }));
 
-      setKpiWeights(res.weights);
+      setKpiWeights({
+        performance: res.weights.performance ?? 70,
+        personality: res.weights.personality ?? 30,
+        result: res.weights.result,
+        activity: res.weights.activity,
+        quality: res.weights.quality,
+        leadTim: res.weights.leadTim,
+        hr: res.weights.hr,
+      });
       setKpiUser(u);
       toast.dismiss(tid);
     } catch (err) {
@@ -193,6 +211,11 @@ export default function AdminStaffPage() {
    * sebelum menekan Simpan.
    */
   function weightsBalanced() {
+    const groupTotal = (kpiWeights.performance ?? 70) + (kpiWeights.personality ?? 30);
+    if (groupTotal !== 100) {
+      toast.error("Total rasio pilar (Performance + Personality) harus tepat 100%");
+      return false;
+    }
     const perf = kpiWeights.result + kpiWeights.activity + kpiWeights.quality;
     const pers = kpiWeights.leadTim + kpiWeights.hr;
     if (perf !== 100) {
@@ -418,7 +441,18 @@ export default function AdminStaffPage() {
             />
           </div>
           <button 
-            onClick={() => { setKpiWeights({ result: 50, activity: 30, quality: 20, leadTim: 50, hr: 50 }); setGlobalKpiModalOpen(true); }}
+            onClick={() => {
+              setKpiWeights({
+                performance: 70,
+                personality: 30,
+                result: 50,
+                activity: 30,
+                quality: 20,
+                leadTim: 50,
+                hr: 50,
+              });
+              setGlobalKpiModalOpen(true);
+            }}
             className="px-4 py-2 bg-[var(--ab-primary)] text-white font-black uppercase text-[10px] tracking-widest rounded-xl hover:scale-105 transition-transform whitespace-nowrap"
           >
             Set Bobot Global
@@ -612,10 +646,54 @@ export default function AdminStaffPage() {
             </p>
 
             <div className="space-y-6">
-              {/* Grup Performance 70% */}
+              {/* Rasio Pilar Utama */}
+              <div className="space-y-3 bg-slate-100 dark:bg-slate-800/60 p-3.5 rounded-2xl border border-[var(--ab-border)]">
+                <div className="flex justify-between items-center">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-[var(--ab-text-main)]">
+                    Rasio Pilar Utama
+                  </span>
+                  <span className="text-[10px] font-black text-teal-600 dark:text-teal-400">
+                    {kpiWeights.performance}% : {kpiWeights.personality}%
+                  </span>
+                </div>
+                <div className="space-y-2">
+                  <div className="flex justify-between items-center text-[10px]">
+                    <span className="font-bold text-[var(--ab-primary)]">Performance ({kpiWeights.performance}%)</span>
+                    <span className="font-bold text-[#3b82f6]">Personality ({kpiWeights.personality}%)</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    step="5"
+                    value={kpiWeights.performance}
+                    onChange={(e) => {
+                      const perf = parseInt(e.target.value) || 0;
+                      setKpiWeights({
+                        ...kpiWeights,
+                        performance: perf,
+                        personality: 100 - perf,
+                      });
+                    }}
+                    className="w-full accent-[var(--ab-primary)] h-2 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer"
+                  />
+                  <div className="flex justify-between text-[8px] font-bold text-[var(--ab-text-dim)] uppercase tracking-wider">
+                    <span>100% Perf</span>
+                    <span>50 : 50</span>
+                    <span>100% Pers</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Grup Performance */}
               <div className="space-y-4">
-                <div className="bg-slate-100 dark:bg-slate-800 p-2 rounded-lg text-center">
-                  <span className="text-[10px] font-black uppercase tracking-widest text-[var(--ab-text-main)]">Grup Performance (70%)</span>
+                <div className="bg-slate-100 dark:bg-slate-800 p-2 rounded-lg text-center flex justify-between items-center px-3">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-[var(--ab-text-main)]">
+                    Grup Performance
+                  </span>
+                  <span className="text-[10px] font-black text-[var(--ab-primary)]">
+                    {kpiWeights.performance}%
+                  </span>
                 </div>
                 {[
                   { key: "result", label: "Hasil Kerja", col: "var(--ab-primary)" },
@@ -647,10 +725,15 @@ export default function AdminStaffPage() {
                 </p>
               </div>
 
-              {/* Grup Personality 30% */}
+              {/* Grup Personality */}
               <div className="space-y-4 border-t border-[var(--ab-border)] pt-4">
-                <div className="bg-slate-100 dark:bg-slate-800 p-2 rounded-lg text-center">
-                  <span className="text-[10px] font-black uppercase tracking-widest text-[var(--ab-text-main)]">Grup Personality (30%)</span>
+                <div className="bg-slate-100 dark:bg-slate-800 p-2 rounded-lg text-center flex justify-between items-center px-3">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-[var(--ab-text-main)]">
+                    Grup Personality
+                  </span>
+                  <span className="text-[10px] font-black text-[#3b82f6]">
+                    {kpiWeights.personality}%
+                  </span>
                 </div>
                 {[
                   { key: "leadTim", label: "Lead Tim", col: "#3b82f6" },
@@ -684,7 +767,12 @@ export default function AdminStaffPage() {
               <div className="pt-4 border-t border-[var(--ab-border)] flex justify-end mt-6">
                 <button
                   onClick={globalKpiModalOpen ? saveGlobalKpiWeights : saveKpiWeights}
-                  disabled={kpiSaving || (kpiWeights.result + kpiWeights.activity + kpiWeights.quality !== 100) || (kpiWeights.leadTim + kpiWeights.hr !== 100)}
+                  disabled={
+                    kpiSaving ||
+                    (kpiWeights.performance + kpiWeights.personality !== 100) ||
+                    (kpiWeights.result + kpiWeights.activity + kpiWeights.quality !== 100) ||
+                    (kpiWeights.leadTim + kpiWeights.hr !== 100)
+                  }
                   className="bg-[var(--ab-text-main)] text-[var(--ab-bg-main)] px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:scale-105 transition-transform disabled:opacity-50 disabled:scale-100"
                 >
                   Simpan

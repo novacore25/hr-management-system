@@ -169,7 +169,15 @@ export function monthName(month: number | string | null | undefined): string {
 
 export function calcWeightedScore(
   assignments: KpiAssignment[],
-  weights: { result: number; activity: number; quality: number; leadTim: number; hr: number },
+  weights: {
+    performance?: number;
+    personality?: number;
+    result: number;
+    activity: number;
+    quality: number;
+    leadTim: number;
+    hr: number;
+  },
   reportsByAssignment?: Record<string, { actualValue: number }[]>
 ): WeightedScore {
   const buckets = { 
@@ -216,9 +224,11 @@ export function calcWeightedScore(
     leadTimAvg * (weights.leadTim / 100) +
     hrAvg * (weights.hr / 100);
 
-  // Final Total: 70% Performance + 30% Personality
+  // Final Total: Performance % (default 70%) + Personality % (default 30%)
   // Jika KPI kosong, nilainya 0 (tidak diskala otomatis).
-  const finalTotal = (performanceTotal * 0.7) + (personalityTotal * 0.3);
+  const perfW = weights.performance != null ? weights.performance : 70;
+  const persW = weights.personality != null ? weights.personality : 30;
+  const finalTotal = (performanceTotal * (perfW / 100)) + (personalityTotal * (persW / 100));
 
   return {
     resultAvg,
@@ -226,6 +236,8 @@ export function calcWeightedScore(
     qualityAvg,
     leadTimAvg,
     hrAvg,
+    performanceWeight: perfW,
+    personalityWeight: persW,
     resultWeight: weights.result,
     activityWeight: weights.activity,
     qualityWeight: weights.quality,

@@ -48,7 +48,15 @@ interface ExpandableStaffGridProps {
   users: User[];
   assignmentsMap: Record<string, KpiAssignment[]>;
   kpisMap: Record<string, KPI>;
-  getWeights: (userId: string) => { result: number; activity: number; quality: number; leadTim: number; hr: number; };
+  getWeights: (userId: string) => {
+    performance?: number;
+    personality?: number;
+    result: number;
+    activity: number;
+    quality: number;
+    leadTim: number;
+    hr: number;
+  };
   expandedUsers: Set<string>;
   onToggleUser: (userId: string) => void;
   period?: Period;
@@ -166,7 +174,9 @@ export function ExpandableStaffGrid({
                         <div className="space-y-3 text-xs text-muted-foreground">
                           
                           <div>
-                            <p className="font-semibold text-teal-700 border-b border-border/50 pb-1 mb-1">Kinerja (70%)</p>
+                            <p className="font-semibold text-teal-700 border-b border-border/50 pb-1 mb-1">
+                              Kinerja ({score.performanceWeight ?? 70}%)
+                            </p>
                             <div className="space-y-1">
                               <div className="flex justify-between">
                                 <span>Result ({score.resultCount} KPI)</span>
@@ -188,7 +198,9 @@ export function ExpandableStaffGrid({
                           </div>
 
                           <div>
-                            <p className="font-semibold text-teal-700 border-b border-border/50 pb-1 mb-1">Perilaku (30%)</p>
+                            <p className="font-semibold text-teal-700 border-b border-border/50 pb-1 mb-1">
+                              Perilaku ({score.personalityWeight ?? 30}%)
+                            </p>
                             <div className="space-y-1">
                               <div className="flex justify-between">
                                 <span>Lead Tim ({score.leadTimCount} KPI)</span>
@@ -206,7 +218,7 @@ export function ExpandableStaffGrid({
                           </div>
 
                           <div className="flex justify-between border-t border-border pt-2 mt-2 font-black text-foreground text-sm">
-                            <span>Total Skor Akhir</span>
+                            <span>Total Skor Akhir ({score.performanceWeight ?? 70}% + {score.personalityWeight ?? 30}%)</span>
                             <span>{formatPercentage(score.total)}</span>
                           </div>
                         </div>

@@ -229,6 +229,8 @@ export interface PerformanceSummary {
 // ─── KPI User Settings (weighted scores) ─────────────────────────────────────
 
 export const DEFAULT_KPI_WEIGHTS = { 
+  performance: 70,
+  personality: 30,
   result: 50, 
   activity: 30, 
   quality: 20,
@@ -238,6 +240,8 @@ export const DEFAULT_KPI_WEIGHTS = {
 
 export interface KpiUserSettings {
   id: string;
+  performanceWeight?: number;
+  personalityWeight?: number;
   resultWeight: number;
   activityWeight: number;
   qualityWeight: number;
@@ -253,6 +257,8 @@ export interface WeightedScore {
   qualityAvg: number;
   leadTimAvg: number;
   hrAvg: number;
+  performanceWeight: number;
+  personalityWeight: number;
   resultWeight: number;
   activityWeight: number;
   qualityWeight: number;

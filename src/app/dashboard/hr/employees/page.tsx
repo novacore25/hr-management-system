@@ -73,6 +73,8 @@ export default function HrEmployeesPage() {
 
   // Weight settings state
   const [weightUser, setWeightUser] = useState<User | null>(null);
+  const [perfW, setPerfW] = useState("70");
+  const [persW, setPersW] = useState("30");
   const [resultW, setResultW] = useState("");
   const [activityW, setActivityW] = useState("");
   const [qualityW, setQualityW] = useState("");
@@ -152,6 +154,8 @@ export default function HrEmployeesPage() {
    */
   const { data: weightData, isLoading: weightLoading } = useApiQuery<{
     weights: {
+      performance?: number;
+      personality?: number;
       result: number;
       activity: number;
       quality: number;
@@ -172,6 +176,8 @@ export default function HrEmployeesPage() {
   function openWeights(u: User) {
     setWeightUser(u);
     setWeightError("");
+    setPerfW("70");
+    setPersW("30");
     setResultW("");
     setActivityW("");
     setQualityW("");
@@ -184,6 +190,8 @@ export default function HrEmployeesPage() {
   useEffect(() => {
     if (!weightUser) return;
     const w = weightData?.weights ?? DEFAULT_KPI_WEIGHTS;
+    setPerfW(String(w.performance ?? 70));
+    setPersW(String(w.personality ?? 30));
     setResultW(String(w.result));
     setActivityW(String(w.activity));
     setQualityW(String(w.quality));
@@ -200,14 +208,20 @@ export default function HrEmployeesPage() {
    */
   async function handleSaveWeights() {
     if (!weightUser) return;
+    const pw = parseInt(perfW) || 0;
+    const sw = parseInt(persW) || 0;
     const r = parseInt(resultW) || 0;
     const a = parseInt(activityW) || 0;
     const q = parseInt(qualityW) || 0;
     const lh = parseInt(leadTimW) || 0;
     const h = parseInt(hrW) || 0;
 
-    if (r < 0 || a < 0 || q < 0 || lh < 0 || h < 0) {
+    if (pw < 0 || sw < 0 || r < 0 || a < 0 || q < 0 || lh < 0 || h < 0) {
       setWeightError("Bobot tidak boleh negatif.");
+      return;
+    }
+    if (pw + sw !== 100) {
+      setWeightError("Total rasio pilar (Performance + Personality) harus 100%.");
       return;
     }
     if (r + a + q !== 100) {
@@ -224,6 +238,8 @@ export default function HrEmployeesPage() {
 
     const res = await putWeights.mutate({
       userId: weightUser.id,
+      performanceWeight: pw,
+      personalityWeight: sw,
       resultWeight: r,
       activityWeight: a,
       qualityWeight: q,
@@ -403,8 +419,66 @@ export default function HrEmployeesPage() {
             </div>
           ) : (
             <div className="space-y-4 mt-1">
+              {/* Rasio Pilar Utama */}
+              <div className="space-y-2 p-3 bg-muted/40 rounded-lg border">
+                <div className="flex justify-between items-center">
+                  <span className="text-xs font-semibold">Rasio Pilar Utama</span>
+                  <span className="text-xs font-bold text-teal-600 dark:text-teal-400">
+                    {perfW}% : {persW}%
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[10px] text-muted-foreground font-medium">Performance (%)</label>
+                    <Input
+                      type="number"
+                      min="0"
+                      max="100"
+                      value={perfW}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setPerfW(v);
+                        const n = parseInt(v);
+                        if (!isNaN(n) && n >= 0 && n <= 100) {
+                          setPersW(String(100 - n));
+                        }
+                        setWeightError("");
+                      }}
+                      className="h-8 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-muted-foreground font-medium">Personality (%)</label>
+                    <Input
+                      type="number"
+                      min="0"
+                      max="100"
+                      value={persW}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setPersW(v);
+                        const n = parseInt(v);
+                        if (!isNaN(n) && n >= 0 && n <= 100) {
+                          setPerfW(String(100 - n));
+                        }
+                        setWeightError("");
+                      }}
+                      className="h-8 text-sm"
+                    />
+                  </div>
+                </div>
+                {(() => {
+                  const total = (parseInt(perfW) || 0) + (parseInt(persW) || 0);
+                  return (
+                    <div className={`text-xs font-medium ${total === 100 ? "text-green-600" : "text-amber-600"}`}>
+                      Total Pilar: {total}%{total === 100 ? " ✓" : " (harus 100%)"}
+                    </div>
+                  );
+                })()}
+              </div>
+
               <div className="space-y-3">
-                <p className="text-xs font-semibold">Grup Performance (70%)</p>
+                <p className="text-xs font-semibold">Grup Performance ({perfW}%)</p>
                 {(
                   [
                     { label: "Result", value: resultW, set: setResultW },
@@ -436,7 +510,7 @@ export default function HrEmployeesPage() {
               </div>
 
               <div className="space-y-3 pt-3 border-t">
-                <p className="text-xs font-semibold">Grup Personality (30%)</p>
+                <p className="text-xs font-semibold">Grup Personality ({persW}%)</p>
                 {(
                   [
                     { label: "Lead Tim", value: leadTimW, set: setLeadTimW },

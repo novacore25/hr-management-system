@@ -611,6 +611,8 @@ export const kpiSettings = pgTable("kpi_settings", {
    * database.
    */
   quantityWeight: integer("quantity_weight").notNull().default(60),
+  performanceWeight: integer("performance_weight").notNull().default(70),
+  personalityWeight: integer("personality_weight").notNull().default(30),
   resultWeight: integer("result_weight").notNull().default(50),
   activityWeight: integer("activity_weight").notNull().default(30),
   qualityWeight: integer("quality_weight").notNull().default(20),

@@ -2717,6 +2717,31 @@ Ketika staf ingin melakukan update, pengisian, atau pengubahan pada KPI yang tel
 
 ---
 
+### [2026-11-23] Kustomisasi Dinamis Rasio Bobot Pilar KPI Performance & Personality
+
+#### Latar Belakang & Kebutuhan
+- Kebijakan kantor kini membebaskan rasio pilar penilaian KPI antara **Grup Performance** dan **Grup Personality** agar tidak lagi terkunci statis 70:30.
+- Rasio pilar dapat diatur bebas (misal 50:50, 60:40, 80:20), baik secara global ke seluruh staf aktif maupun per staf individual.
+
+#### Implementasi
+1. **Database Schema & Migrasi 0025**:
+   - Menambahkan kolom `performance_weight` (default 70) dan `personality_weight` (default 30) pada tabel `kpi_settings` di PostgreSQL VPS (`db_hr_system`) dan skema Drizzle `src/db/schema.ts`.
+2. **Formula Dinamis & Guard DAL**:
+   - `calcWeightedScore` di `src/lib/utils.ts` kini mengalikan subtotal kinerja dan subtotal perilaku dengan persentase bobot grup yang tersimpan di DB.
+   - Guard server-side di `src/server/dal/assignments.ts` dan `src/app/api/kpi-settings/route.ts` memvalidasi bahwa `performance + personality === 100`.
+3. **UI Interaktif Modal Bobot KPI**:
+   - Di `/absensi/admin/staff`: kontrol slider Rasio Pilar Utama dengan auto-balance 100%, header dinamis `Grup Performance (X%)` dan `Grup Personality (Y%)`.
+   - Di `/dashboard/hr/employees`: kontrol input rasio pilar individual HR dengan validasi total 100%.
+   - Di `ExpandableStaffGrid.tsx`: label dinamis rincian penilaian Kinerja (X%) dan Perilaku (Y%).
+
+#### Hasil Verifikasi
+- `npm run verify`: 10/10 PASS (typecheck bersih, 0 stub).
+- `npm run verify:build`: 63/63 routes + middleware ter-build sempurna (PASS).
+- Migrasi database 0025 terverifikasi aktif di PostgreSQL VPS (`db_hr_system`).
+
+
+---
+
 ## Kalibrasi Margin Standar Word & Eliminasi Void Ruang Kosong PKS TNT & Hype (10 November 2026)
 
 ### Latar Belakang & Keluhan Pengguna
@@ -2825,3 +2850,28 @@ Ketika staf ingin melakukan update, pengisian, atau pengubahan pada KPI yang tel
 - `verify:otnumbers`: 15/15 PASS.
 - `verify:otpayout`: 31/31 PASS.
 - `npm run verify:build`: 63/63 halaman static build lolos sempurna (PASS).
+
+---
+
+### [2026-11-23] Kustomisasi Dinamis Rasio Bobot Pilar KPI Performance & Personality
+
+#### Latar Belakang & Kebutuhan
+- Kebijakan kantor kini membebaskan rasio pilar penilaian KPI antara **Grup Performance** dan **Grup Personality** agar tidak lagi terkunci statis 70:30.
+- Rasio pilar dapat diatur bebas (misal 50:50, 60:40, 80:20), baik secara global ke seluruh staf aktif maupun per staf individual.
+
+#### Implementasi
+1. **Database Schema & Migrasi 0025**:
+   - Menambahkan kolom `performance_weight` (default 70) dan `personality_weight` (default 30) pada tabel `kpi_settings` di PostgreSQL VPS (`db_hr_system`) dan skema Drizzle `src/db/schema.ts`.
+2. **Formula Dinamis & Guard DAL**:
+   - `calcWeightedScore` di `src/lib/utils.ts` kini mengalikan subtotal kinerja dan subtotal perilaku dengan persentase bobot grup yang tersimpan di DB.
+   - Guard server-side di `src/server/dal/assignments.ts` dan `src/app/api/kpi-settings/route.ts` memvalidasi bahwa `performance + personality === 100`.
+3. **UI Interaktif Modal Bobot KPI**:
+   - Di `/absensi/admin/staff`: kontrol slider Rasio Pilar Utama dengan auto-balance 100%, header dinamis `Grup Performance (X%)` dan `Grup Personality (Y%)`.
+   - Di `/dashboard/hr/employees`: kontrol input rasio pilar individual HR dengan validasi total 100%.
+   - Di `ExpandableStaffGrid.tsx`: label dinamis rincian penilaian Kinerja (X%) dan Perilaku (Y%).
+
+#### Hasil Verifikasi
+- `npm run verify`: 10/10 PASS (typecheck bersih, 0 stub).
+- `npm run verify:build`: 63/63 routes + middleware ter-build sempurna (PASS).
+- Migrasi database 0025 terverifikasi aktif di PostgreSQL VPS (`db_hr_system`).
+

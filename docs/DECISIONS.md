@@ -441,3 +441,24 @@ Pengguna tetap mengalami crash layar putih (*Application error: a client-side ex
    Menyediakan error boundary paling luar di tingkat root Next.js App Router dengan tag `<html>` dan `<body>` tersendiri agar setiap error unhandled tidak pernah menampilkan layar putih default Next.js lagi.
 3. **Hardening Snippet Card Overtime**:
    Menyelimuti akses array `tasks` dan `proofImages` dengan pengecekan aman agar tidak ada throw TypeError pada sesi lembur tanpa task valid.
+
+---
+
+### [2026-11-23] Kustomisasi Dinamis Rasio Bobot Pilar KPI (Grup Performance vs Personality)
+
+**Konteks:**
+Sebelumnya, rasio pilar utama penilaian KPI terkunci statis (*hardcoded*) pada 70% Grup Performance dan 30% Grup Personality di rumus perhitungan `calcWeightedScore` (`src/lib/utils.ts`) dan antarmuka UI. Kantor memberlakukan pembaruan kebijakan di mana porsi antara grup Performance dan Personality harus dapat di-custom secara bebas (misal 50:50, 60:40, 80:20), baik secara global ke seluruh staf aktif maupun individual per staf.
+
+**Keputusan:**
+1. **Migrasi Database PostgreSQL & Drizzle Schema (`0025_kpi_settings_group_weights.sql`)**:
+   - Menambahkan kolom `performance_weight` (integer NOT NULL DEFAULT 70) dan `personality_weight` (integer NOT NULL DEFAULT 30) pada tabel `kpi_settings`.
+2. **Perhitungan Server Dinamis (`src/lib/utils.ts` & `src/server/dal/assignments.ts`)**:
+   - Rumus akhir KPI `calcWeightedScore` diperbarui:
+     $$\text{finalTotal} = \left(\text{performanceTotal} \times \frac{\text{weights.performance}}{100}\right) + \left(\text{personalityTotal} \times \frac{\text{weights.personality}}{100}\right)$$
+     dengan fallback default aman 70% dan 30%.
+   - Validasi ketat di DAL dan API (`PUT /api/kpi-settings`): rasio utama harus bilangan bulat 0..100 dan `performance_weight + personality_weight === 100`.
+3. **Antarmuka Interaktif Pengaturan Rasio**:
+   - Di modal Bobot KPI Global & Individual (`/absensi/admin/staff` & `/dashboard/hr/employees`): Ditambahkan kontrol rasio pilar utama interaktif yang otomatis menyeimbangkan persentase pilar (total selalu 100%).
+   - Teks label header grup berubah secara dinamis mengikuti persentase aktif: `Grup Performance (X%)` dan `Grup Personality (Y%)`.
+   - Grid rincian penilaian (`ExpandableStaffGrid.tsx`) menampilkan label persentase dinamis untuk masing-masing pilar.
+

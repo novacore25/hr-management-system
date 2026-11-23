@@ -1202,6 +1202,8 @@ export async function recalcAssignmentTotals(assignmentId: string): Promise<void
 
 /** Bobot default kalau user belum punya setelan (sama dengan DEFAULT_KPI_WEIGHTS). */
 export const DEFAULT_WEIGHTS = {
+  performance: 70,
+  personality: 30,
   result: 50,
   activity: 30,
   quality: 20,
@@ -1221,6 +1223,8 @@ export async function getUserWeights(userId: string): Promise<KpiSettingsShape> 
   if (!row) return DEFAULT_WEIGHTS;
 
   return {
+    performance: row.performanceWeight ?? DEFAULT_WEIGHTS.performance,
+    personality: row.personalityWeight ?? DEFAULT_WEIGHTS.personality,
     result: row.resultWeight,
     activity: row.activityWeight,
     quality: row.qualityWeight,
@@ -1237,6 +1241,8 @@ export async function getAllWeights(): Promise<
   const out: Record<string, KpiSettingsShape> = {};
   for (const r of rows) {
     out[r.userId] = {
+      performance: r.performanceWeight ?? DEFAULT_WEIGHTS.performance,
+      personality: r.personalityWeight ?? DEFAULT_WEIGHTS.personality,
       result: r.resultWeight,
       activity: r.activityWeight,
       quality: r.qualityWeight,
@@ -1254,6 +1260,12 @@ export async function setUserWeights(
   actorId: string,
 ): Promise<KpiSettingsShape> {
   const patch = {
+    ...(weights.performance !== undefined
+      ? { performanceWeight: weights.performance }
+      : {}),
+    ...(weights.personality !== undefined
+      ? { personalityWeight: weights.personality }
+      : {}),
     ...(weights.result !== undefined ? { resultWeight: weights.result } : {}),
     ...(weights.activity !== undefined
       ? { activityWeight: weights.activity }
@@ -1271,6 +1283,8 @@ export async function setUserWeights(
     .insert(kpiSettings)
     .values({
       userId,
+      performanceWeight: weights.performance ?? DEFAULT_WEIGHTS.performance,
+      personalityWeight: weights.personality ?? DEFAULT_WEIGHTS.personality,
       resultWeight: weights.result ?? DEFAULT_WEIGHTS.result,
       activityWeight: weights.activity ?? DEFAULT_WEIGHTS.activity,
       qualityWeight: weights.quality ?? DEFAULT_WEIGHTS.quality,
@@ -1310,6 +1324,8 @@ export async function applyWeightsToActiveStaff(
   const now = new Date();
   const values = active.map((u) => ({
     userId: u.id,
+    performanceWeight: weights.performance ?? DEFAULT_WEIGHTS.performance,
+    personalityWeight: weights.personality ?? DEFAULT_WEIGHTS.personality,
     resultWeight: weights.result,
     activityWeight: weights.activity,
     qualityWeight: weights.quality,
@@ -1325,6 +1341,8 @@ export async function applyWeightsToActiveStaff(
     .onConflictDoUpdate({
       target: kpiSettings.userId,
       set: {
+        performanceWeight: weights.performance ?? DEFAULT_WEIGHTS.performance,
+        personalityWeight: weights.personality ?? DEFAULT_WEIGHTS.personality,
         resultWeight: weights.result,
         activityWeight: weights.activity,
         qualityWeight: weights.quality,

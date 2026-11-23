@@ -6,6 +6,8 @@ import { withQuery } from "@/lib/api-client";
 import { DEFAULT_KPI_WEIGHTS } from "@/types";
 
 type Weights = {
+  performance?: number;
+  personality?: number;
   result: number;
   activity: number;
   quality: number;
@@ -26,6 +28,8 @@ type Weights = {
 function toSettingsShape(uid: string, w: Weights) {
   return {
     id: uid,
+    performanceWeight: w.performance ?? 70,
+    personalityWeight: w.personality ?? 30,
     resultWeight: w.result,
     activityWeight: w.activity,
     qualityWeight: w.quality,

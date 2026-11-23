@@ -221,9 +221,49 @@ export async function PUT(request: Request) {
       );
     }
 
+    // Rasio pilar grup: default 70% Performance dan 30% Personality bila tidak dikirim.
+    const rawPerfGroup = body.performanceWeight ?? body.performance ?? 70;
+    const rawPersGroup = body.personalityWeight ?? body.personality ?? 30;
+
+    const perfGroup = Number(rawPerfGroup);
+    const persGroup = Number(rawPersGroup);
+
+    if (
+      !Number.isInteger(perfGroup) ||
+      !Number.isInteger(persGroup) ||
+      perfGroup < 0 ||
+      perfGroup > 100 ||
+      persGroup < 0 ||
+      persGroup > 100
+    ) {
+      return Response.json(
+        {
+          ok: false,
+          error: "Rasio pilar Performance dan Personality harus bilangan bulat antara 0 dan 100.",
+        },
+        { status: 400 },
+      );
+    }
+
+    if (perfGroup + persGroup !== 100) {
+      return Response.json(
+        {
+          ok: false,
+          error: `Total rasio grup Performance (${perfGroup}%) dan Personality (${persGroup}%) harus tepat 100%.`,
+        },
+        { status: 400 },
+      );
+    }
+
+    const fullWeights = {
+      ...weights,
+      performance: perfGroup,
+      personality: persGroup,
+    };
+
     if (body.scope === "all") {
-      const affected = await applyWeightsToActiveStaff(weights, actor.id);
-      return { affected, weights };
+      const affected = await applyWeightsToActiveStaff(fullWeights, actor.id);
+      return { affected, weights: fullWeights };
     }
 
     const userId = body.userId ?? actor.id;
@@ -236,6 +276,6 @@ export async function PUT(request: Request) {
         { status: 404 },
       );
     }
-    return { weights: await setUserWeights(userId, weights, actor.id) };
+    return { weights: await setUserWeights(userId, fullWeights, actor.id) };
   });
 }
