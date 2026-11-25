@@ -462,3 +462,19 @@ Sebelumnya, rasio pilar utama penilaian KPI terkunci statis (*hardcoded*) pada 7
    - Teks label header grup berubah secara dinamis mengikuti persentase aktif: `Grup Performance (X%)` dan `Grup Personality (Y%)`.
    - Grid rincian penilaian (`ExpandableStaffGrid.tsx`) menampilkan label persentase dinamis untuk masing-masing pilar.
 
+---
+
+### [2026-11-25] Sinkronisasi Otomatis Mutasi Divisi Staf ke Penugasan KPI Aktif
+
+**Konteks:**
+Staf Noah Jeremy dipindahkan ke divisi HYPE di pertengahan bulan November 2026 melalui menu Data Staf (`/absensi/admin/staff`), namun di dashboard KPI Kualitas Eksekutif (`/dashboard/executive/quality`), staf masih terdaftar di bawah divisi Project Campaign. Investigasi menemukan bahwa penugasan KPI bulanan (`kpi_assignments`) menyimpan kolom `department_id` tersendiri yang tidak otomatis tersinkron saat profil karyawan dimutasi di tabel `users`.
+
+**Keputusan:**
+1. **Perbaikan Data Historis Berjalan**:
+   Meng-update 49 baris `kpi_assignments` Noah Jeremy di bulan November 2026 langsung ke UUID divisi HYPE di database VPS (`db_hr_system`).
+2. **Sinkronisasi Otomatis di Level DAL (`updateStaff`)**:
+   Fungsi `updateStaff` di `src/server/dal/staff.ts` kini otomatis memperbarui kolom `departmentId` pada seluruh record `kpi_assignments` milik staf tersebut untuk bulan aktif (`year = currentYear AND month = currentMonth`) setiap kali `departmentId` diubah.
+3. **Preservasi Riwayat Bulan Lampau**:
+   Data penugasan KPI untuk bulan-bulan sebelum bulan berjalan tetap dipertahankan sesuai snapshot historis aslinya agar riwayat evaluasi masa lalu tidak terdistorsi.
+
+

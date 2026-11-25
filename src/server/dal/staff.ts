@@ -426,6 +426,28 @@ export async function updateStaff(
 
   await db.update(users).set(values).where(eq(users.id, id));
 
+  // Jika divisi staf diubah, sinkronkan juga kpiAssignments bulan aktif
+  // agar dashboard KPI, Executive Overview, dan Quality langsung menampilkan
+  // staf di bawah divisi barunya tanpa desinkronisasi.
+  if (values.departmentId !== undefined) {
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth() + 1;
+    await db
+      .update(kpiAssignments)
+      .set({
+        departmentId: (values.departmentId as string | null) ?? null,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(kpiAssignments.userId, id),
+          eq(kpiAssignments.year, currentYear),
+          eq(kpiAssignments.month, currentMonth),
+        ),
+      );
+  }
+
   await writeLog({
     actorId,
     action: "staff_updated",

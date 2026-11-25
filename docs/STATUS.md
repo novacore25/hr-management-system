@@ -2739,6 +2739,40 @@ Ketika staf ingin melakukan update, pengisian, atau pengubahan pada KPI yang tel
 - `npm run verify:build`: 63/63 routes + middleware ter-build sempurna (PASS).
 - Migrasi database 0025 terverifikasi aktif di PostgreSQL VPS (`db_hr_system`).
 
+---
+
+## Sinkronisasi Otomatis Mutasi Divisi Staf ke Penugasan KPI Aktif (25 November 2026)
+
+### Latar Belakang & Keluhan Pengguna
+- Pengguna melaporkan bahwa staf **Noah Jeremy** telah dipindahkan divisinya ke **HYPE** di pertengahan bulan November 2026 melalui menu Data Staf (`/absensi/admin/staff`), tetapi pada dashboard KPI Eksekutif Kualitas (`/dashboard/executive/quality`), Noah Jeremy masih muncul di bawah divisi lamanya, yaitu **Project Campaign** (dengan 28 KPI kualitas).
+
+### Investigasi Mendalam (Root Cause)
+1. **Desinkronisasi Dua Entitas Divisi**:
+   - Di NovaCore terdapat dua tempat penyimpanan divisi:
+     a. `users.department_id`: Divisi profil karyawan (diubah oleh modal Edit Profil Karyawan di `/absensi/admin/staff`).
+     b. `kpi_assignments.department_id`: Divisi penugasan KPI per periode (disimpan saat HR/Head menugaskan KPI di awal/tengah bulan).
+   - Pada 24 November 2026, HR menugaskan KPI bulan November 2026 untuk Noah Jeremy. Pada saat itu, profil Noah Jeremy masih tercatat di `Project Campaign`, sehingga 49 record `kpi_assignments` Noah Jeremy untuk November 2026 di-stamp dengan `department_id = Project Campaign`.
+   - Padahal, KPI-KPI yang ditugaskan tersebut sebenarnya adalah KPI brand-brand HYPE (`Glamritz`, `DR.Belle`, `Klinik Kulitmu`, `Woods`, `Serene`, dll.).
+   - Ketika admin mengubah divisi Noah Jeremy di menu Data Staf menjadi `HYPE` (`b4d144fa-e1a9-4eae-8da6-977795bb3fcd`), API `PATCH /api/absensi/staff` (`updateStaff`) hanya meng-update kolom `users.department_id`, tanpa menyinkronkan penugasan `kpi_assignments` pada bulan berjalan.
+2. **Pengelompokan di Dashboard Kualitas**:
+   - Fungsi `listQualityRows` di `src/server/dal/quality.ts` melakukan join ke departments via:
+     `COALESCE(kpiAssignments.departmentId, users.departmentId) = departments.id`
+   - Karena `kpi_assignments.department_id` masih berisi ID `Project Campaign`, query menghasilkan `departmentName: "Project Campaign"`.
+
+### Perbaikan yang Diterapkan
+1. **Perbaikan Data Live Produksi (PostgreSQL VPS `db_hr_system`)**:
+   - Meng-update 49 baris `kpi_assignments` milik Noah Jeremy untuk periode November 2026 (`year = 2026 AND month = 11`) agar `department_id` menunjuk ke divisi **HYPE** (`b4d144fa-e1a9-4eae-8da6-977795bb3fcd`).
+   - Hasil query live membuktikan seluruh penugasan kualitas, result, dan aktivitas Noah Jeremy kini langsung terdaftar di bawah HYPE.
+2. **Sinkronisasi Otomatis di DAL (`src/server/dal/staff.ts`)**:
+   - Pada fungsi `updateStaff`, ditambahkan logika otomatis: jika `values.departmentId` diubah, sistem secara otomatis meng-update kolom `departmentId` pada seluruh `kpi_assignments` milik user tersebut untuk bulan berjalan (`year = currentYear AND month = currentMonth`).
+   - Hal ini menjamin bahwa setiap mutasi divisi staf di masa mendatang akan secara instan memperbarui tampilan di seluruh modul KPI (Executive Overview, Quality, Head, dan Reports) tanpa desinkronisasi lagi.
+
+### Verifikasi
+- `npm run verify`: 10/10 PASS.
+- `npm run verify:build`: 63/63 routes lolos (PASS).
+- Verifikasi DB Langsung: 49 baris assignment Noah Jeremy di bulan November 2026 terverifikasi berstatus `department_name = HYPE`.
+
+
 
 ---
 
@@ -2874,4 +2908,38 @@ Ketika staf ingin melakukan update, pengisian, atau pengubahan pada KPI yang tel
 - `npm run verify`: 10/10 PASS (typecheck bersih, 0 stub).
 - `npm run verify:build`: 63/63 routes + middleware ter-build sempurna (PASS).
 - Migrasi database 0025 terverifikasi aktif di PostgreSQL VPS (`db_hr_system`).
+
+---
+
+## Sinkronisasi Otomatis Mutasi Divisi Staf ke Penugasan KPI Aktif (25 November 2026)
+
+### Latar Belakang & Keluhan Pengguna
+- Pengguna melaporkan bahwa staf **Noah Jeremy** telah dipindahkan divisinya ke **HYPE** di pertengahan bulan November 2026 melalui menu Data Staf (`/absensi/admin/staff`), tetapi pada dashboard KPI Eksekutif Kualitas (`/dashboard/executive/quality`), Noah Jeremy masih muncul di bawah divisi lamanya, yaitu **Project Campaign** (dengan 28 KPI kualitas).
+
+### Investigasi Mendalam (Root Cause)
+1. **Desinkronisasi Dua Entitas Divisi**:
+   - Di NovaCore terdapat dua tempat penyimpanan divisi:
+     a. `users.department_id`: Divisi profil karyawan (diubah oleh modal Edit Profil Karyawan di `/absensi/admin/staff`).
+     b. `kpi_assignments.department_id`: Divisi penugasan KPI per periode (disimpan saat HR/Head menugaskan KPI di awal/tengah bulan).
+   - Pada 24 November 2026, HR menugaskan KPI bulan November 2026 untuk Noah Jeremy. Pada saat itu, profil Noah Jeremy masih tercatat di `Project Campaign`, sehingga 49 record `kpi_assignments` Noah Jeremy untuk November 2026 di-stamp dengan `department_id = Project Campaign`.
+   - Padahal, KPI-KPI yang ditugaskan tersebut sebenarnya adalah KPI brand-brand HYPE (`Glamritz`, `DR.Belle`, `Klinik Kulitmu`, `Woods`, `Serene`, dll.).
+   - Ketika admin mengubah divisi Noah Jeremy di menu Data Staf menjadi `HYPE` (`b4d144fa-e1a9-4eae-8da6-977795bb3fcd`), API `PATCH /api/absensi/staff` (`updateStaff`) hanya meng-update kolom `users.department_id`, tanpa menyinkronkan penugasan `kpi_assignments` pada bulan berjalan.
+2. **Pengelompokan di Dashboard Kualitas**:
+   - Fungsi `listQualityRows` di `src/server/dal/quality.ts` melakukan join ke departments via:
+     `COALESCE(kpiAssignments.departmentId, users.departmentId) = departments.id`
+   - Karena `kpi_assignments.department_id` masih berisi ID `Project Campaign`, query menghasilkan `departmentName: "Project Campaign"`.
+
+### Perbaikan yang Diterapkan
+1. **Perbaikan Data Live Produksi (PostgreSQL VPS `db_hr_system`)**:
+   - Meng-update 49 baris `kpi_assignments` milik Noah Jeremy untuk periode November 2026 (`year = 2026 AND month = 11`) agar `department_id` menunjuk ke divisi **HYPE** (`b4d144fa-e1a9-4eae-8da6-977795bb3fcd`).
+   - Hasil query live membuktikan seluruh penugasan kualitas, result, dan aktivitas Noah Jeremy kini langsung terdaftar di bawah HYPE.
+2. **Sinkronisasi Otomatis di DAL (`src/server/dal/staff.ts`)**:
+   - Pada fungsi `updateStaff`, ditambahkan logika otomatis: jika `values.departmentId` diubah, sistem secara otomatis meng-update kolom `departmentId` pada seluruh `kpi_assignments` milik user tersebut untuk bulan berjalan (`year = currentYear AND month = currentMonth`).
+   - Hal ini menjamin bahwa setiap mutasi divisi staf di masa mendatang akan secara instan memperbarui tampilan di seluruh modul KPI (Executive Overview, Quality, Head, dan Reports) tanpa desinkronisasi lagi.
+
+### Verifikasi
+- `npm run verify`: 10/10 PASS.
+- `npm run verify:build`: 63/63 routes lolos (PASS).
+- Verifikasi DB Langsung: 49 baris assignment Noah Jeremy di bulan November 2026 terverifikasi berstatus `department_name = HYPE`.
+
 
